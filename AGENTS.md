@@ -120,7 +120,7 @@ Concretely, in this repo:
 ### 2. Unit + integration tests via `terraform test`
 
 - `tests/defaults.tftest.hcl` is the canonical plan-time test suite. It uses
-  `mock_provider` for `google`, `google-beta`, `kubernetes`, `kubectl`, `helm`,
+  `mock_provider` for `google`, `kubernetes`, `kubectl`, `helm`,
   `random`, and `time`. The module has no data sources to override, so the
   suite runs **without Google Cloud credentials** and is safe to run in CI.
 - Each example has its own `tests/defaults.tftest.hcl` (`small`, `medium`,
@@ -191,7 +191,7 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   terraform-docs .
   ```
 
-  CI installs the same version (`v0.22.0`, tracking the brew default) and
+  CI installs the same version (`v0.24.0`, tracking the brew default) and
   runs `terraform-docs --output-check .`, see the `docs` job in
   `.github/workflows/terraform-tests.yml`. If your local version differs
   from CI's, the markdown table whitespace will drift and the check will

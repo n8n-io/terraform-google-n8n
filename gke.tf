@@ -59,6 +59,39 @@ resource "google_container_cluster" "n8n" {
   depends_on = [google_service_networking_connection.psa]
 }
 
+# ── Node service account (least privilege) ────────────────────────────────────
+# Without an explicit service_account, GKE nodes run as the project's default
+# Compute Engine SA, which often carries broad roles (Editor). Nodes keep the
+# cloud-platform OAuth scope (Google's current guidance); the IAM roles on this
+# dedicated SA are what actually bound node-level access. Pod-level access to
+# Google APIs goes through Workload Identity (workload_identity.tf), not this SA.
+
+locals {
+  # Minimal role set Google recommends for GKE node service accounts:
+  # logging/monitoring pipelines plus image pulls from Artifact Registry.
+  node_sa_roles = [
+    "roles/logging.logWriter",
+    "roles/monitoring.metricWriter",
+    "roles/monitoring.viewer",
+    "roles/stackdriver.resourceMetadata.writer",
+    "roles/artifactregistry.reader",
+  ]
+}
+
+resource "google_service_account" "nodes" {
+  account_id   = substr("${local.cluster_name}-nodes", 0, 30)
+  project      = var.project_id
+  display_name = "GKE node pool (${local.cluster_name})"
+}
+
+resource "google_project_iam_member" "nodes" {
+  for_each = toset(local.node_sa_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${google_service_account.nodes.email}"
+}
+
 resource "google_container_node_pool" "n8n" {
   name     = "${local.cluster_name}-pool"
   project  = var.project_id
@@ -80,6 +113,9 @@ resource "google_container_node_pool" "n8n" {
     disk_size_gb = var.node_disk_size_gb
     disk_type    = var.node_disk_type
 
+    # Dedicated least-privilege SA; see the node service account section above.
+    service_account = google_service_account.nodes.email
+
     # Cloud API access; fine-grained authz is via Workload Identity per pod.
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
 
@@ -90,4 +126,9 @@ resource "google_container_node_pool" "n8n" {
 
     labels = local.gcp_labels
   }
+
+  # Nodes must come up with their logging/monitoring roles already granted, or
+  # early node logs are dropped; node_config.service_account only implies a
+  # dependency on the SA itself, not on the role bindings.
+  depends_on = [google_project_iam_member.nodes]
 }

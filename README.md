@@ -8,7 +8,7 @@ This module is a port of the upstream EKS module ([`n8n-io/terraform-aws-n8n`](h
 
 > **Pre-release / preliminary**
 >
-> This module is preliminary and **not scale-validated** (no load test). Expect breaking changes. It encodes a smoke-tested, as-built GKE deployment; see the finding's `decisions/` for the reasoning and open items.
+> This module is preliminary and **not scale-validated** (no load test). Expect breaking changes. It encodes a smoke-tested, as-built GKE deployment; open items are tracked in [`ROADMAP.md`](./ROADMAP.md).
 
 ---
 
@@ -78,16 +78,37 @@ Pods authenticate to GCP via **Workload Identity** (the exception is GCS, which 
 
 ## Usage
 
-The base module is provider-clean and creates its own VPC. Configure it from an example root, don't call it bare:
+The base module is provider-clean and creates its own VPC. The recommended path is to configure it from an example root:
 
 - **[`examples/small`](./examples/small)** , default path: Google Cloud DNS + a Google-managed TLS certificate.
+- **[`examples/medium`](./examples/medium)** / **[`examples/large`](./examples/large)** , scaled-up reference architectures (HA database, bigger nodes, higher autoscaling ceilings).
 - **[`examples/cloudflare`](./examples/cloudflare)** , Cloudflare DNS + auto-renewing Let's Encrypt via cert-manager (the validated TLS path).
+- **[`examples/godaddy`](./examples/godaddy)** , GoDaddy DNS + a Google-managed certificate.
 
 ```bash
 cd examples/cloudflare
 cp terraform.tfvars.example terraform.tfvars   # then edit
 gcloud auth application-default login
 terraform init && terraform apply
+```
+
+Calling the module from your own root works too; your root must then configure
+the `google`, `kubernetes`, `helm`, and `kubectl` providers against the cluster
+the module creates (copy [`examples/small/providers.tf`](./examples/small/providers.tf)):
+
+```hcl
+module "n8n" {
+  source  = "n8n-io/n8n/google"
+  version = "~> 0.1.0"
+
+  project_id      = "my-project"
+  gcp_region      = "europe-west1"
+  n8n_domain      = "n8n.example.com"
+  n8n_license_key = var.n8n_license_key
+
+  # Optional: let the module manage the DNS A-record in Cloud DNS.
+  dns_managed_zone = "example-com"
+}
 ```
 
 ---
@@ -223,7 +244,7 @@ unintentionally. This contract goes away at 1.0.0 in favor of standard SemVer.
 
 The module ships against specific provider majors and validated versions:
 
-- **Google provider:** `~> 6.0` (google and google-beta).
+- **Google provider:** `~> 6.0` (hashicorp/google).
 - **GKE:** validated on a recent GKE `REGULAR` release channel version.
 - **PostgreSQL:** validated on Cloud SQL `POSTGRES_16`.
 - Callers can pin the n8n application image via `n8n_image_tag` (e.g. `"1.2.3"`)
@@ -262,7 +283,6 @@ future minor releases (see [`ROADMAP.md`](./ROADMAP.md)).
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | ~> 6.0 |
-| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
 | <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 2.0 |
@@ -302,8 +322,10 @@ No modules.
 | [google_dns_record_set.n8n](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/dns_record_set) | resource |
 | [google_org_policy_policy.disable_sa_key_creation](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/org_policy_policy) | resource |
 | [google_project_iam_member.n8n_cloudsql_client](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
+| [google_project_iam_member.nodes](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/project_iam_member) | resource |
 | [google_redis_instance.n8n](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/redis_instance) | resource |
 | [google_service_account.n8n](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
+| [google_service_account.nodes](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account.storage](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account) | resource |
 | [google_service_account_iam_member.n8n_workload_identity](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_account_iam_member) | resource |
 | [google_service_networking_connection.psa](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_networking_connection) | resource |
@@ -367,6 +389,7 @@ No modules.
 | <a name="input_gke_release_channel"></a> [gke\_release\_channel](#input\_gke\_release\_channel) | GKE release channel: RAPID, REGULAR, STABLE, or UNSPECIFIED (to pin a version). | `string` | `"REGULAR"` | no |
 | <a name="input_https_redirect"></a> [https\_redirect](#input\_https\_redirect) | Redirect HTTP->HTTPS at the LB via a FrontendConfig. Set false while a google\_managed cert is still provisioning (Google needs HTTP reachable), then flip true. | `bool` | `true` | no |
 | <a name="input_k8s_service_account_name"></a> [k8s\_service\_account\_name](#input\_k8s\_service\_account\_name) | Kubernetes ServiceAccount the n8n pods run as (annotated for Workload Identity). Matches the n8n Helm chart's serviceAccount name. | `string` | `"n8n"` | no |
+| <a name="input_keda_chart_version"></a> [keda\_chart\_version](#input\_keda\_chart\_version) | KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. | `string` | `"2.20.1"` | no |
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let this module set a PROJECT-LEVEL override that turns OFF the<br/>iam.disableServiceAccountKeyCreation org policy, so the GCS HMAC key can be<br/>created. Default false, the module does not touch org policy.<br/>Set true ONLY IF: (a) your credentials have roles/orgpolicy.policyAdmin (org/<br/>folder-level; a normal project deployer does not), and (b) your org permits<br/>overriding this guardrail. Otherwise disable the policy out-of-band and leave<br/>this false. Requires the orgpolicy.googleapis.com API enabled. | `bool` | `false` | no |
 | <a name="input_master_authorized_networks"></a> [master\_authorized\_networks](#input\_master\_authorized\_networks) | CIDRs allowed to reach the control-plane endpoint. Empty = open (dev only); set to your admin CIDRs for a locked-down control plane. | <pre>list(object({<br/>    cidr_block   = string<br/>    display_name = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_master_ipv4_cidr"></a> [master\_ipv4\_cidr](#input\_master\_ipv4\_cidr) | CIDR for the GKE control-plane peering range (private cluster). Must not overlap the subnet/pods/services ranges. | `string` | `"172.16.0.0/28"` | no |

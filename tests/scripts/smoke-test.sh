@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# smoke-test.sh, post-deployment smoke test for terraform-aws-n8n.
+# smoke-test.sh, post-deployment smoke test for terraform-google-n8n.
 #
 # This module deploys the multi-main topology (multiple main + worker +
 # webhook-processor pods, PostgreSQL, Redis, KEDA). The script auto-detects

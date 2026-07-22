@@ -47,8 +47,25 @@ resource "google_storage_bucket" "n8n" {
   force_destroy               = var.gcs_force_destroy
   labels                      = local.gcp_labels
 
+  # Belt and braces on top of uniform bucket-level access: this bucket only
+  # ever holds private n8n binary data, so hard-block any public grant.
+  public_access_prevention = "enforced"
+
   versioning {
     enabled = true
+  }
+
+  # Keep versioning bounded: n8n rewrites binary-data objects constantly, so
+  # noncurrent versions accumulate fast and are pure storage cost. Retain the
+  # three most recent noncurrent versions and delete older ones.
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      with_state         = "ARCHIVED"
+      num_newer_versions = 3
+    }
   }
 }
 
@@ -72,14 +89,7 @@ resource "google_storage_hmac_key" "n8n" {
   depends_on = [google_org_policy_policy.disable_sa_key_creation]
 }
 
-# BYO-HMAC completeness gate: if you switch to BYO mode (supply an SA email) you
-# must also supply the access ID and a secret (raw or via an existing Secret).
-check "byo_hmac_credentials_complete" {
-  assert {
-    condition = local.manage_hmac_key || (
-      var.gcs_hmac_access_id != "" &&
-      (var.gcs_hmac_secret != "" || var.gcs_hmac_secret_name != "")
-    )
-    error_message = "gcs_hmac_service_account_email is set (BYO HMAC mode), so gcs_hmac_access_id and either gcs_hmac_secret or gcs_hmac_secret_name are also required."
-  }
-}
+# BYO-HMAC completeness is enforced at plan time by cross-variable validation
+# blocks on the gcs_hmac_* variables (variables_gcp.tf): BYO mode requires the
+# access ID plus a secret (raw or via an existing Secret), and the secret
+# inputs are rejected outside BYO mode.

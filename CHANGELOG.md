@@ -37,5 +37,15 @@ Initial release.
   plus Cloudflare DNS-01), and `godaddy` (GoDaddy-managed DNS).
 - Plan-time `terraform test` suites at the module root and in every
   example, using mocked providers so they run offline.
+- Dedicated least-privilege service account for the GKE node pool
+  (logging, monitoring, and Artifact Registry roles only), instead of the
+  project's default Compute Engine service account.
+- Pinned KEDA Helm chart version, configurable via `keda_chart_version`,
+  so applies are reproducible instead of floating to the latest chart.
+- GCS bucket hardening: public access prevention enforced and a lifecycle
+  rule that deletes noncurrent object versions beyond the newest three.
+- Fail-fast cross-variable validations for the BYO HMAC inputs
+  (`gcs_hmac_*`) and an RFC1035 naming check on `cluster_name`, so
+  misconfigurations stop the plan instead of surfacing mid-apply.
 
 [0.1.0]: https://github.com/n8n-io/terraform-google-n8n/releases/tag/v0.1.0

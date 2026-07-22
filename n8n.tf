@@ -234,25 +234,23 @@ resource "helm_release" "n8n" {
         cooldownPeriod  = 60
         minReplicaCount = var.n8n_worker_keda_min_replicas
         maxReplicaCount = var.n8n_worker_keda_max_replicas
+        # authenticationRef is only attached when Redis AUTH is on; an empty
+        # ref name is not a valid ScaledObject trigger, so the key is omitted
+        # entirely (rather than set to "") when auth is disabled.
         triggers = [
-          {
-            type = "redis"
-            metadata = {
-              address    = "${google_redis_instance.n8n.host}:6379"
-              listName   = "bull:jobs:wait"
-              listLength = tostring(var.n8n_worker_keda_jobs_per_replica)
-            }
-            authenticationRef = { name = var.memorystore_auth_enabled ? "n8n-redis-auth" : "" }
-          },
-          {
-            type = "redis"
-            metadata = {
-              address    = "${google_redis_instance.n8n.host}:6379"
-              listName   = "bull:jobs:active"
-              listLength = tostring(var.n8n_worker_keda_jobs_per_replica)
-            }
-            authenticationRef = { name = var.memorystore_auth_enabled ? "n8n-redis-auth" : "" }
-          }
+          for queue in ["bull:jobs:wait", "bull:jobs:active"] : merge(
+            {
+              type = "redis"
+              metadata = {
+                address    = "${google_redis_instance.n8n.host}:6379"
+                listName   = queue
+                listLength = tostring(var.n8n_worker_keda_jobs_per_replica)
+              }
+            },
+            var.memorystore_auth_enabled ? {
+              authenticationRef = { name = "n8n-redis-auth" }
+            } : {}
+          )
         ]
       }
     }

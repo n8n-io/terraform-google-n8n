@@ -18,7 +18,6 @@
 #     terraform plan from an example root.
 
 mock_provider "google" {}
-mock_provider "google-beta" {}
 mock_provider "kubernetes" {}
 mock_provider "kubectl" {}
 mock_provider "helm" {}
@@ -208,6 +207,85 @@ run "gcs_bucket_is_private" {
     condition     = google_storage_bucket.n8n.versioning[0].enabled == true
     error_message = "GCS bucket must have object versioning enabled"
   }
+
+  # Hard-block public grants regardless of IAM mistakes elsewhere.
+  assert {
+    condition     = google_storage_bucket.n8n.public_access_prevention == "enforced"
+    error_message = "GCS bucket must enforce public access prevention"
+  }
+
+  # Versioning without a lifecycle rule grows without bound; the module must
+  # ship a noncurrent-version cleanup rule alongside versioning.
+  assert {
+    condition     = length(google_storage_bucket.n8n.lifecycle_rule) == 1
+    error_message = "GCS bucket must ship exactly one noncurrent-version cleanup lifecycle rule"
+  }
+}
+
+# ── BYO HMAC input contract ──────────────────────────────────────────────────
+# The BYO HMAC mode (gcs.tf) is guarded by cross-variable validations in
+# variables_gcp.tf, they fail the plan (not just warn) so an incomplete BYO
+# configuration can never apply with an empty S3 access key.
+
+run "byo_hmac_missing_access_id_fails_validation" {
+  command = plan
+
+  variables {
+    gcs_hmac_service_account_email = "byo-hmac@test-project.iam.gserviceaccount.com"
+    gcs_hmac_secret_name           = "n8n-s3-external"
+  }
+
+  expect_failures = [var.gcs_hmac_access_id]
+}
+
+run "byo_hmac_missing_secret_fails_validation" {
+  command = plan
+
+  variables {
+    gcs_hmac_service_account_email = "byo-hmac@test-project.iam.gserviceaccount.com"
+    gcs_hmac_access_id             = "GOOG1EXAMPLEACCESSID"
+  }
+
+  # The "BYO needs a secret" rule lives on gcs_hmac_access_id (see
+  # variables_gcp.tf for the acyclicity rationale).
+  expect_failures = [var.gcs_hmac_access_id]
+}
+
+run "hmac_secret_name_without_byo_mode_fails_validation" {
+  command = plan
+
+  variables {
+    gcs_hmac_secret_name = "n8n-s3-external"
+  }
+
+  expect_failures = [var.gcs_hmac_secret_name]
+}
+
+run "hmac_secret_without_byo_mode_fails_validation" {
+  command = plan
+
+  variables {
+    gcs_hmac_secret = "not-a-real-secret"
+  }
+
+  expect_failures = [var.gcs_hmac_secret]
+}
+
+run "byo_hmac_complete_plans_cleanly" {
+  command = plan
+
+  variables {
+    gcs_hmac_service_account_email = "byo-hmac@test-project.iam.gserviceaccount.com"
+    gcs_hmac_access_id             = "GOOG1EXAMPLEACCESSID"
+    gcs_hmac_secret_name           = "n8n-s3-external"
+  }
+
+  # In BYO mode the module skips SA/key creation and grants the supplied SA
+  # access to the module-created bucket.
+  assert {
+    condition     = google_storage_bucket_iam_member.storage.member == "serviceAccount:byo-hmac@test-project.iam.gserviceaccount.com"
+    error_message = "BYO mode must grant the caller-supplied service account access to the bucket"
+  }
 }
 
 run "workload_identity_binds_correct_service_accounts" {
@@ -231,6 +309,35 @@ run "workload_identity_binds_correct_service_accounts" {
   }
 }
 
+run "node_pool_uses_dedicated_service_account" {
+  command = plan
+
+  # Without a dedicated SA, nodes fall back to the project's default Compute
+  # Engine SA (often Editor). node_config.service_account is the SA email,
+  # which is unknown at plan time under the mock provider, so the wiring is
+  # asserted at the SA + IAM level; verify the email wiring with a real
+  # `terraform plan` from an example root.
+  assert {
+    condition     = google_service_account.nodes.account_id == "n8n-cluster-nodes"
+    error_message = "node SA account_id should be <cluster_name>-nodes (truncated to 30 chars)"
+  }
+
+  # The node SA holds exactly the minimal Google-recommended role set:
+  # logging/monitoring pipelines plus Artifact Registry image pulls.
+  assert {
+    condition = alltrue([
+      for role in [
+        "roles/logging.logWriter",
+        "roles/monitoring.metricWriter",
+        "roles/monitoring.viewer",
+        "roles/stackdriver.resourceMetadata.writer",
+        "roles/artifactregistry.reader",
+      ] : google_project_iam_member.nodes[role].role == role
+    ])
+    error_message = "node SA must hold the minimal logging/monitoring/artifact-registry role set"
+  }
+}
+
 run "keda_installed" {
   command = plan
 
@@ -242,6 +349,13 @@ run "keda_installed" {
   assert {
     condition     = helm_release.keda.namespace == "keda"
     error_message = "KEDA must be installed in its own 'keda' namespace"
+  }
+
+  # Pinned so applies are reproducible; keep in sync with the
+  # keda_chart_version default in variables.tf.
+  assert {
+    condition     = helm_release.keda.version == "2.20.1"
+    error_message = "KEDA chart version must be pinned to the keda_chart_version default"
   }
 }
 
@@ -959,4 +1073,39 @@ run "image_tag_rejects_overlong_tag" {
   }
 
   expect_failures = [var.n8n_image_tag]
+}
+
+# ── cluster_name naming contract ──────────────────────────────────────────────
+# GCP resource names are RFC1035 (lowercase letter start, lowercase
+# alphanumerics and hyphens, no trailing hyphen). The validator fails these at
+# plan time instead of letting the first apply die on the VPC or cluster name.
+
+run "cluster_name_rejects_uppercase" {
+  command = plan
+
+  variables {
+    cluster_name = "N8N-Prod"
+  }
+
+  expect_failures = [var.cluster_name]
+}
+
+run "cluster_name_rejects_trailing_hyphen" {
+  command = plan
+
+  variables {
+    cluster_name = "n8n-cluster-"
+  }
+
+  expect_failures = [var.cluster_name]
+}
+
+run "cluster_name_rejects_leading_digit" {
+  command = plan
+
+  variables {
+    cluster_name = "8n8-cluster"
+  }
+
+  expect_failures = [var.cluster_name]
 }

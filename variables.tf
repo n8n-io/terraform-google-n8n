@@ -12,6 +12,12 @@ variable "cluster_name" {
     condition     = length(var.cluster_name) <= 24
     error_message = "cluster_name must be 24 characters or fewer so derived GCP resource names stay within limits."
   }
+
+  # GCP resource names are RFC1035: fail at plan time instead of mid-apply.
+  validation {
+    condition     = can(regex("^[a-z]([a-z0-9-]*[a-z0-9])?$", var.cluster_name))
+    error_message = "cluster_name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (no trailing hyphen), per GCP resource naming rules."
+  }
 }
 
 variable "n8n_domain" {
@@ -48,6 +54,12 @@ variable "n8n_chart_version" {
   description = "n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n)"
   type        = string
   default     = "1.10.1"
+}
+
+variable "keda_chart_version" {
+  description = "KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest."
+  type        = string
+  default     = "2.20.1"
 }
 
 variable "n8n_image_tag" {
@@ -285,6 +297,12 @@ variable "n8n_task_runner_python_enabled" {
   default     = true
 }
 
+variable "n8n_task_runner_request_timeout" {
+  description = "Seconds n8n waits for a task runner to accept a Code node task. Wired to the N8N_RUNNERS_TASK_REQUEST_TIMEOUT env var on the main pod. Increase if Code nodes fail with 'task request timed out' under high concurrency (many parallel Code nodes competing for the single runner sidecar)."
+  type        = number
+  default     = 300
+}
+
 # ── Cloud SQL PostgreSQL ─────────────────────────────────────────────────────────────
 
 variable "create_database" {
@@ -331,14 +349,6 @@ variable "db_postgresdb_ssl_enabled" {
   description = "Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl_mode ALLOW_UNENCRYPTED_AND_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false)."
   type        = bool
   default     = false
-}
-
-# ── Memorystore Redis ──────────────────────────────────────────────────────────
-
-variable "n8n_task_runner_request_timeout" {
-  description = "Seconds n8n waits for a task runner to accept a Code node task. Wired to the N8N_RUNNERS_TASK_REQUEST_TIMEOUT env var on the main pod. Increase if Code nodes fail with 'task request timed out' under high concurrency (many parallel Code nodes competing for the single runner sidecar)."
-  type        = number
-  default     = 300
 }
 
 # ── HPA: main pods ────────────────────────────────────────────────────────────

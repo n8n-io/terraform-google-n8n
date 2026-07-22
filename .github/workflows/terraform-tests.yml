@@ -39,7 +39,7 @@ jobs:
       # versions emit different markdown table whitespace, so any drift between
       # CI and the version contributors actually use produces spurious diffs.
       # Bump together with the brew default.
-      TERRAFORM_DOCS_VERSION: v0.22.0
+      TERRAFORM_DOCS_VERSION: v0.24.0
     steps:
       - uses: actions/checkout@v4
 

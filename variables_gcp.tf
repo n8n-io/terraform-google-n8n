@@ -173,6 +173,27 @@ variable "gcs_hmac_access_id" {
   description = "BYO HMAC mode: the HMAC access ID (S3 access key) for the pre-existing key. Required when gcs_hmac_service_account_email is set."
   type        = string
   default     = ""
+
+  # Required in BYO mode (or n8n gets an empty S3 access key), meaningless
+  # outside it (the module-created key supplies its own access ID).
+  validation {
+    condition     = (var.gcs_hmac_service_account_email == "") == (var.gcs_hmac_access_id == "")
+    error_message = "gcs_hmac_access_id is required when gcs_hmac_service_account_email is set (BYO HMAC mode), and must be empty otherwise."
+  }
+
+  # BYO mode must also come with a usable secret; failing the plan here (not
+  # at a check warning) prevents an apply that deploys n8n with broken S3
+  # credentials. The rule keys off gcs_hmac_access_id (which the validation
+  # above ties to BYO mode) rather than off gcs_hmac_service_account_email,
+  # so the cross-variable validation references stay acyclic (the secret
+  # inputs already reference the email) and the condition tests its own
+  # variable as Terraform requires.
+  validation {
+    condition = var.gcs_hmac_access_id == "" || (
+      var.gcs_hmac_secret != "" || var.gcs_hmac_secret_name != ""
+    )
+    error_message = "gcs_hmac_access_id is set (BYO HMAC mode), so either gcs_hmac_secret or gcs_hmac_secret_name is also required."
+  }
 }
 
 variable "gcs_hmac_secret" {
@@ -180,12 +201,24 @@ variable "gcs_hmac_secret" {
   type        = string
   default     = ""
   sensitive   = true
+
+  validation {
+    condition     = var.gcs_hmac_secret == "" || var.gcs_hmac_service_account_email != ""
+    error_message = "gcs_hmac_secret is only used in BYO HMAC mode; set gcs_hmac_service_account_email as well, or leave gcs_hmac_secret empty (the module-created key supplies its own secret)."
+  }
 }
 
 variable "gcs_hmac_secret_name" {
   description = "BYO HMAC mode (most locked-down): name of an EXISTING Kubernetes Secret in the n8n namespace holding the HMAC secret under key 'accessSecret'. When set, the module references it directly and creates no Secret, so the raw secret never enters Terraform state. Overrides gcs_hmac_secret."
   type        = string
   default     = ""
+
+  # Outside BYO mode the module creates its own HMAC key, whose secret could
+  # never match an externally supplied Secret; reject the combination.
+  validation {
+    condition     = var.gcs_hmac_secret_name == "" || var.gcs_hmac_service_account_email != ""
+    error_message = "gcs_hmac_secret_name is only used in BYO HMAC mode; the module-created HMAC key's secret would not match an external Secret. Set gcs_hmac_service_account_email as well, or leave gcs_hmac_secret_name empty."
+  }
 }
 
 # ── Workload Identity ─────────────────────────────────────────────────────────
