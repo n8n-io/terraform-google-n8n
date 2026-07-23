@@ -49,3 +49,47 @@ Started: 2026-07-23
     this change's task breakdown; leave them for that section rather than
     fixing prose ahead of schedule.
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 2. Database interface rename
+- Renamed Cloud SQL / database variables to HVD-style names per design D3:
+  `create_database` -> `create_postgres_instance`, `db_host` ->
+  `n8n_database_host`, `db_password` -> `n8n_database_password`, `db_name` ->
+  `n8n_database_name`, `db_username` -> `n8n_database_user`,
+  `cloudsql_database_version` -> `postgres_version`, `cloudsql_edition` ->
+  `postgres_edition`, `cloudsql_tier` -> `postgres_machine_type`,
+  `cloudsql_availability_type` -> `postgres_availability_type`,
+  `cloudsql_disk_size` -> `postgres_disk_size`,
+  `cloudsql_deletion_protection` -> `postgres_deletion_protection`. Renamed
+  outputs `cloudsql_private_ip`/`cloudsql_connection_name`/`db_password` to
+  `postgres_private_ip`/`postgres_connection_name`/`n8n_database_password`.
+  Types, defaults, and cross-variable validations unchanged, only names move.
+- Updated `cloudsql.tf`, `n8n.tf`, `outputs.tf`, `variables.tf`,
+  `variables_gcp.tf`; updated all five examples' `main.tf`/`variables.tf`/
+  `terraform.tfvars.example` (mechanical `\b`-bounded rename, since example
+  variable names mirror the module's 1:1 in this repo); updated
+  `tests/defaults.tftest.hcl` runs `cloudsql_private_and_hardened`,
+  `external_db_missing_host_fails_validation`,
+  `external_db_missing_password_fails_validation`, `custom_database_sizing`.
+- Kept `random_password.db_password` (a resource name, not a variable/output)
+  and `google_project_iam_member.n8n_cloudsql_client` unchanged; the design
+  only renames the module's variable/output surface, not internal resource
+  labels.
+- **Learnings for future iterations:**
+  - Example READMEs and the root README's generated `terraform-docs` block
+    (input/output tables) don't need hand-editing after a variable rename:
+    `terraform-docs .` (root and each example) regenerates them from the
+    already-renamed `.tf` files. Only hand-edit README *prose* outside the
+    `BEGIN_TF_DOCS`/`END_TF_DOCS` block, and that's explicitly section 5 in
+    this change, not the rename sections.
+  - A `\b`-word-boundary python regex rename across
+    `examples/*/{main,variables,outputs}.tf` and
+    `terraform.tfvars.example` in one pass is faster and less error-prone
+    than five rounds of the `edit` tool per example, as long as every
+    replacement pair is checked for substring collisions first (e.g.
+    `db_name` is not a substring of any other renamed variable here, so plain
+    word-boundary replace was safe).
+  - `git grep` for old names after a rename will still surface
+    `README.md`/`docs/*.md` prose (not the generated tables) - that's
+    expected and deferred to section 5 (operator docs); don't fix it early or
+    section 5 will find nothing to do.
+---

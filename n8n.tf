@@ -54,7 +54,7 @@ resource "kubernetes_secret" "n8n_db" {
 
   data = {
     # Use caller-supplied password when an external DB is provided, otherwise use the generated one.
-    password = var.create_database ? random_password.db_password.result : var.db_password
+    password = var.create_postgres_instance ? random_password.db_password.result : var.n8n_database_password
   }
 }
 
@@ -117,13 +117,13 @@ resource "helm_release" "n8n" {
     database = {
       type        = "postgresdb"
       useExternal = true
-      # Module-managed Cloud SQL (private IP over PSA) when create_database = true,
-      # otherwise the caller-supplied db_host (external DB or in-cluster pooler).
-      host     = var.create_database ? google_sql_database_instance.n8n.private_ip_address : var.db_host
+      # Module-managed Cloud SQL (private IP over PSA) when create_postgres_instance = true,
+      # otherwise the caller-supplied n8n_database_host (external DB or in-cluster pooler).
+      host     = var.create_postgres_instance ? google_sql_database_instance.n8n.private_ip_address : var.n8n_database_host
       port     = 5432
-      database = var.db_name
+      database = var.n8n_database_name
       schema   = "public"
-      user     = var.db_username
+      user     = var.n8n_database_user
       passwordSecret = {
         name = kubernetes_secret.n8n_db.metadata[0].name
         key  = "password"

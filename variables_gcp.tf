@@ -42,54 +42,54 @@ variable "psa_prefix_length" {
 
 # ── Cloud SQL ─────────────────────────────────────────────────────────────────
 
-variable "cloudsql_database_version" {
+variable "postgres_version" {
   description = "Cloud SQL Postgres version."
   type        = string
   default     = "POSTGRES_16"
 }
 
-variable "cloudsql_edition" {
+variable "postgres_edition" {
   description = "Cloud SQL edition. ENTERPRISE supports shared-core/legacy tiers like db-g1-small (cheap, dev). ENTERPRISE_PLUS requires db-perf-optimized-N-* tiers. Pinned because some projects/orgs default new instances to ENTERPRISE_PLUS, which rejects db-g1-small."
   type        = string
   default     = "ENTERPRISE"
 
   validation {
-    condition     = contains(["ENTERPRISE", "ENTERPRISE_PLUS"], var.cloudsql_edition)
-    error_message = "cloudsql_edition must be ENTERPRISE or ENTERPRISE_PLUS."
+    condition     = contains(["ENTERPRISE", "ENTERPRISE_PLUS"], var.postgres_edition)
+    error_message = "postgres_edition must be ENTERPRISE or ENTERPRISE_PLUS."
   }
 }
 
-variable "cloudsql_tier" {
-  description = "Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with cloudsql_edition."
+variable "postgres_machine_type" {
+  description = "Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with postgres_edition."
   type        = string
   default     = "db-g1-small"
 }
 
-variable "cloudsql_availability_type" {
+variable "postgres_availability_type" {
   description = "REGIONAL for HA (failover replica), ZONAL for single-zone."
   type        = string
   default     = "REGIONAL"
 }
 
-variable "cloudsql_disk_size" {
+variable "postgres_disk_size" {
   description = "Cloud SQL data disk size in GB."
   type        = number
   default     = 50
 }
 
-variable "cloudsql_deletion_protection" {
+variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true
 }
 
-variable "db_name" {
+variable "n8n_database_name" {
   description = "n8n database name."
   type        = string
   default     = "n8n_enterprise"
 }
 
-variable "db_username" {
+variable "n8n_database_user" {
   description = "n8n database user."
   type        = string
   default     = "n8n"

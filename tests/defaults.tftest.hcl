@@ -88,18 +88,18 @@ run "cloudsql_private_and_hardened" {
 
   assert {
     condition     = google_sql_database_instance.n8n.database_version == "POSTGRES_16"
-    error_message = "cloudsql_database_version should default to POSTGRES_16"
+    error_message = "postgres_version should default to POSTGRES_16"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].tier == "db-g1-small"
-    error_message = "cloudsql_tier should default to db-g1-small"
+    error_message = "postgres_machine_type should default to db-g1-small"
   }
 
   # Regional availability is the point of the module's HA posture.
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].availability_type == "REGIONAL"
-    error_message = "cloudsql_availability_type should default to REGIONAL for HA"
+    error_message = "postgres_availability_type should default to REGIONAL for HA"
   }
 
   assert {
@@ -133,32 +133,33 @@ run "cloudsql_private_and_hardened" {
 }
 
 # Cross-variable validation: when the caller opts into an external database
-# (create_database = false), both db_host and db_password are required at plan
-# time. Without these the failure would otherwise surface deep inside the n8n
-# Helm release at apply time, after the cluster and database have been built.
+# (create_postgres_instance = false), both n8n_database_host and
+# n8n_database_password are required at plan time. Without these the failure
+# would otherwise surface deep inside the n8n Helm release at apply time,
+# after the cluster and database have been built.
 
 run "external_db_missing_host_fails_validation" {
   command = plan
 
   variables {
-    create_database = false
-    db_password     = "external-db-password"
-    # db_host intentionally unset
+    create_postgres_instance = false
+    n8n_database_password    = "external-db-password"
+    # n8n_database_host intentionally unset
   }
 
-  expect_failures = [var.db_host]
+  expect_failures = [var.n8n_database_host]
 }
 
 run "external_db_missing_password_fails_validation" {
   command = plan
 
   variables {
-    create_database = false
-    db_host         = "10.9.8.7"
-    # db_password intentionally unset
+    create_postgres_instance = false
+    n8n_database_host        = "10.9.8.7"
+    # n8n_database_password intentionally unset
   }
 
-  expect_failures = [var.db_password]
+  expect_failures = [var.n8n_database_password]
 }
 
 run "redis_private_and_sized" {
@@ -407,24 +408,24 @@ run "custom_database_sizing" {
   command = plan
 
   variables {
-    cloudsql_tier             = "db-custom-8-30720"
-    cloudsql_disk_size        = 200
-    cloudsql_database_version = "POSTGRES_15"
+    postgres_machine_type = "db-custom-8-30720"
+    postgres_disk_size    = 200
+    postgres_version      = "POSTGRES_15"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].tier == "db-custom-8-30720"
-    error_message = "cloudsql_tier variable did not propagate"
+    error_message = "postgres_machine_type variable did not propagate"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].disk_size == 200
-    error_message = "cloudsql_disk_size variable did not propagate"
+    error_message = "postgres_disk_size variable did not propagate"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.database_version == "POSTGRES_15"
-    error_message = "cloudsql_database_version variable did not propagate"
+    error_message = "postgres_version variable did not propagate"
   }
 }
 

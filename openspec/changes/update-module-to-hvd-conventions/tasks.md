@@ -27,13 +27,13 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 2. Database interface rename
 
-- [ ] 2.1 Rename the Cloud SQL and database variables per design D3
+- [x] 2.1 Rename the Cloud SQL and database variables per design D3
       (`postgres_*`, `n8n_database_*`, `create_postgres_instance`),
       preserving types, defaults, and cross-variable validations
-- [ ] 2.2 Update all module references (`cloudsql.tf`, `n8n.tf`, `locals.tf`)
+- [x] 2.2 Update all module references (`cloudsql.tf`, `n8n.tf`, `locals.tf`)
       and rename outputs `cloudsql_private_ip`, `cloudsql_connection_name`,
       `db_password` per design D4
-- [ ] 2.3 Update examples, tests (including the external-database validation
+- [x] 2.3 Update examples, tests (including the external-database validation
       assertion under the new names), regenerate terraform-docs, add
       CHANGELOG bullets, run the full local loop
 

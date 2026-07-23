@@ -26,9 +26,9 @@ output "n8n_encryption_key" {
   sensitive   = true
 }
 
-output "db_password" {
-  description = "Database password. Module-managed when create_database = true, else var.db_password."
-  value       = var.create_database ? random_password.db_password.result : var.db_password
+output "n8n_database_password" {
+  description = "Database password. Module-managed when create_postgres_instance = true, else var.n8n_database_password."
+  value       = var.create_postgres_instance ? random_password.db_password.result : var.n8n_database_password
   sensitive   = true
 }
 
@@ -46,12 +46,12 @@ output "gcs_hmac_secret" {
 
 # ── Infrastructure ─────────────────────────────────────────────────────────────
 
-output "cloudsql_private_ip" {
+output "postgres_private_ip" {
   description = "Cloud SQL private IP (VPC-internal)."
   value       = google_sql_database_instance.n8n.private_ip_address
 }
 
-output "cloudsql_connection_name" {
+output "postgres_connection_name" {
   description = "Cloud SQL instance connection name (project:region:instance)."
   value       = google_sql_database_instance.n8n.connection_name
 }

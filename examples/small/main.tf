@@ -24,7 +24,7 @@ module "n8n" {
 
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
   cluster_deletion_protection  = var.cluster_deletion_protection
-  cloudsql_deletion_protection = var.cloudsql_deletion_protection
+  postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
   # DNS + TLS: manage the record in Cloud DNS, Google-managed cert.

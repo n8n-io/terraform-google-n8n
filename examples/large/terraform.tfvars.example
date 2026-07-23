@@ -12,9 +12,9 @@ dns_managed_zone     = "my-cloud-dns-zone" # empty = manage the A-record yoursel
 # manage_sa_key_org_policy = true
 
 # ── Sizing (large) , override any of these; defaults shown ────────────────────
-# cloudsql_tier                   = "db-custom-8-30720"
-# cloudsql_disk_size              = 250
-# cloudsql_availability_type      = "REGIONAL"
+# postgres_machine_type                   = "db-custom-8-30720"
+# postgres_disk_size              = 250
+# postgres_availability_type      = "REGIONAL"
 # memorystore_tier                = "STANDARD_HA"
 # memorystore_memory_gb           = 8
 # node_machine_type               = "e2-standard-16"

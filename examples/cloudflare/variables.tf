@@ -71,7 +71,7 @@ variable "manage_sa_key_org_policy" {
 
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
 # To `terraform destroy`, first flip these (e.g. `-var cluster_deletion_protection=false
-# -var cloudsql_deletion_protection=false -var gcs_force_destroy=true`) and apply,
+# -var postgres_deletion_protection=false -var gcs_force_destroy=true`) and apply,
 # then destroy.
 
 variable "cluster_deletion_protection" {
@@ -80,7 +80,7 @@ variable "cluster_deletion_protection" {
   default     = true
 }
 
-variable "cloudsql_deletion_protection" {
+variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true

@@ -25,9 +25,9 @@ module "n8n" {
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
   # ── Sizing (large) ──────────────────────────────────────────────────────────
-  cloudsql_tier              = var.cloudsql_tier
-  cloudsql_disk_size         = var.cloudsql_disk_size
-  cloudsql_availability_type = var.cloudsql_availability_type
+  postgres_machine_type      = var.postgres_machine_type
+  postgres_disk_size         = var.postgres_disk_size
+  postgres_availability_type = var.postgres_availability_type
 
   memorystore_tier      = var.memorystore_tier
   memorystore_memory_gb = var.memorystore_memory_gb
@@ -47,7 +47,7 @@ module "n8n" {
 
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
   cluster_deletion_protection  = var.cluster_deletion_protection
-  cloudsql_deletion_protection = var.cloudsql_deletion_protection
+  postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
   # DNS + TLS: manage the record in Cloud DNS, Google-managed cert.

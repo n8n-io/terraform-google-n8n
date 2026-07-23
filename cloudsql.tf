@@ -14,8 +14,8 @@ resource "google_sql_database_instance" "n8n" {
   name                = "${local.name_prefix}-pg"
   project             = var.project_id
   region              = var.gcp_region
-  database_version    = var.cloudsql_database_version
-  deletion_protection = var.cloudsql_deletion_protection
+  database_version    = var.postgres_version
+  deletion_protection = var.postgres_deletion_protection
 
   # Private IP requires the PSA peering to exist first. Depending on the
   # time_sleep (not the connection directly) also delays the peering's
@@ -23,11 +23,11 @@ resource "google_sql_database_instance" "n8n" {
   depends_on = [time_sleep.wait_for_psa_cleanup]
 
   settings {
-    edition           = var.cloudsql_edition
-    tier              = var.cloudsql_tier
-    availability_type = var.cloudsql_availability_type
+    edition           = var.postgres_edition
+    tier              = var.postgres_machine_type
+    availability_type = var.postgres_availability_type
     disk_type         = "PD_SSD"
-    disk_size         = var.cloudsql_disk_size
+    disk_size         = var.postgres_disk_size
     disk_autoresize   = true
 
     ip_configuration {
@@ -57,7 +57,7 @@ resource "google_sql_database_instance" "n8n" {
 }
 
 resource "google_sql_database" "n8n" {
-  name     = var.db_name
+  name     = var.n8n_database_name
   project  = var.project_id
   instance = google_sql_database_instance.n8n.name
 
@@ -68,10 +68,10 @@ resource "google_sql_database" "n8n" {
 }
 
 resource "google_sql_user" "n8n" {
-  name     = var.db_username
+  name     = var.n8n_database_user
   project  = var.project_id
   instance = google_sql_database_instance.n8n.name
-  password = var.create_database ? random_password.db_password.result : var.db_password
+  password = var.create_postgres_instance ? random_password.db_password.result : var.n8n_database_password
 
   # ABANDON: don't DROP USER on destroy, it fails because the user owns the n8n
   # schema objects ("role cannot be dropped because some objects depend on it").

@@ -335,32 +335,32 @@ variable "n8n_task_runner_request_timeout" {
 
 # ── Cloud SQL PostgreSQL ─────────────────────────────────────────────────────────────
 
-variable "create_database" {
-  description = "When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (db_host and db_password must then be supplied). Kept as a static boolean rather than `db_host == null` because count expressions cannot depend on values computed at apply time."
+variable "create_postgres_instance" {
+  description = "When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (n8n_database_host and n8n_database_password must then be supplied). Kept as a static boolean rather than `n8n_database_host == null` because count expressions cannot depend on values computed at apply time."
   type        = bool
   default     = true
 }
 
-variable "db_host" {
-  description = "External database host. Required when create_database = false. Ignored otherwise. Use this to pass any external PostgreSQL host."
+variable "n8n_database_host" {
+  description = "External database host. Required when create_postgres_instance = false. Ignored otherwise. Use this to pass any external PostgreSQL host."
   type        = string
   default     = null
 
   validation {
-    condition     = var.create_database || var.db_host != null
-    error_message = "db_host is required when create_database = false."
+    condition     = var.create_postgres_instance || var.n8n_database_host != null
+    error_message = "n8n_database_host is required when create_postgres_instance = false."
   }
 }
 
-variable "db_password" {
-  description = "Password for the external database specified by db_host. Required when create_database = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance)."
+variable "n8n_database_password" {
+  description = "Password for the external database specified by n8n_database_host. Required when create_postgres_instance = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance)."
   type        = string
   default     = null
   sensitive   = true
 
   validation {
-    condition     = var.create_database || var.db_password != null
-    error_message = "db_password is required when create_database = false."
+    condition     = var.create_postgres_instance || var.n8n_database_password != null
+    error_message = "n8n_database_password is required when create_postgres_instance = false."
   }
 }
 

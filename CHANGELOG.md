@@ -20,6 +20,19 @@ this project adheres to the stability contract in
   to `gke_cluster_ca_certificate`.
 - Added `common_labels` (`map(string)`, default `{}`), merged into every
   taggable resource's label set alongside the module's built-in labels.
+- **Breaking:** database variables are renamed to HVD-style, service-oriented
+  names: `create_database` to `create_postgres_instance`, `db_host` to
+  `n8n_database_host`, `db_password` to `n8n_database_password`, `db_name` to
+  `n8n_database_name`, `db_username` to `n8n_database_user`,
+  `cloudsql_database_version` to `postgres_version`, `cloudsql_edition` to
+  `postgres_edition`, `cloudsql_tier` to `postgres_machine_type`,
+  `cloudsql_availability_type` to `postgres_availability_type`,
+  `cloudsql_disk_size` to `postgres_disk_size`, and
+  `cloudsql_deletion_protection` to `postgres_deletion_protection`. Semantics,
+  types, and defaults are unchanged; only the names move.
+- **Breaking:** outputs `cloudsql_private_ip` and `cloudsql_connection_name`
+  are renamed to `postgres_private_ip` and `postgres_connection_name`; output
+  `db_password` is renamed to `n8n_database_password`.
 
 ## [0.1.0] - 2026-07-21
 

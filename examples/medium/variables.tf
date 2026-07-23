@@ -50,19 +50,19 @@ variable "manage_sa_key_org_policy" {
 # a general-purpose Cloud SQL tier + HA Memorystore, bigger nodes, and higher
 # autoscaling ceilings. NOT scale-validated; tune against a load test.
 
-variable "cloudsql_tier" {
+variable "postgres_machine_type" {
   description = "Cloud SQL machine tier (ENTERPRISE edition)."
   type        = string
   default     = "db-custom-4-15360" # 4 vCPU / 15 GB
 }
 
-variable "cloudsql_disk_size" {
+variable "postgres_disk_size" {
   description = "Cloud SQL data disk size in GB."
   type        = number
   default     = 100
 }
 
-variable "cloudsql_availability_type" {
+variable "postgres_availability_type" {
   description = "REGIONAL (HA failover) or ZONAL."
   type        = string
   default     = "REGIONAL"
@@ -136,7 +136,7 @@ variable "n8n_execution_concurrency_limit" {
 
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
 # To `terraform destroy`, first flip these (e.g. `-var cluster_deletion_protection=false
-# -var cloudsql_deletion_protection=false -var gcs_force_destroy=true`) and apply,
+# -var postgres_deletion_protection=false -var gcs_force_destroy=true`) and apply,
 # then destroy.
 
 variable "cluster_deletion_protection" {
@@ -145,7 +145,7 @@ variable "cluster_deletion_protection" {
   default     = true
 }
 
-variable "cloudsql_deletion_protection" {
+variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true
