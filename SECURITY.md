@@ -60,5 +60,5 @@ for the versioning policy.
   (KEDA and the n8n chart). Report those upstream; we bump our chart
   pins once a fix is available.
 - Findings against Google Cloud service defaults exposed as optional
-  inputs (e.g. `memorystore_auth_enabled = false`). These are documented
+  inputs (e.g. `redis_auth_enabled = false`). These are documented
   configuration choices, not vulnerabilities.
