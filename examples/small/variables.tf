@@ -15,13 +15,13 @@ variable "gcs_location" {
   default     = "US"
 }
 
-variable "cluster_name" {
-  description = "Name prefix for the GKE cluster and derived resources."
+variable "friendly_name_prefix" {
+  description = "Prefix used to derive the name of every Google Cloud resource the module creates."
   type        = string
-  default     = "n8n-dev"
+  default     = "dev"
 }
 
-variable "n8n_domain" {
+variable "n8n_fqdn" {
   description = "Hostname n8n is served on."
   type        = string
 }
@@ -33,8 +33,8 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
-variable "dns_managed_zone" {
-  description = "Google Cloud DNS managed-zone name for n8n_domain. Empty means you manage the A-record yourself against the static_ip output."
+variable "cloud_dns_zone_name" {
+  description = "Google Cloud DNS managed-zone name for n8n_fqdn. Empty means you manage the A-record yourself against the static_ip output."
   type        = string
   default     = ""
 }
@@ -46,17 +46,17 @@ variable "manage_sa_key_org_policy" {
 }
 
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
-# To `terraform destroy`, first flip these (e.g. `-var cluster_deletion_protection=false
-# -var cloudsql_deletion_protection=false -var gcs_force_destroy=true`) and apply,
+# To `terraform destroy`, first flip these (e.g. `-var gke_deletion_protection=false
+# -var postgres_deletion_protection=false -var gcs_force_destroy=true`) and apply,
 # then destroy.
 
-variable "cluster_deletion_protection" {
+variable "gke_deletion_protection" {
   description = "Block terraform destroy of the GKE cluster."
   type        = bool
   default     = true
 }
 
-variable "cloudsql_deletion_protection" {
+variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true

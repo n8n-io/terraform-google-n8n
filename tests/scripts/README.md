@@ -21,7 +21,7 @@ Post-deployment smoke test for `terraform-google-n8n`. Verifies the multi-main d
 
 ## Quick start
 
-The script reads `namespace`, `n8n_url`, and `kubectl_config_command` automatically from `terraform output`.
+The script reads `n8n_kube_namespace`, `n8n_url`, and `kubectl_config_command` automatically from `terraform output`.
 
 ```bash
 cd examples/small              # or wherever your terraform.tfstate lives
@@ -30,7 +30,7 @@ cd examples/small              # or wherever your terraform.tfstate lives
 
 The script automatically:
 
-1. Reads `namespace` and `n8n_url` from Terraform state
+1. Reads `n8n_kube_namespace` and `n8n_url` from Terraform state
 2. Runs the `kubectl_config_command` output to point kubectl at the right cluster
 3. Runs all checks and prints a pass / fail / warn / skip summary
 

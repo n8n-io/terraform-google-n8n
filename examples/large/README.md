@@ -1,7 +1,7 @@
 # Example: n8n on GKE (large)
 
 Same substrate as [`../small`](../small) (the module creates the VPC, GKE cluster,
-Cloud SQL, Memorystore, GCS, and, when `dns_managed_zone` is set, the Cloud DNS
+Cloud SQL, Memorystore, GCS, and, when `cloud_dns_zone_name` is set, the Cloud DNS
 A-record; TLS is a Google-managed certificate), sized for **high throughput**.
 
 Sizing vs the module defaults (small):
@@ -20,7 +20,7 @@ Sizing vs the module defaults (small):
 | Execution concurrency | 100 | 400 |
 
 The ceilings set the webhook max to 80 and the worker max to 160. Keep
-`node_max_per_zone` high enough to schedule the KEDA worker ceiling.
+`gke_node_max_per_zone` high enough to schedule the KEDA worker ceiling.
 
 > **Not scale-validated on GKE.** These bounds are a reasoned starting
 > point, not measured ceilings. Tune them against a load test before relying on
@@ -48,7 +48,7 @@ terraform init
 terraform apply
 ```
 
-If `dns_managed_zone` is empty, create the A-record yourself against the
+If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 `static_ip` output. Status: preliminary / not scale-validated.
 
 <!-- BEGIN_TF_DOCS -->
@@ -84,39 +84,39 @@ If `dns_managed_zone` is empty, create the A-record yourself against the
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_cloudsql_availability_type"></a> [cloudsql\_availability\_type](#input\_cloudsql\_availability\_type) | REGIONAL (HA failover) or ZONAL. | `string` | `"REGIONAL"` | no |
-| <a name="input_cloudsql_deletion_protection"></a> [cloudsql\_deletion\_protection](#input\_cloudsql\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
-| <a name="input_cloudsql_disk_size"></a> [cloudsql\_disk\_size](#input\_cloudsql\_disk\_size) | Cloud SQL data disk size in GB. | `number` | `250` | no |
-| <a name="input_cloudsql_tier"></a> [cloudsql\_tier](#input\_cloudsql\_tier) | Cloud SQL machine tier (ENTERPRISE edition). | `string` | `"db-custom-8-30720"` | no |
-| <a name="input_cluster_deletion_protection"></a> [cluster\_deletion\_protection](#input\_cluster\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
-| <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name prefix for the GKE cluster and derived resources. | `string` | `"n8n-large"` | no |
-| <a name="input_dns_managed_zone"></a> [dns\_managed\_zone](#input\_dns\_managed\_zone) | Google Cloud DNS managed-zone name for n8n\_domain. Empty means you manage the A-record yourself against the static\_ip output. | `string` | `""` | no |
+| <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name for n8n\_fqdn. Empty means you manage the A-record yourself against the static\_ip output. | `string` | `""` | no |
+| <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates. | `string` | `"large"` | no |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region (e.g. us-east4, us-east1, europe-west1). | `string` | `"us-east4"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete the (non-empty) GCS bucket. | `bool` | `false` | no |
 | <a name="input_gcs_location"></a> [gcs\_location](#input\_gcs\_location) | GCS bucket location for binary storage. Keep it near gcp\_region (e.g. US for a us-* region, EU for europe-*). | `string` | `"US"` | no |
+| <a name="input_gke_deletion_protection"></a> [gke\_deletion\_protection](#input\_gke\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
+| <a name="input_gke_node_max_per_zone"></a> [gke\_node\_max\_per\_zone](#input\_gke\_node\_max\_per\_zone) | Autoscaling max nodes per zone. Must be high enough to schedule the KEDA worker ceiling below. | `number` | `10` | no |
+| <a name="input_gke_node_min_per_zone"></a> [gke\_node\_min\_per\_zone](#input\_gke\_node\_min\_per\_zone) | Autoscaling min nodes per zone (regional cluster ~3 zones). | `number` | `3` | no |
+| <a name="input_gke_node_type"></a> [gke\_node\_type](#input\_gke\_node\_type) | GKE node machine type. | `string` | `"e2-standard-16"` | no |
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation for this project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise. | `bool` | `false` | no |
-| <a name="input_memorystore_memory_gb"></a> [memorystore\_memory\_gb](#input\_memorystore\_memory\_gb) | Memorystore capacity in GB. | `number` | `8` | no |
-| <a name="input_memorystore_tier"></a> [memorystore\_tier](#input\_memorystore\_tier) | Memorystore tier: BASIC or STANDARD\_HA. | `string` | `"STANDARD_HA"` | no |
-| <a name="input_n8n_domain"></a> [n8n\_domain](#input\_n8n\_domain) | Hostname n8n is served on. | `string` | n/a | yes |
 | <a name="input_n8n_execution_concurrency_limit"></a> [n8n\_execution\_concurrency\_limit](#input\_n8n\_execution\_concurrency\_limit) | n8n production execution concurrency limit. | `number` | `400` | no |
+| <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. | `string` | n/a | yes |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key (multi-main requires Enterprise). | `string` | `""` | no |
 | <a name="input_n8n_main_hpa_min_replicas"></a> [n8n\_main\_hpa\_min\_replicas](#input\_n8n\_main\_hpa\_min\_replicas) | Main-pod HPA floor. | `number` | `3` | no |
 | <a name="input_n8n_webhook_hpa_max_replicas"></a> [n8n\_webhook\_hpa\_max\_replicas](#input\_n8n\_webhook\_hpa\_max\_replicas) | Webhook-processor HPA ceiling. | `number` | `80` | no |
 | <a name="input_n8n_webhook_hpa_min_replicas"></a> [n8n\_webhook\_hpa\_min\_replicas](#input\_n8n\_webhook\_hpa\_min\_replicas) | Webhook-processor HPA floor. | `number` | `5` | no |
 | <a name="input_n8n_worker_concurrency"></a> [n8n\_worker\_concurrency](#input\_n8n\_worker\_concurrency) | Concurrent executions per worker pod. | `number` | `20` | no |
-| <a name="input_n8n_worker_keda_max_replicas"></a> [n8n\_worker\_keda\_max\_replicas](#input\_n8n\_worker\_keda\_max\_replicas) | KEDA worker ceiling (pair with node\_max\_per\_zone). | `number` | `80` | no |
+| <a name="input_n8n_worker_keda_max_replicas"></a> [n8n\_worker\_keda\_max\_replicas](#input\_n8n\_worker\_keda\_max\_replicas) | KEDA worker ceiling (pair with gke\_node\_max\_per\_zone). | `number` | `80` | no |
 | <a name="input_n8n_worker_keda_min_replicas"></a> [n8n\_worker\_keda\_min\_replicas](#input\_n8n\_worker\_keda\_min\_replicas) | KEDA worker floor. | `number` | `3` | no |
-| <a name="input_node_machine_type"></a> [node\_machine\_type](#input\_node\_machine\_type) | GKE node machine type. | `string` | `"e2-standard-16"` | no |
-| <a name="input_node_max_per_zone"></a> [node\_max\_per\_zone](#input\_node\_max\_per\_zone) | Autoscaling max nodes per zone. Must be high enough to schedule the KEDA worker ceiling below. | `number` | `10` | no |
-| <a name="input_node_min_per_zone"></a> [node\_min\_per\_zone](#input\_node\_min\_per\_zone) | Autoscaling min nodes per zone (regional cluster ~3 zones). | `number` | `3` | no |
+| <a name="input_postgres_availability_type"></a> [postgres\_availability\_type](#input\_postgres\_availability\_type) | REGIONAL (HA failover) or ZONAL. | `string` | `"REGIONAL"` | no |
+| <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
+| <a name="input_postgres_disk_size"></a> [postgres\_disk\_size](#input\_postgres\_disk\_size) | Cloud SQL data disk size in GB. | `number` | `250` | no |
+| <a name="input_postgres_machine_type"></a> [postgres\_machine\_type](#input\_postgres\_machine\_type) | Cloud SQL machine tier (ENTERPRISE edition). | `string` | `"db-custom-8-30720"` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID. | `string` | n/a | yes |
+| <a name="input_redis_memory_size_gb"></a> [redis\_memory\_size\_gb](#input\_redis\_memory\_size\_gb) | Memorystore capacity in GB. | `number` | `8` | no |
+| <a name="input_redis_tier"></a> [redis\_tier](#input\_redis\_tier) | Memorystore tier: BASIC or STANDARD\_HA. | `string` | `"STANDARD_HA"` | no |
 
 ## Outputs
 
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | n/a |
+| <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | n/a |
 | <a name="output_n8n_url"></a> [n8n\_url](#output\_n8n\_url) | n/a |
-| <a name="output_namespace"></a> [namespace](#output\_namespace) | n/a |
-| <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | LB static IP. Point n8n\_domain at this if you are not letting the module manage Cloud DNS. |
+| <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | LB static IP. Point n8n\_fqdn at this if you are not letting the module manage Cloud DNS. |
 <!-- END_TF_DOCS -->

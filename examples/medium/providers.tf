@@ -11,22 +11,22 @@ provider "google" {
 data "google_client_config" "default" {}
 
 provider "kubernetes" {
-  host                   = "https://${module.n8n.cluster_endpoint}"
+  host                   = "https://${module.n8n.gke_cluster_endpoint}"
   token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(module.n8n.cluster_ca_certificate)
+  cluster_ca_certificate = base64decode(module.n8n.gke_cluster_ca_certificate)
 }
 
 provider "helm" {
   kubernetes = {
-    host                   = "https://${module.n8n.cluster_endpoint}"
+    host                   = "https://${module.n8n.gke_cluster_endpoint}"
     token                  = data.google_client_config.default.access_token
-    cluster_ca_certificate = base64decode(module.n8n.cluster_ca_certificate)
+    cluster_ca_certificate = base64decode(module.n8n.gke_cluster_ca_certificate)
   }
 }
 
 provider "kubectl" {
-  host                   = "https://${module.n8n.cluster_endpoint}"
+  host                   = "https://${module.n8n.gke_cluster_endpoint}"
   token                  = data.google_client_config.default.access_token
-  cluster_ca_certificate = base64decode(module.n8n.cluster_ca_certificate)
+  cluster_ca_certificate = base64decode(module.n8n.gke_cluster_ca_certificate)
   load_config_file       = false
 }

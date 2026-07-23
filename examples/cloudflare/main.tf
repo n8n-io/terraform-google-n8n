@@ -1,5 +1,5 @@
 # ── Example: Cloudflare DNS + Let's Encrypt (validated path) ────────
-# Cloudflare resolves n8n_domain to the LB static IP (dns.tf). TLS is an
+# Cloudflare resolves n8n_fqdn to the LB static IP (dns.tf). TLS is an
 # auto-renewing Let's Encrypt cert issued by cert-manager via a Cloudflare DNS-01
 # challenge into a k8s Secret; the module's gce Ingress consumes it (tls_mode =
 # secret). This keeps the Cloudflare provider and the ACME/DNS-01 token out of
@@ -8,10 +8,10 @@
 module "n8n" {
   source = "../.."
 
-  project_id   = var.project_id
-  gcp_region   = var.gcp_region
-  cluster_name = var.cluster_name
-  n8n_domain   = var.n8n_domain
+  project_id           = var.project_id
+  gcp_region           = var.gcp_region
+  friendly_name_prefix = var.friendly_name_prefix
+  n8n_fqdn             = var.n8n_fqdn
 
   n8n_license_key = var.n8n_license_key
   gcs_location    = var.gcs_location
@@ -20,12 +20,12 @@ module "n8n" {
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
-  cluster_deletion_protection  = var.cluster_deletion_protection
-  cloudsql_deletion_protection = var.cloudsql_deletion_protection
+  gke_deletion_protection      = var.gke_deletion_protection
+  postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
   # DNS is managed here in Cloudflare (dns.tf), not by the module.
-  dns_managed_zone = ""
+  cloud_dns_zone_name = ""
 
   # cert-manager writes the cert into this Secret; the Ingress consumes it.
   tls_mode        = "secret"

@@ -7,16 +7,19 @@
 # driver needs static credentials.
 
 resource "google_service_account" "n8n" {
-  account_id   = substr("${local.cluster_name}-n8n", 0, 30)
+  # "-wi" (workload identity), not "-n8n": local.name_prefix already ends in
+  # -n8n and a -n8n suffix would produce the redundant <prefix>-n8n-n8n id the
+  # friendly_name_prefix validator warns against.
+  account_id   = substr("${local.name_prefix}-wi", 0, 30)
   project      = var.project_id
-  display_name = "n8n workload identity (${local.cluster_name})"
+  display_name = "n8n workload identity (${local.name_prefix})"
 }
 
 # Let the Kubernetes ServiceAccount impersonate the Google service account.
 resource "google_service_account_iam_member" "n8n_workload_identity" {
   service_account_id = google_service_account.n8n.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.namespace}/${var.k8s_service_account_name}]"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.n8n_kube_namespace}/${var.n8n_kube_svc_account}]"
 }
 
 # Cloud SQL client role so the workload can reach the database.

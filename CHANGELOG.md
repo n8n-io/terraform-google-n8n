@@ -5,6 +5,64 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to the stability contract in
 [README.md, Stability & versioning](./README.md#stability--versioning).
 
+## [Unreleased]
+
+### Added
+
+- Added `.github/CODEOWNERS` with a `*` rule owned by `@jrx` and
+  `@buddy-n8n`.
+- Added `SUPPORT.md` pointing to GitHub issues and the n8n community forum.
+- Added `common_labels` (`map(string)`, default `{}`), merged into every
+  taggable resource's label set alongside the module's built-in labels.
+
+### Changed
+
+- **Breaking:** `cluster_name` is replaced by `friendly_name_prefix` as the
+  naming driver for every Google Cloud resource the module creates. The
+  naming scheme is `<friendly_name_prefix>-n8n<-suffix>` (e.g. the GKE
+  cluster is `<friendly_name_prefix>-n8n`, Cloud SQL is
+  `<friendly_name_prefix>-n8n-pg`). `friendly_name_prefix` is required, must
+  not contain `n8n`, and is capped at 20 characters so derived
+  service-account IDs stay within Google Cloud's 30-character `account_id`
+  limit. The Workload Identity service account is
+  `<friendly_name_prefix>-n8n-wi`.
+- **Breaking:** output `cluster_name` is renamed to `gke_cluster_name`,
+  `cluster_endpoint` to `gke_cluster_endpoint`, and `cluster_ca_certificate`
+  to `gke_cluster_ca_certificate`.
+- **Breaking:** database variables are renamed to HVD-style, service-oriented
+  names: `create_database` to `create_postgres_instance`, `db_host` to
+  `n8n_database_host`, `db_password` to `n8n_database_password`, `db_name` to
+  `n8n_database_name`, `db_username` to `n8n_database_user`,
+  `cloudsql_database_version` to `postgres_version`, `cloudsql_edition` to
+  `postgres_edition`, `cloudsql_tier` to `postgres_machine_type`,
+  `cloudsql_availability_type` to `postgres_availability_type`,
+  `cloudsql_disk_size` to `postgres_disk_size`, and
+  `cloudsql_deletion_protection` to `postgres_deletion_protection`. Semantics,
+  types, and defaults are unchanged; only the names move.
+- **Breaking:** outputs `cloudsql_private_ip` and `cloudsql_connection_name`
+  are renamed to `postgres_private_ip` and `postgres_connection_name`; output
+  `db_password` is renamed to `n8n_database_password`.
+- **Breaking:** Redis and GKE variables are renamed to HVD-style,
+  service-oriented names: `memorystore_tier` to `redis_tier`,
+  `memorystore_memory_gb` to `redis_memory_size_gb`,
+  `memorystore_redis_version` to `redis_version`,
+  `memorystore_auth_enabled` to `redis_auth_enabled`, `node_machine_type` to
+  `gke_node_type`, `node_min_per_zone` to `gke_node_min_per_zone`,
+  `node_max_per_zone` to `gke_node_max_per_zone`, `node_disk_size_gb` to
+  `gke_node_disk_size_gb`, `node_disk_type` to `gke_node_disk_type`,
+  `cluster_deletion_protection` to `gke_deletion_protection`,
+  `enable_private_nodes` to `gke_enable_private_nodes`, `master_ipv4_cidr` to
+  `gke_control_plane_cidr`, and `master_authorized_networks` to
+  `gke_control_plane_authorized_networks`. Semantics, types, and defaults are
+  unchanged; only the names move.
+- **Breaking:** output `memorystore_host` is renamed to `redis_host`.
+- **Breaking:** application and DNS variables are renamed to HVD-style,
+  service-oriented names: `n8n_domain` to `n8n_fqdn`, `namespace` to
+  `n8n_kube_namespace`, `k8s_service_account_name` to
+  `n8n_kube_svc_account`, and `dns_managed_zone` to `cloud_dns_zone_name`.
+  Semantics, types, and defaults are unchanged; only the names move.
+- **Breaking:** output `namespace` is renamed to `n8n_kube_namespace`.
+
 ## [0.1.0] - 2026-07-21
 
 Initial release.

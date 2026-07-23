@@ -16,7 +16,7 @@ resource "kubectl_manifest" "backendconfig" {
     kind       = "BackendConfig"
     metadata = {
       name      = "n8n-backendconfig"
-      namespace = var.namespace
+      namespace = var.n8n_kube_namespace
     }
     spec = {
       # Session affinity pins each browser to the same main pod so WebSocket /
@@ -43,7 +43,7 @@ resource "kubectl_manifest" "frontendconfig" {
     kind       = "FrontendConfig"
     metadata = {
       name      = "n8n-frontendconfig"
-      namespace = var.namespace
+      namespace = var.n8n_kube_namespace
     }
     spec = {
       redirectToHttps = {
@@ -67,10 +67,10 @@ resource "kubectl_manifest" "managed_certificate" {
     kind       = "ManagedCertificate"
     metadata = {
       name      = "n8n-managed-cert"
-      namespace = var.namespace
+      namespace = var.n8n_kube_namespace
     }
     spec = {
-      domains = [var.n8n_domain]
+      domains = [var.n8n_fqdn]
     }
   })
 

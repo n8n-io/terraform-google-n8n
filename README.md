@@ -85,6 +85,8 @@ The base module is provider-clean and creates its own VPC. The recommended path 
 - **[`examples/cloudflare`](./examples/cloudflare)** , Cloudflare DNS + auto-renewing Let's Encrypt via cert-manager (the validated TLS path).
 - **[`examples/godaddy`](./examples/godaddy)** , GoDaddy DNS + a Google-managed certificate.
 
+If `terraform apply` fails on a `helm_release` or a `ManagedCertificate` stalls in `Provisioning`, see [`docs/troubleshooting.md`](./docs/troubleshooting.md).
+
 ```bash
 cd examples/cloudflare
 cp terraform.tfvars.example terraform.tfvars   # then edit
@@ -101,13 +103,14 @@ module "n8n" {
   source  = "n8n-io/n8n/google"
   version = "~> 0.1.0"
 
-  project_id      = "my-project"
-  gcp_region      = "europe-west1"
-  n8n_domain      = "n8n.example.com"
-  n8n_license_key = var.n8n_license_key
+  friendly_name_prefix = "myteam"
+  project_id           = "my-project"
+  gcp_region           = "europe-west1"
+  n8n_fqdn             = "n8n.example.com"
+  n8n_license_key      = var.n8n_license_key
 
   # Optional: let the module manage the DNS A-record in Cloud DNS.
-  dns_managed_zone = "example-com"
+  cloud_dns_zone_name = "example-com"
 }
 ```
 
@@ -124,7 +127,7 @@ The `gce` Ingress terminates TLS at the load balancer, so the certificate must b
 | `custom` | Pre-shared cert from your PEM (`tls_cert_pem`/`tls_key_pem`) | e.g. a Cloudflare Origin CA cert (long-lived). |
 | `self_signed` | Generated self-signed cert | Smoke tests before DNS is live. |
 
-DNS: the base module can manage a Google Cloud DNS record (`dns_managed_zone`); other providers (Cloudflare, GoDaddy) manage their own record against the `static_ip` output.
+DNS: the base module can manage a Google Cloud DNS record (`cloud_dns_zone_name`); other providers (Cloudflare, GoDaddy) manage their own record against the `static_ip` output.
 
 ---
 
@@ -134,20 +137,20 @@ DNS: the base module can manage a Google Cloud DNS record (`dns_managed_zone`); 
 |---|---|
 | `project_id` | GCP project ID (required). |
 | `gcp_region` | Region (e.g. `us-east4`, `europe-west1`). |
-| `cluster_name` | Name prefix for the cluster and derived resources (<= 24 chars). |
-| `n8n_domain` | Hostname n8n is served on. |
+| `friendly_name_prefix` | Prefix used to derive the name of every Google Cloud resource (<= 20 chars). |
+| `n8n_fqdn` | Hostname n8n is served on. |
 | `n8n_license_key` | n8n Enterprise activation key. |
 | `gcs_location` | GCS bucket location; keep near `gcp_region` (`US` / `EU` / a region). |
 | `tls_mode` | Certificate source (table above). |
 | `manage_sa_key_org_policy` | Opt-in org-policy override for the HMAC key (see Prerequisites). Default `false`. |
 | `gcs_hmac_service_account_email` | BYO HMAC mode for locked-down orgs: supply a pre-existing SA (+ `gcs_hmac_access_id` and `gcs_hmac_secret_name`/`gcs_hmac_secret`) and the module skips HMAC-key creation. Default empty. |
-| `memorystore_auth_enabled` | Enable Redis AUTH (default off); the module wires the KEDA `TriggerAuthentication` when on. |
+| `redis_auth_enabled` | Enable Redis AUTH (default off); the module wires the KEDA `TriggerAuthentication` when on. |
 
 Cloud SQL, Memorystore, node-pool sizing, autoscaling bounds, pruning, and OpenTelemetry are all configurable, see `variables.tf` / `variables_gcp.tf`.
 
 ## Key outputs
 
-`static_ip`, `n8n_url`, `cluster_name`, `cluster_endpoint`, `kubectl_config_command`, `cloudsql_private_ip`, `memorystore_host`, `gcs_bucket_name`. Sensitive: `db_password`, `n8n_encryption_key`, `gcs_hmac_access_id`, `gcs_hmac_secret` (retrieve with `terraform output -raw <name>`).
+`static_ip`, `n8n_url`, `gke_cluster_name`, `gke_cluster_endpoint`, `kubectl_config_command`, `postgres_private_ip`, `redis_host`, `gcs_bucket_name`. Sensitive: `n8n_database_password`, `n8n_encryption_key`, `gcs_hmac_access_id`, `gcs_hmac_secret` (retrieve with `terraform output -raw <name>`).
 
 ## Operations (day-2)
 
@@ -173,7 +176,7 @@ Learnings from the first live deploy:
   Do this **once**, LE production allows only 5 identical certs per week, so don't
   loop the secret delete.
 
-- **Teardown.** `cluster_deletion_protection` and `cloudsql_deletion_protection`
+- **Teardown.** `gke_deletion_protection` and `postgres_deletion_protection`
   default to `true`, so `terraform destroy` refuses until the protection flags are
   flipped on the *live* resources first. Setting the vars to `false` on the destroy
   command alone is not enough (the provider still reads protection from the existing
@@ -182,13 +185,13 @@ Learnings from the first live deploy:
   ```bash
   # 1. flip protection on the live cluster + SQL instance, and allow bucket destroy
   terraform apply -auto-approve \
-    -var cluster_deletion_protection=false \
-    -var cloudsql_deletion_protection=false \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
     -var gcs_force_destroy=true
   # 2. then destroy (repeat the same -var flags)
   terraform destroy -auto-approve \
-    -var cluster_deletion_protection=false \
-    -var cloudsql_deletion_protection=false \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
     -var gcs_force_destroy=true
   ```
 
@@ -212,10 +215,10 @@ Learnings from the first live deploy:
 
   ```bash
   gcloud compute networks peerings delete servicenetworking-googleapis-com \
-    --network=<cluster_name>-vpc --project=<project_id>
+    --network=<friendly_name_prefix>-n8n-vpc --project=<project_id>
   terraform destroy -auto-approve \
-    -var cluster_deletion_protection=false \
-    -var cloudsql_deletion_protection=false \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
     -var gcs_force_destroy=true   # now clears the PSA connection + address + VPC
   ```
 
@@ -361,23 +364,12 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_cloudsql_availability_type"></a> [cloudsql\_availability\_type](#input\_cloudsql\_availability\_type) | REGIONAL for HA (failover replica), ZONAL for single-zone. | `string` | `"REGIONAL"` | no |
-| <a name="input_cloudsql_database_version"></a> [cloudsql\_database\_version](#input\_cloudsql\_database\_version) | Cloud SQL Postgres version. | `string` | `"POSTGRES_16"` | no |
-| <a name="input_cloudsql_deletion_protection"></a> [cloudsql\_deletion\_protection](#input\_cloudsql\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
-| <a name="input_cloudsql_disk_size"></a> [cloudsql\_disk\_size](#input\_cloudsql\_disk\_size) | Cloud SQL data disk size in GB. | `number` | `50` | no |
-| <a name="input_cloudsql_edition"></a> [cloudsql\_edition](#input\_cloudsql\_edition) | Cloud SQL edition. ENTERPRISE supports shared-core/legacy tiers like db-g1-small (cheap, dev). ENTERPRISE\_PLUS requires db-perf-optimized-N-* tiers. Pinned because some projects/orgs default new instances to ENTERPRISE\_PLUS, which rejects db-g1-small. | `string` | `"ENTERPRISE"` | no |
-| <a name="input_cloudsql_tier"></a> [cloudsql\_tier](#input\_cloudsql\_tier) | Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE\_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with cloudsql\_edition. | `string` | `"db-g1-small"` | no |
-| <a name="input_cluster_deletion_protection"></a> [cluster\_deletion\_protection](#input\_cluster\_deletion\_protection) | Block terraform destroy of the GKE cluster (google provider default is true). | `bool` | `true` | no |
-| <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name prefix for the GKE cluster and derived resources. Keep it short (<= 24 chars) so derived names (service-account IDs, Memorystore and LB names) stay within GCP limits. | `string` | `"n8n-cluster"` | no |
-| <a name="input_create_database"></a> [create\_database](#input\_create\_database) | When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (db\_host and db\_password must then be supplied). Kept as a static boolean rather than `db_host == null` because count expressions cannot depend on values computed at apply time. | `bool` | `true` | no |
-| <a name="input_db_host"></a> [db\_host](#input\_db\_host) | External database host. Required when create\_database = false. Ignored otherwise. Use this to pass any external PostgreSQL host. | `string` | `null` | no |
-| <a name="input_db_name"></a> [db\_name](#input\_db\_name) | n8n database name. | `string` | `"n8n_enterprise"` | no |
-| <a name="input_db_password"></a> [db\_password](#input\_db\_password) | Password for the external database specified by db\_host. Required when create\_database = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance). | `string` | `null` | no |
+| <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n\_fqdn at the static IP output yourself, as examples/cloudflare does). | `string` | `""` | no |
+| <a name="input_common_labels"></a> [common\_labels](#input\_common\_labels) | Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision. | `map(string)` | `{}` | no |
+| <a name="input_create_postgres_instance"></a> [create\_postgres\_instance](#input\_create\_postgres\_instance) | When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (n8n\_database\_host and n8n\_database\_password must then be supplied). Kept as a static boolean rather than `n8n_database_host == null` because count expressions cannot depend on values computed at apply time. | `bool` | `true` | no |
 | <a name="input_db_postgresdb_pool_size"></a> [db\_postgresdb\_pool\_size](#input\_db\_postgresdb\_pool\_size) | Number of TypeORM connection pool slots per n8n pod. Each pod holds this many persistent PostgreSQL connections. Rule of thumb: pool\_size >= worker\_concurrency / 4. With PgBouncer in transaction mode a lower value (5) is sufficient; without PgBouncer use a value matching concurrency (10-20). | `number` | `10` | no |
 | <a name="input_db_postgresdb_ssl_enabled"></a> [db\_postgresdb\_ssl\_enabled](#input\_db\_postgresdb\_ssl\_enabled) | Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl\_mode ALLOW\_UNENCRYPTED\_AND\_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped (DB\_POSTGRESDB\_SSL\_REJECT\_UNAUTHORIZED=false). | `bool` | `false` | no |
-| <a name="input_db_username"></a> [db\_username](#input\_db\_username) | n8n database user. | `string` | `"n8n"` | no |
-| <a name="input_dns_managed_zone"></a> [dns\_managed\_zone](#input\_dns\_managed\_zone) | Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n\_domain at the static IP output yourself, as examples/cloudflare does). | `string` | `""` | no |
-| <a name="input_enable_private_nodes"></a> [enable\_private\_nodes](#input\_enable\_private\_nodes) | Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via master\_authorized\_networks. | `bool` | `true` | no |
+| <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates (e.g. <friendly\_name\_prefix>-n8n for the GKE cluster, <friendly\_name\_prefix>-n8n-pg for Cloud SQL). Most commonly an environment (e.g. "sandbox", "prod"), team, or project name. | `string` | n/a | yes |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region for regional resources (GKE, Cloud SQL, Memorystore, subnet). | `string` | `"europe-west1"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete a non-empty bucket (dev only). | `bool` | `false` | no |
 | <a name="input_gcs_hmac_access_id"></a> [gcs\_hmac\_access\_id](#input\_gcs\_hmac\_access\_id) | BYO HMAC mode: the HMAC access ID (S3 access key) for the pre-existing key. Required when gcs\_hmac\_service\_account\_email is set. | `string` | `""` | no |
@@ -385,27 +377,35 @@ No modules.
 | <a name="input_gcs_hmac_secret_name"></a> [gcs\_hmac\_secret\_name](#input\_gcs\_hmac\_secret\_name) | BYO HMAC mode (most locked-down): name of an EXISTING Kubernetes Secret in the n8n namespace holding the HMAC secret under key 'accessSecret'. When set, the module references it directly and creates no Secret, so the raw secret never enters Terraform state. Overrides gcs\_hmac\_secret. | `string` | `""` | no |
 | <a name="input_gcs_hmac_service_account_email"></a> [gcs\_hmac\_service\_account\_email](#input\_gcs\_hmac\_service\_account\_email) | BYO HMAC mode: email of a PRE-EXISTING service account that owns an<br/>out-of-band-created HMAC key. When set, the module does NOT create the storage<br/>service account or the HMAC key; it grants this SA objectAdmin on the bucket<br/>and wires the credentials below into n8n. Requires gcs\_hmac\_access\_id and<br/>either gcs\_hmac\_secret or gcs\_hmac\_secret\_name. Empty = default (module<br/>creates the key). | `string` | `""` | no |
 | <a name="input_gcs_location"></a> [gcs\_location](#input\_gcs\_location) | GCS bucket location (region or multi-region). | `string` | `"EU"` | no |
+| <a name="input_gke_control_plane_authorized_networks"></a> [gke\_control\_plane\_authorized\_networks](#input\_gke\_control\_plane\_authorized\_networks) | CIDRs allowed to reach the control-plane endpoint. Empty = open (dev only); set to your admin CIDRs for a locked-down control plane. | <pre>list(object({<br/>    cidr_block   = string<br/>    display_name = string<br/>  }))</pre> | `[]` | no |
+| <a name="input_gke_control_plane_cidr"></a> [gke\_control\_plane\_cidr](#input\_gke\_control\_plane\_cidr) | CIDR for the GKE control-plane peering range (private cluster). Must not overlap the subnet/pods/services ranges. | `string` | `"172.16.0.0/28"` | no |
+| <a name="input_gke_deletion_protection"></a> [gke\_deletion\_protection](#input\_gke\_deletion\_protection) | Block terraform destroy of the GKE cluster (google provider default is true). | `bool` | `true` | no |
+| <a name="input_gke_enable_private_nodes"></a> [gke\_enable\_private\_nodes](#input\_gke\_enable\_private\_nodes) | Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via gke\_control\_plane\_authorized\_networks. | `bool` | `true` | no |
 | <a name="input_gke_min_master_version"></a> [gke\_min\_master\_version](#input\_gke\_min\_master\_version) | Optional control-plane version prefix (e.g. "1.32"). Empty lets the release channel decide. | `string` | `""` | no |
+| <a name="input_gke_node_disk_size_gb"></a> [gke\_node\_disk\_size\_gb](#input\_gke\_node\_disk\_size\_gb) | Node boot disk size in GB. | `number` | `100` | no |
+| <a name="input_gke_node_disk_type"></a> [gke\_node\_disk\_type](#input\_gke\_node\_disk\_type) | Node boot disk type (pd-standard, pd-balanced, pd-ssd). | `string` | `"pd-balanced"` | no |
+| <a name="input_gke_node_max_per_zone"></a> [gke\_node\_max\_per\_zone](#input\_gke\_node\_max\_per\_zone) | Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones). | `number` | `2` | no |
+| <a name="input_gke_node_min_per_zone"></a> [gke\_node\_min\_per\_zone](#input\_gke\_node\_min\_per\_zone) | Autoscaling minimum nodes PER ZONE. A regional cluster spans ~3 zones, so total min is roughly this x3. | `number` | `1` | no |
+| <a name="input_gke_node_type"></a> [gke\_node\_type](#input\_gke\_node\_type) | Node machine type. | `string` | `"e2-standard-4"` | no |
 | <a name="input_gke_release_channel"></a> [gke\_release\_channel](#input\_gke\_release\_channel) | GKE release channel: RAPID, REGULAR, STABLE, or UNSPECIFIED (to pin a version). | `string` | `"REGULAR"` | no |
 | <a name="input_https_redirect"></a> [https\_redirect](#input\_https\_redirect) | Redirect HTTP->HTTPS at the LB via a FrontendConfig. Set false while a google\_managed cert is still provisioning (Google needs HTTP reachable), then flip true. | `bool` | `true` | no |
-| <a name="input_k8s_service_account_name"></a> [k8s\_service\_account\_name](#input\_k8s\_service\_account\_name) | Kubernetes ServiceAccount the n8n pods run as (annotated for Workload Identity). Matches the n8n Helm chart's serviceAccount name. | `string` | `"n8n"` | no |
 | <a name="input_keda_chart_version"></a> [keda\_chart\_version](#input\_keda\_chart\_version) | KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. | `string` | `"2.20.1"` | no |
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let this module set a PROJECT-LEVEL override that turns OFF the<br/>iam.disableServiceAccountKeyCreation org policy, so the GCS HMAC key can be<br/>created. Default false, the module does not touch org policy.<br/>Set true ONLY IF: (a) your credentials have roles/orgpolicy.policyAdmin (org/<br/>folder-level; a normal project deployer does not), and (b) your org permits<br/>overriding this guardrail. Otherwise disable the policy out-of-band and leave<br/>this false. Requires the orgpolicy.googleapis.com API enabled. | `bool` | `false` | no |
-| <a name="input_master_authorized_networks"></a> [master\_authorized\_networks](#input\_master\_authorized\_networks) | CIDRs allowed to reach the control-plane endpoint. Empty = open (dev only); set to your admin CIDRs for a locked-down control plane. | <pre>list(object({<br/>    cidr_block   = string<br/>    display_name = string<br/>  }))</pre> | `[]` | no |
-| <a name="input_master_ipv4_cidr"></a> [master\_ipv4\_cidr](#input\_master\_ipv4\_cidr) | CIDR for the GKE control-plane peering range (private cluster). Must not overlap the subnet/pods/services ranges. | `string` | `"172.16.0.0/28"` | no |
-| <a name="input_memorystore_auth_enabled"></a> [memorystore\_auth\_enabled](#input\_memorystore\_auth\_enabled) | Enable Redis AUTH. If true, the KEDA worker trigger needs a TriggerAuthentication CRD. | `bool` | `false` | no |
-| <a name="input_memorystore_memory_gb"></a> [memorystore\_memory\_gb](#input\_memorystore\_memory\_gb) | Memorystore capacity in GB. | `number` | `1` | no |
-| <a name="input_memorystore_redis_version"></a> [memorystore\_redis\_version](#input\_memorystore\_redis\_version) | Memorystore Redis version. | `string` | `"REDIS_7_2"` | no |
-| <a name="input_memorystore_tier"></a> [memorystore\_tier](#input\_memorystore\_tier) | Memorystore tier: BASIC (no replica) or STANDARD\_HA. | `string` | `"BASIC"` | no |
 | <a name="input_n8n_chart_version"></a> [n8n\_chart\_version](#input\_n8n\_chart\_version) | n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n) | `string` | `"1.10.1"` | no |
 | <a name="input_n8n_community_packages_prevent_loading"></a> [n8n\_community\_packages\_prevent\_loading](#input\_n8n\_community\_packages\_prevent\_loading) | Prevent installed community packages from being loaded at runtime. Maps to N8N\_COMMUNITY\_PACKAGES\_PREVENT\_LOADING. When true, n8n leaves the community-packages management surface in place but skips loading the package code, which is useful for locking an instance down without uninstalling. Leave false (the default) for community nodes to load and execute. n8n defaults this to false; when false the env var is omitted entirely so n8n's own default applies. | `bool` | `false` | no |
-| <a name="input_n8n_domain"></a> [n8n\_domain](#input\_n8n\_domain) | Fully-qualified domain name for n8n (e.g. n8n.example.com). Must match the certificate served for the chosen tls\_mode. | `string` | n/a | yes |
+| <a name="input_n8n_database_host"></a> [n8n\_database\_host](#input\_n8n\_database\_host) | External database host. Required when create\_postgres\_instance = false. Ignored otherwise. Use this to pass any external PostgreSQL host. | `string` | `null` | no |
+| <a name="input_n8n_database_name"></a> [n8n\_database\_name](#input\_n8n\_database\_name) | n8n database name. | `string` | `"n8n_enterprise"` | no |
+| <a name="input_n8n_database_password"></a> [n8n\_database\_password](#input\_n8n\_database\_password) | Password for the external database specified by n8n\_database\_host. Required when create\_postgres\_instance = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance). | `string` | `null` | no |
+| <a name="input_n8n_database_user"></a> [n8n\_database\_user](#input\_n8n\_database\_user) | n8n database user. | `string` | `"n8n"` | no |
 | <a name="input_n8n_execution_concurrency_limit"></a> [n8n\_execution\_concurrency\_limit](#input\_n8n\_execution\_concurrency\_limit) | Maximum concurrent production executions (-1 to disable) | `number` | `100` | no |
 | <a name="input_n8n_execution_timeout"></a> [n8n\_execution\_timeout](#input\_n8n\_execution\_timeout) | Default execution timeout in seconds (-1 to disable) | `number` | `7200` | no |
 | <a name="input_n8n_execution_timeout_max"></a> [n8n\_execution\_timeout\_max](#input\_n8n\_execution\_timeout\_max) | Maximum execution timeout users can configure in seconds | `number` | `7200` | no |
 | <a name="input_n8n_extra_env"></a> [n8n\_extra\_env](#input\_n8n\_extra\_env) | Additional environment variables to inject into all n8n pods (main, worker, and webhook-processor) via the Helm chart's config.extraEnv list. Each entry is an object with name and value string attributes. config.extraEnv is appended last in every container's env list, so by Kubernetes' last-wins rule any name here overrides the chart's value for that name. To prevent silently breaking the deployment, an entry is rejected at plan time when its name collides with a connection, identity, storage, license, or topology variable the module manages: any name starting with DB\_, QUEUE\_, N8N\_RUNNERS\_, N8N\_EXTERNAL\_STORAGE\_S3\_, N8N\_MULTI\_MAIN\_, or AWS\_, plus names like N8N\_ENCRYPTION\_KEY, N8N\_LICENSE\_ACTIVATION\_KEY, N8N\_HOST, WEBHOOK\_URL, and EXECUTIONS\_MODE. Use the dedicated module inputs for those. Do not put secret values here, because they render into the Helm release and are stored in plaintext in Terraform state; instead pass a *\_FILE companion (e.g. a name ending in \_FILE) pointing at a mounted Kubernetes secret, or use n8n credentials. Example: [{name = "N8N\_DEFAULT\_LOCALE", value = "de"}]. | <pre>list(object({<br/>    name  = string<br/>    value = string<br/>  }))</pre> | `[]` | no |
+| <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Fully-qualified domain name for n8n (e.g. n8n.example.com). Must match the certificate served for the chosen tls\_mode. | `string` | n/a | yes |
 | <a name="input_n8n_helm_timeout"></a> [n8n\_helm\_timeout](#input\_n8n\_helm\_timeout) | Seconds Terraform waits for the n8n Helm release to converge. Increase for large deployments where rolling out 50+ pods (workers + webhook processors + main) exceeds the default. 600s is fine for the default/medium examples; large deployments at 250+ pods need ~1800s. | `number` | `600` | no |
 | <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n application image tag to deploy (e.g. "2.27.4"). When it is null (the default), the Helm chart's own default applies, currently the floating `stable` tag, which resolves to whatever n8n version is latest at the time each pod starts. Pin this to a concrete version for reproducible, incremental upgrades and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on an unplanned pod reschedule. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide. | `string` | `null` | no |
+| <a name="input_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#input\_n8n\_kube\_namespace) | Kubernetes namespace to deploy n8n into | `string` | `"n8n"` | no |
+| <a name="input_n8n_kube_svc_account"></a> [n8n\_kube\_svc\_account](#input\_n8n\_kube\_svc\_account) | Kubernetes ServiceAccount the n8n pods run as (annotated for Workload Identity). Matches the n8n Helm chart's serviceAccount name. | `string` | `"n8n"` | no |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key. Get one at https://n8n.io/pricing | `string` | n/a | yes |
 | <a name="input_n8n_log_level"></a> [n8n\_log\_level](#input\_n8n\_log\_level) | n8n log level. Maps to the N8N\_LOG\_LEVEL environment variable. One of: silent, error, warn, info, debug, verbose. | `string` | `"info"` | no |
 | <a name="input_n8n_log_output"></a> [n8n\_log\_output](#input\_n8n\_log\_output) | n8n log output destination(s). Maps to the N8N\_LOG\_OUTPUT environment variable. Comma-separated subset of: console, file (e.g. "console", "file", "console,file"). Note: this variable does NOT control log *format*, setting an invalid value (e.g. "json") leaves Winston with no transport and silently drops all logs. To emit JSON-formatted logs, configure n8n's logging block separately; this env var only selects destinations. | `string` | `"console"` | no |
@@ -450,7 +450,7 @@ No modules.
 | <a name="input_n8n_webhook_hpa_min_replicas"></a> [n8n\_webhook\_hpa\_min\_replicas](#input\_n8n\_webhook\_hpa\_min\_replicas) | Minimum replicas for n8n webhook processor pods. HPA will not scale below this. | `number` | `2` | no |
 | <a name="input_n8n_webhook_memory_limit"></a> [n8n\_webhook\_memory\_limit](#input\_n8n\_webhook\_memory\_limit) | Memory limit for n8n webhook processor pods (e.g. 1Gi, 2Gi) | `string` | `"1Gi"` | no |
 | <a name="input_n8n_webhook_memory_request"></a> [n8n\_webhook\_memory\_request](#input\_n8n\_webhook\_memory\_request) | Memory request for n8n webhook processor pods (e.g. 512Mi, 1Gi) | `string` | `"512Mi"` | no |
-| <a name="input_n8n_webhook_url"></a> [n8n\_webhook\_url](#input\_n8n\_webhook\_url) | Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n\_domain> when not set. Override when webhooks are served from a different host than the n8n UI. | `string` | `null` | no |
+| <a name="input_n8n_webhook_url"></a> [n8n\_webhook\_url](#input\_n8n\_webhook\_url) | Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n\_fqdn> when not set. Override when webhooks are served from a different host than the n8n UI. | `string` | `null` | no |
 | <a name="input_n8n_worker_concurrency"></a> [n8n\_worker\_concurrency](#input\_n8n\_worker\_concurrency) | Number of jobs each worker pod can process simultaneously | `number` | `10` | no |
 | <a name="input_n8n_worker_cpu_limit"></a> [n8n\_worker\_cpu\_limit](#input\_n8n\_worker\_cpu\_limit) | CPU limit for n8n worker pods (e.g. 1000m, 2000m) | `string` | `"1000m"` | no |
 | <a name="input_n8n_worker_cpu_request"></a> [n8n\_worker\_cpu\_request](#input\_n8n\_worker\_cpu\_request) | CPU request for n8n worker pods (e.g. 500m, 1000m) | `string` | `"500m"` | no |
@@ -459,16 +459,20 @@ No modules.
 | <a name="input_n8n_worker_keda_min_replicas"></a> [n8n\_worker\_keda\_min\_replicas](#input\_n8n\_worker\_keda\_min\_replicas) | Minimum worker replicas. KEDA keeps at least this many workers running even when the queue is empty. | `number` | `1` | no |
 | <a name="input_n8n_worker_memory_limit"></a> [n8n\_worker\_memory\_limit](#input\_n8n\_worker\_memory\_limit) | Memory limit for n8n worker pods (e.g. 2Gi, 4Gi) | `string` | `"2Gi"` | no |
 | <a name="input_n8n_worker_memory_request"></a> [n8n\_worker\_memory\_request](#input\_n8n\_worker\_memory\_request) | Memory request for n8n worker pods (e.g. 1Gi, 2Gi) | `string` | `"1Gi"` | no |
-| <a name="input_namespace"></a> [namespace](#input\_namespace) | Kubernetes namespace to deploy n8n into | `string` | `"n8n"` | no |
-| <a name="input_node_disk_size_gb"></a> [node\_disk\_size\_gb](#input\_node\_disk\_size\_gb) | Node boot disk size in GB. | `number` | `100` | no |
-| <a name="input_node_disk_type"></a> [node\_disk\_type](#input\_node\_disk\_type) | Node boot disk type (pd-standard, pd-balanced, pd-ssd). | `string` | `"pd-balanced"` | no |
-| <a name="input_node_machine_type"></a> [node\_machine\_type](#input\_node\_machine\_type) | Node machine type. | `string` | `"e2-standard-4"` | no |
-| <a name="input_node_max_per_zone"></a> [node\_max\_per\_zone](#input\_node\_max\_per\_zone) | Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones). | `number` | `2` | no |
-| <a name="input_node_min_per_zone"></a> [node\_min\_per\_zone](#input\_node\_min\_per\_zone) | Autoscaling minimum nodes PER ZONE. A regional cluster spans ~3 zones, so total min is roughly this x3. | `number` | `1` | no |
 | <a name="input_pods_cidr"></a> [pods\_cidr](#input\_pods\_cidr) | Secondary range for GKE pods (VPC-native / alias IPs). | `string` | `"10.20.0.0/16"` | no |
+| <a name="input_postgres_availability_type"></a> [postgres\_availability\_type](#input\_postgres\_availability\_type) | REGIONAL for HA (failover replica), ZONAL for single-zone. | `string` | `"REGIONAL"` | no |
+| <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
+| <a name="input_postgres_disk_size"></a> [postgres\_disk\_size](#input\_postgres\_disk\_size) | Cloud SQL data disk size in GB. | `number` | `50` | no |
+| <a name="input_postgres_edition"></a> [postgres\_edition](#input\_postgres\_edition) | Cloud SQL edition. ENTERPRISE supports shared-core/legacy tiers like db-g1-small (cheap, dev). ENTERPRISE\_PLUS requires db-perf-optimized-N-* tiers. Pinned because some projects/orgs default new instances to ENTERPRISE\_PLUS, which rejects db-g1-small. | `string` | `"ENTERPRISE"` | no |
+| <a name="input_postgres_machine_type"></a> [postgres\_machine\_type](#input\_postgres\_machine\_type) | Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE\_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with postgres\_edition. | `string` | `"db-g1-small"` | no |
+| <a name="input_postgres_version"></a> [postgres\_version](#input\_postgres\_version) | Cloud SQL Postgres version. | `string` | `"POSTGRES_16"` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID to deploy into. | `string` | n/a | yes |
 | <a name="input_psa_cleanup_destroy_duration"></a> [psa\_cleanup\_destroy\_duration](#input\_psa\_cleanup\_destroy\_duration) | How long to pause on destroy after Cloud SQL/Memorystore are deleted before deleting the Private Services Access peering, giving GCP's backend time to release its hold on the connection. GCP does not report when the release completes, and the observed lag varies widely (minutes to well over an hour). If destroy still fails with 'Producer services ... are still using this connection', either raise this or use the compute-level peering-delete escape hatch documented in README.md ('Teardown'). Accepts Go duration syntax (e.g. "3m", "15m", "1h"). | `string` | `"3m"` | no |
 | <a name="input_psa_prefix_length"></a> [psa\_prefix\_length](#input\_psa\_prefix\_length) | Prefix length for the Private Services Access range that Cloud SQL / Memorystore peer into. | `number` | `16` | no |
+| <a name="input_redis_auth_enabled"></a> [redis\_auth\_enabled](#input\_redis\_auth\_enabled) | Enable Redis AUTH. If true, the KEDA worker trigger needs a TriggerAuthentication CRD. | `bool` | `false` | no |
+| <a name="input_redis_memory_size_gb"></a> [redis\_memory\_size\_gb](#input\_redis\_memory\_size\_gb) | Memorystore capacity in GB. | `number` | `1` | no |
+| <a name="input_redis_tier"></a> [redis\_tier](#input\_redis\_tier) | Memorystore tier: BASIC (no replica) or STANDARD\_HA. | `string` | `"BASIC"` | no |
+| <a name="input_redis_version"></a> [redis\_version](#input\_redis\_version) | Memorystore Redis version. | `string` | `"REDIS_7_2"` | no |
 | <a name="input_services_cidr"></a> [services\_cidr](#input\_services\_cidr) | Secondary range for GKE services (VPC-native / alias IPs). | `string` | `"10.30.0.0/20"` | no |
 | <a name="input_subnet_cidr"></a> [subnet\_cidr](#input\_subnet\_cidr) | Primary CIDR for the node subnet. | `string` | `"10.10.0.0/20"` | no |
 | <a name="input_tls_cert_pem"></a> [tls\_cert\_pem](#input\_tls\_cert\_pem) | PEM certificate chain (tls\_mode = custom), e.g. a Cloudflare Origin CA cert. | `string` | `""` | no |
@@ -480,22 +484,22 @@ No modules.
 
 | Name | Description |
 | ---- | ----------- |
-| <a name="output_cloudsql_connection_name"></a> [cloudsql\_connection\_name](#output\_cloudsql\_connection\_name) | Cloud SQL instance connection name (project:region:instance). |
-| <a name="output_cloudsql_private_ip"></a> [cloudsql\_private\_ip](#output\_cloudsql\_private\_ip) | Cloud SQL private IP (VPC-internal). |
-| <a name="output_cluster_ca_certificate"></a> [cluster\_ca\_certificate](#output\_cluster\_ca\_certificate) | Base64-encoded GKE cluster CA. Pass to kubernetes/helm providers as cluster\_ca\_certificate (after base64decode). |
-| <a name="output_cluster_endpoint"></a> [cluster\_endpoint](#output\_cluster\_endpoint) | GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>). |
-| <a name="output_cluster_name"></a> [cluster\_name](#output\_cluster\_name) | GKE cluster name. |
-| <a name="output_db_password"></a> [db\_password](#output\_db\_password) | Database password. Module-managed when create\_database = true, else var.db\_password. |
 | <a name="output_gcs_bucket_name"></a> [gcs\_bucket\_name](#output\_gcs\_bucket\_name) | GCS bucket used for n8n binary storage. |
 | <a name="output_gcs_hmac_access_id"></a> [gcs\_hmac\_access\_id](#output\_gcs\_hmac\_access\_id) | GCS HMAC access key ID for the n8n S3-compatible binary storage driver (module-created or caller-supplied in BYO mode). |
 | <a name="output_gcs_hmac_secret"></a> [gcs\_hmac\_secret](#output\_gcs\_hmac\_secret) | GCS HMAC secret for the n8n S3-compatible binary storage driver. Null in BYO mode when supplied via an existing Secret (gcs\_hmac\_secret\_name). |
+| <a name="output_gke_cluster_ca_certificate"></a> [gke\_cluster\_ca\_certificate](#output\_gke\_cluster\_ca\_certificate) | Base64-encoded GKE cluster CA. Pass to kubernetes/helm providers as cluster\_ca\_certificate (after base64decode). |
+| <a name="output_gke_cluster_endpoint"></a> [gke\_cluster\_endpoint](#output\_gke\_cluster\_endpoint) | GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>). |
+| <a name="output_gke_cluster_name"></a> [gke\_cluster\_name](#output\_gke\_cluster\_name) | GKE cluster name. |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | Command to configure kubectl for this cluster. |
 | <a name="output_lb_ingress_ip"></a> [lb\_ingress\_ip](#output\_lb\_ingress\_ip) | IP the Ingress reports once the LB is provisioned (should match static\_ip). |
-| <a name="output_memorystore_host"></a> [memorystore\_host](#output\_memorystore\_host) | Memorystore Redis host (VPC-internal). |
+| <a name="output_n8n_database_password"></a> [n8n\_database\_password](#output\_n8n\_database\_password) | Database password. Module-managed when create\_postgres\_instance = true, else var.n8n\_database\_password. |
 | <a name="output_n8n_encryption_key"></a> [n8n\_encryption\_key](#output\_n8n\_encryption\_key) | n8n encryption key. Back this up; losing it makes all stored credentials unreadable. |
+| <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | Kubernetes namespace n8n is deployed into. |
 | <a name="output_n8n_url"></a> [n8n\_url](#output\_n8n\_url) | URL to access n8n once DNS propagates and the cert is active |
-| <a name="output_namespace"></a> [namespace](#output\_namespace) | Kubernetes namespace n8n is deployed into. |
-| <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | Reserved global static IP of the L7 load balancer. Point n8n\_domain (an A record) at this. The base module creates the record when dns\_managed\_zone is set; otherwise create it in your DNS provider (as examples/cloudflare does). |
+| <a name="output_postgres_connection_name"></a> [postgres\_connection\_name](#output\_postgres\_connection\_name) | Cloud SQL instance connection name (project:region:instance). |
+| <a name="output_postgres_private_ip"></a> [postgres\_private\_ip](#output\_postgres\_private\_ip) | Cloud SQL private IP (VPC-internal). |
+| <a name="output_redis_host"></a> [redis\_host](#output\_redis\_host) | Memorystore Redis host (VPC-internal). |
+| <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | Reserved global static IP of the L7 load balancer. Point n8n\_fqdn (an A record) at this. The base module creates the record when cloud\_dns\_zone\_name is set; otherwise create it in your DNS provider (as examples/cloudflare does). |
 | <a name="output_workload_identity_service_account"></a> [workload\_identity\_service\_account](#output\_workload\_identity\_service\_account) | Google service account the n8n pods impersonate via Workload Identity. |
 <!-- END_TF_DOCS -->
 

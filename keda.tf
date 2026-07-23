@@ -12,7 +12,7 @@
 #
 # Memorystore AUTH: default is auth disabled (BASIC tier), so the
 # KEDA Redis triggers in n8n.tf use an empty authenticationRef. When
-# memorystore_auth_enabled = true, the resources below give KEDA the AUTH string
+# redis_auth_enabled = true, the resources below give KEDA the AUTH string
 # via a TriggerAuthentication CR, so the auth path works end-to-end rather than
 # being a landmine.
 
@@ -31,12 +31,12 @@ resource "helm_release" "keda" {
   depends_on = [google_container_node_pool.n8n]
 }
 
-# ── KEDA Redis AUTH (only when memorystore_auth_enabled) ──────────────────────
+# ── KEDA Redis AUTH (only when redis_auth_enabled) ──────────────────────
 # The ScaledObject the n8n chart creates lives in the n8n namespace, so the
 # TriggerAuthentication and its backing Secret must live there too.
 
 resource "kubernetes_secret" "redis_auth" {
-  count = var.memorystore_auth_enabled ? 1 : 0
+  count = var.redis_auth_enabled ? 1 : 0
 
   metadata {
     name      = "n8n-redis-auth-secret"
@@ -49,14 +49,14 @@ resource "kubernetes_secret" "redis_auth" {
 }
 
 resource "kubectl_manifest" "redis_trigger_auth" {
-  count = var.memorystore_auth_enabled ? 1 : 0
+  count = var.redis_auth_enabled ? 1 : 0
 
   yaml_body = yamlencode({
     apiVersion = "keda.sh/v1alpha1"
     kind       = "TriggerAuthentication"
     metadata = {
       name      = "n8n-redis-auth"
-      namespace = var.namespace
+      namespace = var.n8n_kube_namespace
     }
     spec = {
       secretTargetRef = [{

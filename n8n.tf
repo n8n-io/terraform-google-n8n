@@ -18,7 +18,7 @@ resource "random_password" "task_runner_token" {
 
 resource "kubernetes_namespace" "n8n" {
   metadata {
-    name = var.namespace
+    name = var.n8n_kube_namespace
   }
 
   timeouts {
@@ -39,10 +39,10 @@ resource "kubernetes_secret" "n8n" {
 
   data = {
     N8N_ENCRYPTION_KEY = random_id.n8n_encryption_key.hex
-    N8N_HOST           = local.n8n_domain
+    N8N_HOST           = local.n8n_fqdn
     N8N_PORT           = "5678"
     N8N_PROTOCOL       = "http"
-    WEBHOOK_URL        = coalesce(var.n8n_webhook_url, "https://${local.n8n_domain}")
+    WEBHOOK_URL        = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
   }
 }
 
@@ -54,7 +54,7 @@ resource "kubernetes_secret" "n8n_db" {
 
   data = {
     # Use caller-supplied password when an external DB is provided, otherwise use the generated one.
-    password = var.create_database ? random_password.db_password.result : var.db_password
+    password = var.create_postgres_instance ? random_password.db_password.result : var.n8n_database_password
   }
 }
 
@@ -117,13 +117,13 @@ resource "helm_release" "n8n" {
     database = {
       type        = "postgresdb"
       useExternal = true
-      # Module-managed Cloud SQL (private IP over PSA) when create_database = true,
-      # otherwise the caller-supplied db_host (external DB or in-cluster pooler).
-      host     = var.create_database ? google_sql_database_instance.n8n.private_ip_address : var.db_host
+      # Module-managed Cloud SQL (private IP over PSA) when create_postgres_instance = true,
+      # otherwise the caller-supplied n8n_database_host (external DB or in-cluster pooler).
+      host     = var.create_postgres_instance ? google_sql_database_instance.n8n.private_ip_address : var.n8n_database_host
       port     = 5432
-      database = var.db_name
+      database = var.n8n_database_name
       schema   = "public"
-      user     = var.db_username
+      user     = var.n8n_database_user
       passwordSecret = {
         name = kubernetes_secret.n8n_db.metadata[0].name
         key  = "password"
@@ -131,7 +131,7 @@ resource "helm_release" "n8n" {
     }
 
     # Memorystore BASIC has transit encryption disabled. When
-    # memorystore_auth_enabled = true, the AUTH string is supplied via a Secret
+    # redis_auth_enabled = true, the AUTH string is supplied via a Secret
     # (keda.tf creates kubernetes_secret.redis_auth); otherwise no password.
     redis = merge({
       enabled     = true
@@ -139,7 +139,7 @@ resource "helm_release" "n8n" {
       host        = google_redis_instance.n8n.host
       port        = 6379
       tls         = false
-      }, var.memorystore_auth_enabled ? {
+      }, var.redis_auth_enabled ? {
       passwordSecret = {
         name = kubernetes_secret.redis_auth[0].metadata[0].name
         key  = "password"
@@ -179,7 +179,7 @@ resource "helm_release" "n8n" {
     # (GCS is the exception: it uses the HMAC key above, not Workload Identity.)
     serviceAccount = {
       create = true
-      name   = var.k8s_service_account_name
+      name   = var.n8n_kube_svc_account
       annotations = {
         "iam.gke.io/gcp-service-account" = google_service_account.n8n.email
       }
@@ -247,7 +247,7 @@ resource "helm_release" "n8n" {
                 listLength = tostring(var.n8n_worker_keda_jobs_per_replica)
               }
             },
-            var.memorystore_auth_enabled ? {
+            var.redis_auth_enabled ? {
               authenticationRef = { name = "n8n-redis-auth" }
             } : {}
           )
@@ -313,7 +313,7 @@ resource "helm_release" "n8n" {
           { name = "N8N_LOG_OUTPUT", value = var.n8n_log_output },
           { name = "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS", value = "true" },
           # Override the internally computed http://host:5678 URL so webhooks show the correct HTTPS address.
-          { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_domain}") },
+          { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}") },
           { name = "N8N_RUNNERS_TASK_REQUEST_TIMEOUT", value = tostring(var.n8n_task_runner_request_timeout) },
           # Keeps Memorystore from dropping idle Redis subscriber connections under sustained load.
           # Without this, Bull detects dropped connections, emits queue errors, and pods crash.
@@ -512,7 +512,7 @@ resource "kubernetes_ingress_v1" "n8n" {
 
   spec {
     rule {
-      host = local.n8n_domain
+      host = local.n8n_fqdn
       http {
         # Webhook traffic must go to the dedicated webhook-processor.
         # Production webhooks are disabled on main pods (disableProductionWebhooksOnMainProcess=true).
@@ -545,7 +545,7 @@ resource "kubernetes_ingress_v1" "n8n" {
     dynamic "tls" {
       for_each = var.tls_mode == "secret" ? [1] : []
       content {
-        hosts       = [local.n8n_domain]
+        hosts       = [local.n8n_fqdn]
         secret_name = var.tls_secret_name
       }
     }

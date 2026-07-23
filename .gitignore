@@ -78,3 +78,10 @@ Thumbs.db
 *.swo
 .idea/
 .vscode/
+
+# ── Agent loop residue (Ralph) ────────────────────────────────────────────────
+# Local agent-loop scaffolding; never ship in the registry artifact.
+.pi/
+init.sh
+progress.txt
+logs/

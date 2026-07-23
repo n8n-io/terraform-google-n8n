@@ -1,37 +1,71 @@
 # ── Foundation inputs ─────────────────────────────────────────────────────────
-# Cluster naming, the n8n domain, and the core n8n inputs. The GCP substrate
+# Resource naming (friendly_name_prefix), the n8n FQDN, and the core n8n
+# inputs. The GCP substrate
 # (VPC, GKE, Cloud SQL, Memorystore, GCS) is created by the module from the
 # inputs in variables_gcp.tf; see examples/small/.
 
-variable "cluster_name" {
-  description = "Name prefix for the GKE cluster and derived resources. Keep it short (<= 24 chars) so derived names (service-account IDs, Memorystore and LB names) stay within GCP limits."
+variable "friendly_name_prefix" {
+  description = "Prefix used to derive the name of every Google Cloud resource the module creates (e.g. <friendly_name_prefix>-n8n for the GKE cluster, <friendly_name_prefix>-n8n-pg for Cloud SQL). Most commonly an environment (e.g. \"sandbox\", \"prod\"), team, or project name."
   type        = string
-  default     = "n8n-cluster"
 
   validation {
-    condition     = length(var.cluster_name) <= 24
-    error_message = "cluster_name must be 24 characters or fewer so derived GCP resource names stay within limits."
+    condition     = !strcontains(var.friendly_name_prefix, "n8n")
+    error_message = "friendly_name_prefix must not contain 'n8n' - the module already appends it, and including it here produces redundant names like <prefix>-n8n-n8n-pg."
   }
 
   # GCP resource names are RFC1035: fail at plan time instead of mid-apply.
   validation {
-    condition     = can(regex("^[a-z]([a-z0-9-]*[a-z0-9])?$", var.cluster_name))
-    error_message = "cluster_name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (no trailing hyphen), per GCP resource naming rules."
+    condition     = can(regex("^[a-z]([a-z0-9-]*[a-z0-9])?$", var.friendly_name_prefix))
+    error_message = "friendly_name_prefix must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (no trailing hyphen), per GCP resource naming rules."
+  }
+
+  # The tightest limit that derives from this prefix is the Google service
+  # account account_id (30 characters): <friendly_name_prefix>-n8n-nodes and
+  # <friendly_name_prefix>-n8n-store append 10 characters, leaving 20 for the
+  # prefix itself. Memorystore (40-character instance ID, "-n8n-redis" suffix)
+  # and GKE names (40 characters, shorter suffixes) are looser and never bind
+  # first. The substr() guards on the account_id arguments are belt and
+  # braces; this validator must keep them unreachable, because truncation
+  # would collide the SA ids or leave a trailing hyphen.
+  validation {
+    condition     = length(var.friendly_name_prefix) <= 20
+    error_message = "friendly_name_prefix must be 20 characters or fewer so derived service-account IDs (<friendly_name_prefix>-n8n-nodes/-store) stay within Google Cloud's 30-character account_id limit."
   }
 }
 
-variable "n8n_domain" {
+variable "common_labels" {
+  description = "Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for k, v in var.common_labels :
+      can(regex("^[a-z][a-z0-9_-]{0,62}$", k)) &&
+      (v == "" || can(regex("^[a-z0-9_-]{0,63}$", v)))
+    ])
+    error_message = <<-EOT
+      Invalid common_labels.
+
+      - Label keys must start with a lowercase letter and contain only lowercase letters, numbers, dashes (-), and underscores (_)
+      - Label values must be empty or contain only lowercase letters, numbers, dashes (-), and underscores (_)
+      - Maximum length for both keys and values is 63 characters
+    EOT
+  }
+}
+
+variable "n8n_fqdn" {
   description = "Fully-qualified domain name for n8n (e.g. n8n.example.com). Must match the certificate served for the chosen tls_mode."
   type        = string
 
   validation {
-    condition     = can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.n8n_domain))
+    condition     = can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.n8n_fqdn))
     error_message = "Value must be a valid fully qualified domain name (e.g. n8n.example.com)."
   }
 }
 
 variable "n8n_webhook_url" {
-  description = "Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n_domain> when not set. Override when webhooks are served from a different host than the n8n UI."
+  description = "Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n_fqdn> when not set. Override when webhooks are served from a different host than the n8n UI."
   type        = string
   default     = null
 }
@@ -42,7 +76,7 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
-variable "namespace" {
+variable "n8n_kube_namespace" {
   description = "Kubernetes namespace to deploy n8n into"
   type        = string
   default     = "n8n"
@@ -305,32 +339,32 @@ variable "n8n_task_runner_request_timeout" {
 
 # ── Cloud SQL PostgreSQL ─────────────────────────────────────────────────────────────
 
-variable "create_database" {
-  description = "When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (db_host and db_password must then be supplied). Kept as a static boolean rather than `db_host == null` because count expressions cannot depend on values computed at apply time."
+variable "create_postgres_instance" {
+  description = "When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (n8n_database_host and n8n_database_password must then be supplied). Kept as a static boolean rather than `n8n_database_host == null` because count expressions cannot depend on values computed at apply time."
   type        = bool
   default     = true
 }
 
-variable "db_host" {
-  description = "External database host. Required when create_database = false. Ignored otherwise. Use this to pass any external PostgreSQL host."
+variable "n8n_database_host" {
+  description = "External database host. Required when create_postgres_instance = false. Ignored otherwise. Use this to pass any external PostgreSQL host."
   type        = string
   default     = null
 
   validation {
-    condition     = var.create_database || var.db_host != null
-    error_message = "db_host is required when create_database = false."
+    condition     = var.create_postgres_instance || var.n8n_database_host != null
+    error_message = "n8n_database_host is required when create_postgres_instance = false."
   }
 }
 
-variable "db_password" {
-  description = "Password for the external database specified by db_host. Required when create_database = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance)."
+variable "n8n_database_password" {
+  description = "Password for the external database specified by n8n_database_host. Required when create_postgres_instance = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance)."
   type        = string
   default     = null
   sensitive   = true
 
   validation {
-    condition     = var.create_database || var.db_password != null
-    error_message = "db_password is required when create_database = false."
+    condition     = var.create_postgres_instance || var.n8n_database_password != null
+    error_message = "n8n_database_password is required when create_postgres_instance = false."
   }
 }
 

@@ -51,7 +51,7 @@ TERRAFORM_DIR="${TERRAFORM_DIR:-$(pwd)}"
 if command -v terraform &>/dev/null && [[ -f "$TERRAFORM_DIR/terraform.tfstate" ]]; then
   echo -e "\033[0;36m↳\033[0m  Reading values from Terraform state in: $TERRAFORM_DIR"
 
-  tf_namespace=$(terraform -chdir="$TERRAFORM_DIR" output -raw namespace 2>/dev/null || true)
+  tf_namespace=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_kube_namespace 2>/dev/null || true)
   tf_n8n_url=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_url 2>/dev/null || true)
   tf_kubectl_cmd=$(terraform -chdir="$TERRAFORM_DIR" output -raw kubectl_config_command 2>/dev/null || true)
 

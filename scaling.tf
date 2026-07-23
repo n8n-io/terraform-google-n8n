@@ -6,7 +6,7 @@
 resource "kubernetes_horizontal_pod_autoscaler_v2" "n8n_webhook" {
   metadata {
     name      = "n8n-webhook-processor"
-    namespace = var.namespace
+    namespace = var.n8n_kube_namespace
   }
 
   spec {

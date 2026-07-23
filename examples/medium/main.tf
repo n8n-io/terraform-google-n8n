@@ -12,10 +12,10 @@
 module "n8n" {
   source = "../.."
 
-  project_id   = var.project_id
-  gcp_region   = var.gcp_region
-  cluster_name = var.cluster_name
-  n8n_domain   = var.n8n_domain
+  project_id           = var.project_id
+  gcp_region           = var.gcp_region
+  friendly_name_prefix = var.friendly_name_prefix
+  n8n_fqdn             = var.n8n_fqdn
 
   n8n_license_key = var.n8n_license_key
   gcs_location    = var.gcs_location
@@ -24,16 +24,16 @@ module "n8n" {
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
   # ── Sizing (medium) ─────────────────────────────────────────────────────────
-  cloudsql_tier              = var.cloudsql_tier
-  cloudsql_disk_size         = var.cloudsql_disk_size
-  cloudsql_availability_type = var.cloudsql_availability_type
+  postgres_machine_type      = var.postgres_machine_type
+  postgres_disk_size         = var.postgres_disk_size
+  postgres_availability_type = var.postgres_availability_type
 
-  memorystore_tier      = var.memorystore_tier
-  memorystore_memory_gb = var.memorystore_memory_gb
+  redis_tier           = var.redis_tier
+  redis_memory_size_gb = var.redis_memory_size_gb
 
-  node_machine_type = var.node_machine_type
-  node_min_per_zone = var.node_min_per_zone
-  node_max_per_zone = var.node_max_per_zone
+  gke_node_type         = var.gke_node_type
+  gke_node_min_per_zone = var.gke_node_min_per_zone
+  gke_node_max_per_zone = var.gke_node_max_per_zone
 
   n8n_worker_concurrency       = var.n8n_worker_concurrency
   n8n_worker_keda_min_replicas = var.n8n_worker_keda_min_replicas
@@ -44,11 +44,11 @@ module "n8n" {
   n8n_execution_concurrency_limit = var.n8n_execution_concurrency_limit
 
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
-  cluster_deletion_protection  = var.cluster_deletion_protection
-  cloudsql_deletion_protection = var.cloudsql_deletion_protection
+  gke_deletion_protection      = var.gke_deletion_protection
+  postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
   # DNS + TLS: manage the record in Cloud DNS, Google-managed cert.
-  dns_managed_zone = var.dns_managed_zone
-  tls_mode         = "google_managed"
+  cloud_dns_zone_name = var.cloud_dns_zone_name
+  tls_mode            = "google_managed"
 }

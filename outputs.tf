@@ -1,20 +1,20 @@
 # ── App DNS ───────────────────────────────────────────────────────────────────
 
 output "static_ip" {
-  description = "Reserved global static IP of the L7 load balancer. Point n8n_domain (an A record) at this. The base module creates the record when dns_managed_zone is set; otherwise create it in your DNS provider (as examples/cloudflare does)."
+  description = "Reserved global static IP of the L7 load balancer. Point n8n_fqdn (an A record) at this. The base module creates the record when cloud_dns_zone_name is set; otherwise create it in your DNS provider (as examples/cloudflare does)."
   value       = google_compute_global_address.lb.address
 }
 
 output "n8n_url" {
   description = "URL to access n8n once DNS propagates and the cert is active"
-  value       = "https://${local.n8n_domain}"
+  value       = "https://${local.n8n_fqdn}"
 }
 
 output "lb_ingress_ip" {
   description = "IP the Ingress reports once the LB is provisioned (should match static_ip)."
   value = try(
     kubernetes_ingress_v1.n8n.status[0].load_balancer[0].ingress[0].ip,
-    "LB not yet provisioned, run: kubectl get ingress n8n-ingress -n ${var.namespace}"
+    "LB not yet provisioned, run: kubectl get ingress n8n-ingress -n ${var.n8n_kube_namespace}"
   )
 }
 
@@ -26,9 +26,9 @@ output "n8n_encryption_key" {
   sensitive   = true
 }
 
-output "db_password" {
-  description = "Database password. Module-managed when create_database = true, else var.db_password."
-  value       = var.create_database ? random_password.db_password.result : var.db_password
+output "n8n_database_password" {
+  description = "Database password. Module-managed when create_postgres_instance = true, else var.n8n_database_password."
+  value       = var.create_postgres_instance ? random_password.db_password.result : var.n8n_database_password
   sensitive   = true
 }
 
@@ -46,17 +46,17 @@ output "gcs_hmac_secret" {
 
 # ── Infrastructure ─────────────────────────────────────────────────────────────
 
-output "cloudsql_private_ip" {
+output "postgres_private_ip" {
   description = "Cloud SQL private IP (VPC-internal)."
   value       = google_sql_database_instance.n8n.private_ip_address
 }
 
-output "cloudsql_connection_name" {
+output "postgres_connection_name" {
   description = "Cloud SQL instance connection name (project:region:instance)."
   value       = google_sql_database_instance.n8n.connection_name
 }
 
-output "memorystore_host" {
+output "redis_host" {
   description = "Memorystore Redis host (VPC-internal)."
   value       = google_redis_instance.n8n.host
 }
@@ -73,17 +73,17 @@ output "workload_identity_service_account" {
 
 # ── Cluster (wire the kubernetes/helm/kubectl providers in your root/example) ──
 
-output "cluster_name" {
+output "gke_cluster_name" {
   description = "GKE cluster name."
   value       = google_container_cluster.n8n.name
 }
 
-output "cluster_endpoint" {
+output "gke_cluster_endpoint" {
   description = "GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>)."
   value       = google_container_cluster.n8n.endpoint
 }
 
-output "cluster_ca_certificate" {
+output "gke_cluster_ca_certificate" {
   description = "Base64-encoded GKE cluster CA. Pass to kubernetes/helm providers as cluster_ca_certificate (after base64decode)."
   value       = try(google_container_cluster.n8n.master_auth[0].cluster_ca_certificate, null)
   sensitive   = true
@@ -94,7 +94,7 @@ output "kubectl_config_command" {
   value       = "gcloud container clusters get-credentials ${google_container_cluster.n8n.name} --region ${var.gcp_region} --project ${var.project_id}"
 }
 
-output "namespace" {
+output "n8n_kube_namespace" {
   description = "Kubernetes namespace n8n is deployed into."
-  value       = var.namespace
+  value       = var.n8n_kube_namespace
 }

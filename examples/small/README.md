@@ -1,7 +1,7 @@
 # Example: n8n on GKE (small / default)
 
 The base-module default path: the module creates the VPC, GKE cluster, Cloud SQL,
-Memorystore, GCS, and (when `dns_managed_zone` is set) the Google Cloud DNS
+Memorystore, GCS, and (when `cloud_dns_zone_name` is set) the Google Cloud DNS
 A-record. TLS is a Google-managed certificate.
 
 > **Note:** `tls_mode = "google_managed"` is validated end to end (cert issued,
@@ -25,7 +25,7 @@ terraform init
 terraform apply
 ```
 
-If `dns_managed_zone` is empty, create the A-record yourself against the
+If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 `static_ip` output. Status: preliminary / not scale-validated.
 
 <!-- BEGIN_TF_DOCS -->
@@ -61,16 +61,16 @@ If `dns_managed_zone` is empty, create the A-record yourself against the
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_cloudsql_deletion_protection"></a> [cloudsql\_deletion\_protection](#input\_cloudsql\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
-| <a name="input_cluster_deletion_protection"></a> [cluster\_deletion\_protection](#input\_cluster\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
-| <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name prefix for the GKE cluster and derived resources. | `string` | `"n8n-dev"` | no |
-| <a name="input_dns_managed_zone"></a> [dns\_managed\_zone](#input\_dns\_managed\_zone) | Google Cloud DNS managed-zone name for n8n\_domain. Empty means you manage the A-record yourself against the static\_ip output. | `string` | `""` | no |
+| <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name for n8n\_fqdn. Empty means you manage the A-record yourself against the static\_ip output. | `string` | `""` | no |
+| <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates. | `string` | `"dev"` | no |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region (e.g. us-east4, us-east1, europe-west1). | `string` | `"us-east4"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete the (non-empty) GCS bucket. | `bool` | `false` | no |
 | <a name="input_gcs_location"></a> [gcs\_location](#input\_gcs\_location) | GCS bucket location for binary storage. Keep it near gcp\_region (e.g. US for a us-* region, EU for europe-*). | `string` | `"US"` | no |
+| <a name="input_gke_deletion_protection"></a> [gke\_deletion\_protection](#input\_gke\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation for this project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise. | `bool` | `false` | no |
-| <a name="input_n8n_domain"></a> [n8n\_domain](#input\_n8n\_domain) | Hostname n8n is served on. | `string` | n/a | yes |
+| <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. | `string` | n/a | yes |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key (multi-main requires Enterprise). | `string` | `""` | no |
+| <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID. | `string` | n/a | yes |
 
 ## Outputs
@@ -78,7 +78,7 @@ If `dns_managed_zone` is empty, create the A-record yourself against the
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | n/a |
+| <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | n/a |
 | <a name="output_n8n_url"></a> [n8n\_url](#output\_n8n\_url) | n/a |
-| <a name="output_namespace"></a> [namespace](#output\_namespace) | n/a |
-| <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | LB static IP. Point n8n\_domain at this if you are not letting the module manage Cloud DNS. |
+| <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | LB static IP. Point n8n\_fqdn at this if you are not letting the module manage Cloud DNS. |
 <!-- END_TF_DOCS -->

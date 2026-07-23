@@ -25,19 +25,25 @@ mock_provider "random" {}
 mock_provider "time" {}
 
 variables {
-  project_id      = "test-project"
-  gcp_region      = "us-east4"
-  cluster_name    = "n8n-cluster"
-  n8n_domain      = "n8n.test.example.com"
-  n8n_license_key = "test-license-key-not-real"
+  project_id           = "test-project"
+  gcp_region           = "us-east4"
+  friendly_name_prefix = "test"
+  n8n_fqdn             = "n8n.test.example.com"
+  n8n_license_key      = "test-license-key-not-real"
 }
 
 run "defaults_produce_valid_plan" {
   command = plan
 
   assert {
-    condition     = google_container_cluster.n8n.name == "n8n-cluster"
-    error_message = "var.cluster_name should flow through to google_container_cluster.name"
+    condition     = google_container_cluster.n8n.name == "test-n8n"
+    error_message = "friendly_name_prefix should flow through to google_container_cluster.name as <friendly_name_prefix>-n8n"
+  }
+
+  # common_labels entries must appear in a labeled resource's merged label set.
+  assert {
+    condition     = google_container_cluster.n8n.resource_labels["managed_by"] == "terraform"
+    error_message = "resource_labels must include the module's built-in labels"
   }
 
   # VPC-native (alias IP) networking is required for private Cloud SQL/Redis
@@ -61,19 +67,19 @@ run "defaults_produce_valid_plan" {
 
   assert {
     condition     = google_container_node_pool.n8n.node_config[0].machine_type == "e2-standard-4"
-    error_message = "node_machine_type should default to e2-standard-4"
+    error_message = "gke_node_type should default to e2-standard-4"
   }
 
   # Regional cluster: min/max are per-zone counts applied across the region's
   # zones. Defaults keep a small footprint that autoscaling can grow.
   assert {
     condition     = google_container_node_pool.n8n.autoscaling[0].min_node_count == 1
-    error_message = "node_min_per_zone should default to 1"
+    error_message = "gke_node_min_per_zone should default to 1"
   }
 
   assert {
     condition     = google_container_node_pool.n8n.autoscaling[0].max_node_count == 2
-    error_message = "node_max_per_zone should default to 2"
+    error_message = "gke_node_max_per_zone should default to 2"
   }
 }
 
@@ -82,18 +88,18 @@ run "cloudsql_private_and_hardened" {
 
   assert {
     condition     = google_sql_database_instance.n8n.database_version == "POSTGRES_16"
-    error_message = "cloudsql_database_version should default to POSTGRES_16"
+    error_message = "postgres_version should default to POSTGRES_16"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].tier == "db-g1-small"
-    error_message = "cloudsql_tier should default to db-g1-small"
+    error_message = "postgres_machine_type should default to db-g1-small"
   }
 
   # Regional availability is the point of the module's HA posture.
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].availability_type == "REGIONAL"
-    error_message = "cloudsql_availability_type should default to REGIONAL for HA"
+    error_message = "postgres_availability_type should default to REGIONAL for HA"
   }
 
   assert {
@@ -127,32 +133,33 @@ run "cloudsql_private_and_hardened" {
 }
 
 # Cross-variable validation: when the caller opts into an external database
-# (create_database = false), both db_host and db_password are required at plan
-# time. Without these the failure would otherwise surface deep inside the n8n
-# Helm release at apply time, after the cluster and database have been built.
+# (create_postgres_instance = false), both n8n_database_host and
+# n8n_database_password are required at plan time. Without these the failure
+# would otherwise surface deep inside the n8n Helm release at apply time,
+# after the cluster and database have been built.
 
 run "external_db_missing_host_fails_validation" {
   command = plan
 
   variables {
-    create_database = false
-    db_password     = "external-db-password"
-    # db_host intentionally unset
+    create_postgres_instance = false
+    n8n_database_password    = "external-db-password"
+    # n8n_database_host intentionally unset
   }
 
-  expect_failures = [var.db_host]
+  expect_failures = [var.n8n_database_host]
 }
 
 run "external_db_missing_password_fails_validation" {
   command = plan
 
   variables {
-    create_database = false
-    db_host         = "10.9.8.7"
-    # db_password intentionally unset
+    create_postgres_instance = false
+    n8n_database_host        = "10.9.8.7"
+    # n8n_database_password intentionally unset
   }
 
-  expect_failures = [var.db_password]
+  expect_failures = [var.n8n_database_password]
 }
 
 run "redis_private_and_sized" {
@@ -160,12 +167,12 @@ run "redis_private_and_sized" {
 
   assert {
     condition     = google_redis_instance.n8n.tier == "BASIC"
-    error_message = "memorystore_tier should default to BASIC"
+    error_message = "redis_tier should default to BASIC"
   }
 
   assert {
     condition     = google_redis_instance.n8n.memory_size_gb == 1
-    error_message = "memorystore_memory_gb should default to 1"
+    error_message = "redis_memory_size_gb should default to 1"
   }
 
   # Redis must be reached over Private Service Access, never a public endpoint.
@@ -197,10 +204,10 @@ run "gcs_bucket_is_private" {
     error_message = "gcs_force_destroy should default to false"
   }
 
-  # Bucket name: <project_id>-n8n-<cluster_name>.
+  # Bucket name: <project_id>-n8n-<friendly_name_prefix>.
   assert {
-    condition     = google_storage_bucket.n8n.name == "test-project-n8n-n8n-cluster"
-    error_message = "GCS bucket name should be <project_id>-n8n-<cluster_name>"
+    condition     = google_storage_bucket.n8n.name == "test-project-n8n-test"
+    error_message = "GCS bucket name should be <project_id>-n8n-<friendly_name_prefix>"
   }
 
   assert {
@@ -292,11 +299,11 @@ run "workload_identity_binds_correct_service_accounts" {
   command = plan
 
   assert {
-    condition     = google_service_account.n8n.account_id == "n8n-cluster-n8n"
-    error_message = "n8n GSA account_id should be <cluster_name>-n8n (truncated to 30 chars)"
+    condition     = google_service_account.n8n.account_id == "test-n8n-wi"
+    error_message = "n8n GSA account_id should be <friendly_name_prefix>-n8n-wi"
   }
 
-  # The IAM binding lets the in-cluster KSA (namespace/k8s_service_account_name)
+  # The IAM binding lets the in-cluster KSA (namespace/n8n_kube_svc_account)
   # impersonate the Google service account via Workload Identity.
   assert {
     condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:test-project.svc.id.goog[n8n/n8n]"
@@ -318,8 +325,8 @@ run "node_pool_uses_dedicated_service_account" {
   # asserted at the SA + IAM level; verify the email wiring with a real
   # `terraform plan` from an example root.
   assert {
-    condition     = google_service_account.nodes.account_id == "n8n-cluster-nodes"
-    error_message = "node SA account_id should be <cluster_name>-nodes (truncated to 30 chars)"
+    condition     = google_service_account.nodes.account_id == "test-n8n-nodes"
+    error_message = "node SA account_id should be <friendly_name_prefix>-n8n-nodes"
   }
 
   # The node SA holds exactly the minimal Google-recommended role set:
@@ -401,24 +408,24 @@ run "custom_database_sizing" {
   command = plan
 
   variables {
-    cloudsql_tier             = "db-custom-8-30720"
-    cloudsql_disk_size        = 200
-    cloudsql_database_version = "POSTGRES_15"
+    postgres_machine_type = "db-custom-8-30720"
+    postgres_disk_size    = 200
+    postgres_version      = "POSTGRES_15"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].tier == "db-custom-8-30720"
-    error_message = "cloudsql_tier variable did not propagate"
+    error_message = "postgres_machine_type variable did not propagate"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.settings[0].disk_size == 200
-    error_message = "cloudsql_disk_size variable did not propagate"
+    error_message = "postgres_disk_size variable did not propagate"
   }
 
   assert {
     condition     = google_sql_database_instance.n8n.database_version == "POSTGRES_15"
-    error_message = "cloudsql_database_version variable did not propagate"
+    error_message = "postgres_version variable did not propagate"
   }
 }
 
@@ -426,12 +433,12 @@ run "custom_namespace_propagates_to_workload_identity" {
   command = plan
 
   variables {
-    namespace = "n8n-prod"
+    n8n_kube_namespace = "n8n-prod"
   }
 
   assert {
     condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:test-project.svc.id.goog[n8n-prod/n8n]"
-    error_message = "workload identity member namespace should track var.namespace"
+    error_message = "workload identity member namespace should track var.n8n_kube_namespace"
   }
 }
 
@@ -1075,37 +1082,82 @@ run "image_tag_rejects_overlong_tag" {
   expect_failures = [var.n8n_image_tag]
 }
 
-# ── cluster_name naming contract ──────────────────────────────────────────────
+# ── friendly_name_prefix naming contract ──────────────────────────────────────
 # GCP resource names are RFC1035 (lowercase letter start, lowercase
 # alphanumerics and hyphens, no trailing hyphen). The validator fails these at
 # plan time instead of letting the first apply die on the VPC or cluster name.
 
-run "cluster_name_rejects_uppercase" {
+run "friendly_name_prefix_rejects_uppercase" {
   command = plan
 
   variables {
-    cluster_name = "N8N-Prod"
+    friendly_name_prefix = "Prod"
   }
 
-  expect_failures = [var.cluster_name]
+  expect_failures = [var.friendly_name_prefix]
 }
 
-run "cluster_name_rejects_trailing_hyphen" {
+run "friendly_name_prefix_rejects_trailing_hyphen" {
   command = plan
 
   variables {
-    cluster_name = "n8n-cluster-"
+    friendly_name_prefix = "prod-"
   }
 
-  expect_failures = [var.cluster_name]
+  expect_failures = [var.friendly_name_prefix]
 }
 
-run "cluster_name_rejects_leading_digit" {
+run "friendly_name_prefix_rejects_leading_digit" {
   command = plan
 
   variables {
-    cluster_name = "8n8-cluster"
+    friendly_name_prefix = "8prod"
   }
 
-  expect_failures = [var.cluster_name]
+  expect_failures = [var.friendly_name_prefix]
+}
+
+run "friendly_name_prefix_rejects_n8n_substring" {
+  command = plan
+
+  variables {
+    friendly_name_prefix = "myn8ncluster"
+  }
+
+  expect_failures = [var.friendly_name_prefix]
+}
+
+run "friendly_name_prefix_rejects_overlong_value" {
+  command = plan
+
+  variables {
+    # 21 characters - one over the 20-char cap (SA account_id limit).
+    friendly_name_prefix = join("", [for i in range(21) : "a"])
+  }
+
+  expect_failures = [var.friendly_name_prefix]
+}
+
+run "common_labels_merge_into_resource_labels" {
+  command = plan
+
+  variables {
+    common_labels = {
+      team = "platform"
+      env  = "staging"
+    }
+  }
+
+  assert {
+    condition = (
+      google_container_cluster.n8n.resource_labels["team"] == "platform" &&
+      google_container_cluster.n8n.resource_labels["env"] == "staging"
+    )
+    error_message = "common_labels entries must be merged into resource_labels"
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n.resource_labels["managed_by"] == "terraform"
+    error_message = "common_labels must not override the module's built-in labels"
+  }
 }

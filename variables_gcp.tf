@@ -42,54 +42,54 @@ variable "psa_prefix_length" {
 
 # ── Cloud SQL ─────────────────────────────────────────────────────────────────
 
-variable "cloudsql_database_version" {
+variable "postgres_version" {
   description = "Cloud SQL Postgres version."
   type        = string
   default     = "POSTGRES_16"
 }
 
-variable "cloudsql_edition" {
+variable "postgres_edition" {
   description = "Cloud SQL edition. ENTERPRISE supports shared-core/legacy tiers like db-g1-small (cheap, dev). ENTERPRISE_PLUS requires db-perf-optimized-N-* tiers. Pinned because some projects/orgs default new instances to ENTERPRISE_PLUS, which rejects db-g1-small."
   type        = string
   default     = "ENTERPRISE"
 
   validation {
-    condition     = contains(["ENTERPRISE", "ENTERPRISE_PLUS"], var.cloudsql_edition)
-    error_message = "cloudsql_edition must be ENTERPRISE or ENTERPRISE_PLUS."
+    condition     = contains(["ENTERPRISE", "ENTERPRISE_PLUS"], var.postgres_edition)
+    error_message = "postgres_edition must be ENTERPRISE or ENTERPRISE_PLUS."
   }
 }
 
-variable "cloudsql_tier" {
-  description = "Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with cloudsql_edition."
+variable "postgres_machine_type" {
+  description = "Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with postgres_edition."
   type        = string
   default     = "db-g1-small"
 }
 
-variable "cloudsql_availability_type" {
+variable "postgres_availability_type" {
   description = "REGIONAL for HA (failover replica), ZONAL for single-zone."
   type        = string
   default     = "REGIONAL"
 }
 
-variable "cloudsql_disk_size" {
+variable "postgres_disk_size" {
   description = "Cloud SQL data disk size in GB."
   type        = number
   default     = 50
 }
 
-variable "cloudsql_deletion_protection" {
+variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true
 }
 
-variable "db_name" {
+variable "n8n_database_name" {
   description = "n8n database name."
   type        = string
   default     = "n8n_enterprise"
 }
 
-variable "db_username" {
+variable "n8n_database_user" {
   description = "n8n database user."
   type        = string
   default     = "n8n"
@@ -97,25 +97,25 @@ variable "db_username" {
 
 # ── Memorystore ───────────────────────────────────────────────────────────────
 
-variable "memorystore_tier" {
+variable "redis_tier" {
   description = "Memorystore tier: BASIC (no replica) or STANDARD_HA."
   type        = string
   default     = "BASIC"
 }
 
-variable "memorystore_memory_gb" {
+variable "redis_memory_size_gb" {
   description = "Memorystore capacity in GB."
   type        = number
   default     = 1
 }
 
-variable "memorystore_redis_version" {
+variable "redis_version" {
   description = "Memorystore Redis version."
   type        = string
   default     = "REDIS_7_2"
 }
 
-variable "memorystore_auth_enabled" {
+variable "redis_auth_enabled" {
   description = "Enable Redis AUTH. If true, the KEDA worker trigger needs a TriggerAuthentication CRD."
   type        = bool
   default     = false
@@ -223,7 +223,7 @@ variable "gcs_hmac_secret_name" {
 
 # ── Workload Identity ─────────────────────────────────────────────────────────
 
-variable "k8s_service_account_name" {
+variable "n8n_kube_svc_account" {
   description = "Kubernetes ServiceAccount the n8n pods run as (annotated for Workload Identity). Matches the n8n Helm chart's serviceAccount name."
   type        = string
   default     = "n8n"
@@ -284,8 +284,8 @@ variable "https_redirect" {
 # example). Alternative DNS providers are examples that manage their own record
 # against the module's static IP output (examples/cloudflare, examples/godaddy).
 
-variable "dns_managed_zone" {
-  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_domain at the static IP output yourself, as examples/cloudflare does)."
+variable "cloud_dns_zone_name" {
+  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does)."
   type        = string
   default     = ""
 }
@@ -304,25 +304,25 @@ variable "gke_min_master_version" {
   default     = ""
 }
 
-variable "cluster_deletion_protection" {
+variable "gke_deletion_protection" {
   description = "Block terraform destroy of the GKE cluster (google provider default is true)."
   type        = bool
   default     = true
 }
 
-variable "enable_private_nodes" {
-  description = "Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via master_authorized_networks."
+variable "gke_enable_private_nodes" {
+  description = "Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via gke_control_plane_authorized_networks."
   type        = bool
   default     = true
 }
 
-variable "master_ipv4_cidr" {
+variable "gke_control_plane_cidr" {
   description = "CIDR for the GKE control-plane peering range (private cluster). Must not overlap the subnet/pods/services ranges."
   type        = string
   default     = "172.16.0.0/28"
 }
 
-variable "master_authorized_networks" {
+variable "gke_control_plane_authorized_networks" {
   description = "CIDRs allowed to reach the control-plane endpoint. Empty = open (dev only); set to your admin CIDRs for a locked-down control plane."
   type = list(object({
     cidr_block   = string
@@ -331,31 +331,31 @@ variable "master_authorized_networks" {
   default = []
 }
 
-variable "node_machine_type" {
+variable "gke_node_type" {
   description = "Node machine type."
   type        = string
   default     = "e2-standard-4"
 }
 
-variable "node_min_per_zone" {
+variable "gke_node_min_per_zone" {
   description = "Autoscaling minimum nodes PER ZONE. A regional cluster spans ~3 zones, so total min is roughly this x3."
   type        = number
   default     = 1
 }
 
-variable "node_max_per_zone" {
+variable "gke_node_max_per_zone" {
   description = "Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones)."
   type        = number
   default     = 2
 }
 
-variable "node_disk_size_gb" {
+variable "gke_node_disk_size_gb" {
   description = "Node boot disk size in GB."
   type        = number
   default     = 100
 }
 
-variable "node_disk_type" {
+variable "gke_node_disk_type" {
   description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd)."
   type        = string
   default     = "pd-balanced"

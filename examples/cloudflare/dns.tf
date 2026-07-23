@@ -1,9 +1,9 @@
 # ── Cloudflare DNS + cert-manager (Let's Encrypt, DNS-01) ─────────────────────
 
-# A-record: n8n_domain -> the module's LB static IP.
+# A-record: n8n_fqdn -> the module's LB static IP.
 resource "cloudflare_record" "n8n" {
   zone_id = var.cloudflare_zone_id
-  name    = var.n8n_domain
+  name    = var.n8n_fqdn
   type    = "A"
   content = module.n8n.static_ip
   # Proxied (orange-cloud) works too, but pair it with a Cloudflare Origin CA
@@ -78,11 +78,11 @@ resource "kubectl_manifest" "certificate" {
     kind       = "Certificate"
     metadata = {
       name      = "n8n-tls"
-      namespace = module.n8n.namespace
+      namespace = module.n8n.n8n_kube_namespace
     }
     spec = {
       secretName = "n8n-tls"
-      dnsNames   = [var.n8n_domain]
+      dnsNames   = [var.n8n_fqdn]
       issuerRef = {
         name = "letsencrypt-cloudflare"
         kind = "ClusterIssuer"
