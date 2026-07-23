@@ -20,7 +20,7 @@ module "n8n" {
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
-  cluster_deletion_protection  = var.cluster_deletion_protection
+  gke_deletion_protection      = var.gke_deletion_protection
   postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 

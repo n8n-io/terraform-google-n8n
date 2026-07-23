@@ -15,11 +15,11 @@ dns_managed_zone     = "my-cloud-dns-zone" # empty = manage the A-record yoursel
 # postgres_machine_type                   = "db-custom-8-30720"
 # postgres_disk_size              = 250
 # postgres_availability_type      = "REGIONAL"
-# memorystore_tier                = "STANDARD_HA"
-# memorystore_memory_gb           = 8
-# node_machine_type               = "e2-standard-16"
-# node_min_per_zone               = 3
-# node_max_per_zone               = 10
+# redis_tier                = "STANDARD_HA"
+# redis_memory_size_gb           = 8
+# gke_node_type               = "e2-standard-16"
+# gke_node_min_per_zone               = 3
+# gke_node_max_per_zone               = 10
 # n8n_worker_concurrency          = 20
 # n8n_worker_keda_min_replicas    = 3
 # n8n_worker_keda_max_replicas    = 80

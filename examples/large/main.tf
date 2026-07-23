@@ -29,12 +29,12 @@ module "n8n" {
   postgres_disk_size         = var.postgres_disk_size
   postgres_availability_type = var.postgres_availability_type
 
-  memorystore_tier      = var.memorystore_tier
-  memorystore_memory_gb = var.memorystore_memory_gb
+  redis_tier           = var.redis_tier
+  redis_memory_size_gb = var.redis_memory_size_gb
 
-  node_machine_type = var.node_machine_type
-  node_min_per_zone = var.node_min_per_zone
-  node_max_per_zone = var.node_max_per_zone
+  gke_node_type         = var.gke_node_type
+  gke_node_min_per_zone = var.gke_node_min_per_zone
+  gke_node_max_per_zone = var.gke_node_max_per_zone
 
   n8n_worker_concurrency       = var.n8n_worker_concurrency
   n8n_worker_keda_min_replicas = var.n8n_worker_keda_min_replicas
@@ -46,7 +46,7 @@ module "n8n" {
   n8n_execution_concurrency_limit = var.n8n_execution_concurrency_limit
 
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
-  cluster_deletion_protection  = var.cluster_deletion_protection
+  gke_deletion_protection      = var.gke_deletion_protection
   postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 

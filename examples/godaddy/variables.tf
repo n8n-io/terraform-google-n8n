@@ -60,10 +60,10 @@ variable "manage_sa_key_org_policy" {
 }
 
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
-# For `terraform destroy`, first flip these (e.g. -var cluster_deletion_protection=false
+# For `terraform destroy`, first flip these (e.g. -var gke_deletion_protection=false
 # -var postgres_deletion_protection=false -var gcs_force_destroy=true) and apply,
 # then destroy.
-variable "cluster_deletion_protection" {
+variable "gke_deletion_protection" {
   description = "Block terraform destroy of the GKE cluster."
   type        = bool
   default     = true

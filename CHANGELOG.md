@@ -33,6 +33,20 @@ this project adheres to the stability contract in
 - **Breaking:** outputs `cloudsql_private_ip` and `cloudsql_connection_name`
   are renamed to `postgres_private_ip` and `postgres_connection_name`; output
   `db_password` is renamed to `n8n_database_password`.
+- **Breaking:** Redis and GKE variables are renamed to HVD-style,
+  service-oriented names: `memorystore_tier` to `redis_tier`,
+  `memorystore_memory_gb` to `redis_memory_size_gb`,
+  `memorystore_redis_version` to `redis_version`,
+  `memorystore_auth_enabled` to `redis_auth_enabled`, `node_machine_type` to
+  `gke_node_type`, `node_min_per_zone` to `gke_node_min_per_zone`,
+  `node_max_per_zone` to `gke_node_max_per_zone`, `node_disk_size_gb` to
+  `gke_node_disk_size_gb`, `node_disk_type` to `gke_node_disk_type`,
+  `cluster_deletion_protection` to `gke_deletion_protection`,
+  `enable_private_nodes` to `gke_enable_private_nodes`, `master_ipv4_cidr` to
+  `gke_control_plane_cidr`, and `master_authorized_networks` to
+  `gke_control_plane_authorized_networks`. Semantics, types, and defaults are
+  unchanged; only the names move.
+- **Breaking:** output `memorystore_host` is renamed to `redis_host`.
 
 ## [0.1.0] - 2026-07-21
 

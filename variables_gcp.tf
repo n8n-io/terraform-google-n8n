@@ -97,25 +97,25 @@ variable "n8n_database_user" {
 
 # ── Memorystore ───────────────────────────────────────────────────────────────
 
-variable "memorystore_tier" {
+variable "redis_tier" {
   description = "Memorystore tier: BASIC (no replica) or STANDARD_HA."
   type        = string
   default     = "BASIC"
 }
 
-variable "memorystore_memory_gb" {
+variable "redis_memory_size_gb" {
   description = "Memorystore capacity in GB."
   type        = number
   default     = 1
 }
 
-variable "memorystore_redis_version" {
+variable "redis_version" {
   description = "Memorystore Redis version."
   type        = string
   default     = "REDIS_7_2"
 }
 
-variable "memorystore_auth_enabled" {
+variable "redis_auth_enabled" {
   description = "Enable Redis AUTH. If true, the KEDA worker trigger needs a TriggerAuthentication CRD."
   type        = bool
   default     = false
@@ -304,25 +304,25 @@ variable "gke_min_master_version" {
   default     = ""
 }
 
-variable "cluster_deletion_protection" {
+variable "gke_deletion_protection" {
   description = "Block terraform destroy of the GKE cluster (google provider default is true)."
   type        = bool
   default     = true
 }
 
-variable "enable_private_nodes" {
-  description = "Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via master_authorized_networks."
+variable "gke_enable_private_nodes" {
+  description = "Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via gke_control_plane_authorized_networks."
   type        = bool
   default     = true
 }
 
-variable "master_ipv4_cidr" {
+variable "gke_control_plane_cidr" {
   description = "CIDR for the GKE control-plane peering range (private cluster). Must not overlap the subnet/pods/services ranges."
   type        = string
   default     = "172.16.0.0/28"
 }
 
-variable "master_authorized_networks" {
+variable "gke_control_plane_authorized_networks" {
   description = "CIDRs allowed to reach the control-plane endpoint. Empty = open (dev only); set to your admin CIDRs for a locked-down control plane."
   type = list(object({
     cidr_block   = string
@@ -331,31 +331,31 @@ variable "master_authorized_networks" {
   default = []
 }
 
-variable "node_machine_type" {
+variable "gke_node_type" {
   description = "Node machine type."
   type        = string
   default     = "e2-standard-4"
 }
 
-variable "node_min_per_zone" {
+variable "gke_node_min_per_zone" {
   description = "Autoscaling minimum nodes PER ZONE. A regional cluster spans ~3 zones, so total min is roughly this x3."
   type        = number
   default     = 1
 }
 
-variable "node_max_per_zone" {
+variable "gke_node_max_per_zone" {
   description = "Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones)."
   type        = number
   default     = 2
 }
 
-variable "node_disk_size_gb" {
+variable "gke_node_disk_size_gb" {
   description = "Node boot disk size in GB."
   type        = number
   default     = 100
 }
 
-variable "node_disk_type" {
+variable "gke_node_disk_type" {
   description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd)."
   type        = string
   default     = "pd-balanced"

@@ -68,31 +68,31 @@ variable "postgres_availability_type" {
   default     = "REGIONAL"
 }
 
-variable "memorystore_tier" {
+variable "redis_tier" {
   description = "Memorystore tier: BASIC or STANDARD_HA."
   type        = string
   default     = "STANDARD_HA"
 }
 
-variable "memorystore_memory_gb" {
+variable "redis_memory_size_gb" {
   description = "Memorystore capacity in GB."
   type        = number
   default     = 4
 }
 
-variable "node_machine_type" {
+variable "gke_node_type" {
   description = "GKE node machine type."
   type        = string
   default     = "e2-standard-8"
 }
 
-variable "node_min_per_zone" {
+variable "gke_node_min_per_zone" {
   description = "Autoscaling min nodes per zone (regional cluster ~3 zones)."
   type        = number
   default     = 2
 }
 
-variable "node_max_per_zone" {
+variable "gke_node_max_per_zone" {
   description = "Autoscaling max nodes per zone."
   type        = number
   default     = 5
@@ -111,7 +111,7 @@ variable "n8n_worker_keda_min_replicas" {
 }
 
 variable "n8n_worker_keda_max_replicas" {
-  description = "KEDA worker ceiling (pair with node_max_per_zone)."
+  description = "KEDA worker ceiling (pair with gke_node_max_per_zone)."
   type        = number
   default     = 30
 }
@@ -135,11 +135,11 @@ variable "n8n_execution_concurrency_limit" {
 }
 
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
-# To `terraform destroy`, first flip these (e.g. `-var cluster_deletion_protection=false
+# To `terraform destroy`, first flip these (e.g. `-var gke_deletion_protection=false
 # -var postgres_deletion_protection=false -var gcs_force_destroy=true`) and apply,
 # then destroy.
 
-variable "cluster_deletion_protection" {
+variable "gke_deletion_protection" {
   description = "Block terraform destroy of the GKE cluster."
   type        = bool
   default     = true

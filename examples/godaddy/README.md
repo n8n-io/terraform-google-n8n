@@ -77,11 +77,11 @@ in the GoDaddy zone `example.com`).
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_cluster_deletion_protection"></a> [cluster\_deletion\_protection](#input\_cluster\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
 | <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates. | `string` | `"godaddy"` | no |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region (e.g. us-east4, us-east1, europe-west3). | `string` | `"us-east4"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete the GCS bucket even if it still holds objects. | `bool` | `false` | no |
 | <a name="input_gcs_location"></a> [gcs\_location](#input\_gcs\_location) | GCS bucket location for binary storage. Keep it near gcp\_region (e.g. US for a us-* region, EU for europe-*). | `string` | `"US"` | no |
+| <a name="input_gke_deletion_protection"></a> [gke\_deletion\_protection](#input\_gke\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
 | <a name="input_godaddy_api_key"></a> [godaddy\_api\_key](#input\_godaddy\_api\_key) | GoDaddy API key. Can also be supplied via the GODADDY\_API\_KEY environment variable. Create one at https://developer.godaddy.com/keys. | `string` | `""` | no |
 | <a name="input_godaddy_api_secret"></a> [godaddy\_api\_secret](#input\_godaddy\_api\_secret) | GoDaddy API secret corresponding to godaddy\_api\_key. Can also be supplied via the GODADDY\_API\_SECRET environment variable. | `string` | `""` | no |
 | <a name="input_godaddy_domain"></a> [godaddy\_domain](#input\_godaddy\_domain) | The GoDaddy zone (registered domain) that owns n8n\_domain, e.g. example.com. | `string` | n/a | yes |

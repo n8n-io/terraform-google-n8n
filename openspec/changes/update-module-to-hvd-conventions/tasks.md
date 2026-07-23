@@ -39,11 +39,11 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 3. Redis and GKE interface rename
 
-- [ ] 3.1 Rename `memorystore_*` variables to `redis_*` and the node and
+- [x] 3.1 Rename `memorystore_*` variables to `redis_*` and the node and
       control-plane variables to `gke_*` per design D3
-- [ ] 3.2 Update module references (`memorystore.tf`, `gke.tf`, `n8n.tf`) and
+- [x] 3.2 Update module references (`memorystore.tf`, `gke.tf`, `n8n.tf`) and
       rename output `memorystore_host` to `redis_host`
-- [ ] 3.3 Update examples, tests, regenerate terraform-docs, add CHANGELOG
+- [x] 3.3 Update examples, tests, regenerate terraform-docs, add CHANGELOG
       bullets, run the full local loop
 
 ## 4. Application and DNS interface rename

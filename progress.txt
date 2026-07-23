@@ -93,3 +93,44 @@ Started: 2026-07-23
     expected and deferred to section 5 (operator docs); don't fix it early or
     section 5 will find nothing to do.
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 3. Redis and GKE interface rename
+- Renamed Memorystore variables to HVD-style names per design D3:
+  `memorystore_tier` -> `redis_tier`, `memorystore_memory_gb` ->
+  `redis_memory_size_gb`, `memorystore_redis_version` -> `redis_version`,
+  `memorystore_auth_enabled` -> `redis_auth_enabled`. Renamed node/GKE
+  variables: `node_machine_type` -> `gke_node_type`, `node_min_per_zone` ->
+  `gke_node_min_per_zone`, `node_max_per_zone` -> `gke_node_max_per_zone`,
+  `node_disk_size_gb` -> `gke_node_disk_size_gb`, `node_disk_type` ->
+  `gke_node_disk_type`, `cluster_deletion_protection` ->
+  `gke_deletion_protection`, `enable_private_nodes` ->
+  `gke_enable_private_nodes`, `master_ipv4_cidr` -> `gke_control_plane_cidr`,
+  `master_authorized_networks` -> `gke_control_plane_authorized_networks`.
+  Renamed output `memorystore_host` to `redis_host`.
+- Updated `memorystore.tf`, `gke.tf`, `n8n.tf`, `keda.tf` (comments too),
+  `variables_gcp.tf`, `outputs.tf`; updated all five examples'
+  `main.tf`/`variables.tf`/`terraform.tfvars.example`; updated
+  `tests/defaults.tftest.hcl`. Regenerated terraform-docs at root and every
+  example. Added CHANGELOG bullets under `## [Unreleased] / ### Changed`.
+- **Learnings for future iterations:**
+  - A single word-boundary regex rename script across `*.tf`,
+    `examples/*/*.tf`, `examples/*/*.tfvars.example`, and
+    `tests/*.tftest.hcl` in one Python pass works well for a batch of
+    unrelated renames, but it is blind to context: it will also rewrite a
+    Google resource schema attribute *key* that happens to share the exact
+    variable name being renamed. Here `enable_private_nodes` is both our
+    variable name and the literal attribute key inside
+    `google_container_cluster.private_cluster_config {}`; the script turned
+    `enable_private_nodes = var.enable_private_nodes` into
+    `gke_enable_private_nodes = var.gke_enable_private_nodes`, which is
+    invalid (the resource schema doesn't have that attribute). Caught by
+    `terraform validate` immediately after the mechanical pass. Always run
+    `terraform validate` right after a mechanical rename and diff every
+    changed `resource` block by eye for a rewritten attribute key, not just
+    the intended `var.xxx` reference.
+  - None of the five example `tests/defaults.tftest.hcl` files or
+    `examples/small/terraform.tfvars` referenced any of this section's old
+    names, so no test file needed manual editing beyond the root
+    `tests/defaults.tftest.hcl` (which the mechanical script already
+    covered).
+---

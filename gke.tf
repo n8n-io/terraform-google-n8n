@@ -15,7 +15,7 @@ resource "google_container_cluster" "n8n" {
   remove_default_node_pool = true
   initial_node_count       = 1
 
-  deletion_protection = var.cluster_deletion_protection
+  deletion_protection = var.gke_deletion_protection
 
   release_channel {
     channel = var.gke_release_channel
@@ -35,16 +35,16 @@ resource "google_container_cluster" "n8n" {
   }
 
   private_cluster_config {
-    enable_private_nodes    = var.enable_private_nodes
+    enable_private_nodes    = var.gke_enable_private_nodes
     enable_private_endpoint = false
-    master_ipv4_cidr_block  = var.enable_private_nodes ? var.master_ipv4_cidr : null
+    master_ipv4_cidr_block  = var.gke_enable_private_nodes ? var.gke_control_plane_cidr : null
   }
 
   dynamic "master_authorized_networks_config" {
-    for_each = length(var.master_authorized_networks) > 0 ? [1] : []
+    for_each = length(var.gke_control_plane_authorized_networks) > 0 ? [1] : []
     content {
       dynamic "cidr_blocks" {
-        for_each = var.master_authorized_networks
+        for_each = var.gke_control_plane_authorized_networks
         content {
           cidr_block   = cidr_blocks.value.cidr_block
           display_name = cidr_blocks.value.display_name
@@ -99,8 +99,8 @@ resource "google_container_node_pool" "n8n" {
   cluster  = google_container_cluster.n8n.name
 
   autoscaling {
-    min_node_count = var.node_min_per_zone
-    max_node_count = var.node_max_per_zone
+    min_node_count = var.gke_node_min_per_zone
+    max_node_count = var.gke_node_max_per_zone
   }
 
   management {
@@ -109,9 +109,9 @@ resource "google_container_node_pool" "n8n" {
   }
 
   node_config {
-    machine_type = var.node_machine_type
-    disk_size_gb = var.node_disk_size_gb
-    disk_type    = var.node_disk_type
+    machine_type = var.gke_node_type
+    disk_size_gb = var.gke_node_disk_size_gb
+    disk_type    = var.gke_node_disk_type
 
     # Dedicated least-privilege SA; see the node service account section above.
     service_account = google_service_account.nodes.email

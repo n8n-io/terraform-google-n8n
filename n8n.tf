@@ -131,7 +131,7 @@ resource "helm_release" "n8n" {
     }
 
     # Memorystore BASIC has transit encryption disabled. When
-    # memorystore_auth_enabled = true, the AUTH string is supplied via a Secret
+    # redis_auth_enabled = true, the AUTH string is supplied via a Secret
     # (keda.tf creates kubernetes_secret.redis_auth); otherwise no password.
     redis = merge({
       enabled     = true
@@ -139,7 +139,7 @@ resource "helm_release" "n8n" {
       host        = google_redis_instance.n8n.host
       port        = 6379
       tls         = false
-      }, var.memorystore_auth_enabled ? {
+      }, var.redis_auth_enabled ? {
       passwordSecret = {
         name = kubernetes_secret.redis_auth[0].metadata[0].name
         key  = "password"
@@ -247,7 +247,7 @@ resource "helm_release" "n8n" {
                 listLength = tostring(var.n8n_worker_keda_jobs_per_replica)
               }
             },
-            var.memorystore_auth_enabled ? {
+            var.redis_auth_enabled ? {
               authenticationRef = { name = "n8n-redis-auth" }
             } : {}
           )

@@ -56,7 +56,7 @@ output "postgres_connection_name" {
   value       = google_sql_database_instance.n8n.connection_name
 }
 
-output "memorystore_host" {
+output "redis_host" {
   description = "Memorystore Redis host (VPC-internal)."
   value       = google_redis_instance.n8n.host
 }

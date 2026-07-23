@@ -67,19 +67,19 @@ run "defaults_produce_valid_plan" {
 
   assert {
     condition     = google_container_node_pool.n8n.node_config[0].machine_type == "e2-standard-4"
-    error_message = "node_machine_type should default to e2-standard-4"
+    error_message = "gke_node_type should default to e2-standard-4"
   }
 
   # Regional cluster: min/max are per-zone counts applied across the region's
   # zones. Defaults keep a small footprint that autoscaling can grow.
   assert {
     condition     = google_container_node_pool.n8n.autoscaling[0].min_node_count == 1
-    error_message = "node_min_per_zone should default to 1"
+    error_message = "gke_node_min_per_zone should default to 1"
   }
 
   assert {
     condition     = google_container_node_pool.n8n.autoscaling[0].max_node_count == 2
-    error_message = "node_max_per_zone should default to 2"
+    error_message = "gke_node_max_per_zone should default to 2"
   }
 }
 
@@ -167,12 +167,12 @@ run "redis_private_and_sized" {
 
   assert {
     condition     = google_redis_instance.n8n.tier == "BASIC"
-    error_message = "memorystore_tier should default to BASIC"
+    error_message = "redis_tier should default to BASIC"
   }
 
   assert {
     condition     = google_redis_instance.n8n.memory_size_gb == 1
-    error_message = "memorystore_memory_gb should default to 1"
+    error_message = "redis_memory_size_gb should default to 1"
   }
 
   # Redis must be reached over Private Service Access, never a public endpoint.
