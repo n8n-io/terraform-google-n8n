@@ -299,8 +299,8 @@ run "workload_identity_binds_correct_service_accounts" {
   command = plan
 
   assert {
-    condition     = google_service_account.n8n.account_id == "test-n8n-n8n"
-    error_message = "n8n GSA account_id should be <friendly_name_prefix>-n8n-n8n (truncated to 30 chars)"
+    condition     = google_service_account.n8n.account_id == "test-n8n-wi"
+    error_message = "n8n GSA account_id should be <friendly_name_prefix>-n8n-wi"
   }
 
   # The IAM binding lets the in-cluster KSA (namespace/n8n_kube_svc_account)
@@ -326,7 +326,7 @@ run "node_pool_uses_dedicated_service_account" {
   # `terraform plan` from an example root.
   assert {
     condition     = google_service_account.nodes.account_id == "test-n8n-nodes"
-    error_message = "node SA account_id should be <friendly_name_prefix>-n8n-nodes (truncated to 30 chars)"
+    error_message = "node SA account_id should be <friendly_name_prefix>-n8n-nodes"
   }
 
   # The node SA holds exactly the minimal Google-recommended role set:
@@ -1131,8 +1131,8 @@ run "friendly_name_prefix_rejects_overlong_value" {
   command = plan
 
   variables {
-    # 31 characters - one over the 30-char cap.
-    friendly_name_prefix = join("", [for i in range(31) : "a"])
+    # 21 characters - one over the 20-char cap (SA account_id limit).
+    friendly_name_prefix = join("", [for i in range(21) : "a"])
   }
 
   expect_failures = [var.friendly_name_prefix]

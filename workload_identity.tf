@@ -7,7 +7,10 @@
 # driver needs static credentials.
 
 resource "google_service_account" "n8n" {
-  account_id   = substr("${local.name_prefix}-n8n", 0, 30)
+  # "-wi" (workload identity), not "-n8n": local.name_prefix already ends in
+  # -n8n and a -n8n suffix would produce the redundant <prefix>-n8n-n8n id the
+  # friendly_name_prefix validator warns against.
+  account_id   = substr("${local.name_prefix}-wi", 0, 30)
   project      = var.project_id
   display_name = "n8n workload identity (${local.name_prefix})"
 }

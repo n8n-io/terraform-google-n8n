@@ -137,7 +137,7 @@ DNS: the base module can manage a Google Cloud DNS record (`cloud_dns_zone_name`
 |---|---|
 | `project_id` | GCP project ID (required). |
 | `gcp_region` | Region (e.g. `us-east4`, `europe-west1`). |
-| `friendly_name_prefix` | Prefix used to derive the name of every Google Cloud resource (<= 30 chars). |
+| `friendly_name_prefix` | Prefix used to derive the name of every Google Cloud resource (<= 20 chars). |
 | `n8n_fqdn` | Hostname n8n is served on. |
 | `n8n_license_key` | n8n Enterprise activation key. |
 | `gcs_location` | GCS bucket location; keep near `gcp_region` (`US` / `EU` / a region). |

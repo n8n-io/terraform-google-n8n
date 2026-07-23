@@ -12,6 +12,8 @@ this project adheres to the stability contract in
 - Added `.github/CODEOWNERS` with a `*` rule owned by `@jrx` and
   `@buddy-n8n`.
 - Added `SUPPORT.md` pointing to GitHub issues and the n8n community forum.
+- Added `common_labels` (`map(string)`, default `{}`), merged into every
+  taggable resource's label set alongside the module's built-in labels.
 
 ### Changed
 
@@ -20,12 +22,13 @@ this project adheres to the stability contract in
   naming scheme is `<friendly_name_prefix>-n8n<-suffix>` (e.g. the GKE
   cluster is `<friendly_name_prefix>-n8n`, Cloud SQL is
   `<friendly_name_prefix>-n8n-pg`). `friendly_name_prefix` is required, must
-  not contain `n8n`, and is capped at 30 characters.
+  not contain `n8n`, and is capped at 20 characters so derived
+  service-account IDs stay within Google Cloud's 30-character `account_id`
+  limit. The Workload Identity service account is
+  `<friendly_name_prefix>-n8n-wi`.
 - **Breaking:** output `cluster_name` is renamed to `gke_cluster_name`,
   `cluster_endpoint` to `gke_cluster_endpoint`, and `cluster_ca_certificate`
   to `gke_cluster_ca_certificate`.
-- Added `common_labels` (`map(string)`, default `{}`), merged into every
-  taggable resource's label set alongside the module's built-in labels.
 - **Breaking:** database variables are renamed to HVD-style, service-oriented
   names: `create_database` to `create_postgres_instance`, `db_host` to
   `n8n_database_host`, `db_password` to `n8n_database_password`, `db_name` to

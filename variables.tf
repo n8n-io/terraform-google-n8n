@@ -1,5 +1,6 @@
 # ── Foundation inputs ─────────────────────────────────────────────────────────
-# Cluster naming, the n8n domain, and the core n8n inputs. The GCP substrate
+# Resource naming (friendly_name_prefix), the n8n FQDN, and the core n8n
+# inputs. The GCP substrate
 # (VPC, GKE, Cloud SQL, Memorystore, GCS) is created by the module from the
 # inputs in variables_gcp.tf; see examples/small/.
 
@@ -18,14 +19,17 @@ variable "friendly_name_prefix" {
     error_message = "friendly_name_prefix must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (no trailing hyphen), per GCP resource naming rules."
   }
 
-  # The tightest 40-character GCP name limit that derives from this prefix is
-  # Memorystore for Redis (<friendly_name_prefix>-n8n-redis): "-n8n" (4 chars)
-  # plus "-redis" (6 chars) leaves 30 characters for friendly_name_prefix
-  # itself. GKE cluster/node-pool names share the same 40-character limit but
-  # carry shorter suffixes ("", "-pool"), so Memorystore is the binding case.
+  # The tightest limit that derives from this prefix is the Google service
+  # account account_id (30 characters): <friendly_name_prefix>-n8n-nodes and
+  # <friendly_name_prefix>-n8n-store append 10 characters, leaving 20 for the
+  # prefix itself. Memorystore (40-character instance ID, "-n8n-redis" suffix)
+  # and GKE names (40 characters, shorter suffixes) are looser and never bind
+  # first. The substr() guards on the account_id arguments are belt and
+  # braces; this validator must keep them unreachable, because truncation
+  # would collide the SA ids or leave a trailing hyphen.
   validation {
-    condition     = length(var.friendly_name_prefix) <= 30
-    error_message = "friendly_name_prefix must be 30 characters or fewer so the longest derived name (<friendly_name_prefix>-n8n-redis, the Memorystore instance ID) stays within GCP's 40-character resource name limit."
+    condition     = length(var.friendly_name_prefix) <= 20
+    error_message = "friendly_name_prefix must be 20 characters or fewer so derived service-account IDs (<friendly_name_prefix>-n8n-nodes/-store) stay within Google Cloud's 30-character account_id limit."
   }
 }
 
