@@ -5,6 +5,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to the stability contract in
 [README.md, Stability & versioning](./README.md#stability--versioning).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** `cluster_name` is replaced by `friendly_name_prefix` as the
+  naming driver for every Google Cloud resource the module creates. The
+  naming scheme is `<friendly_name_prefix>-n8n<-suffix>` (e.g. the GKE
+  cluster is `<friendly_name_prefix>-n8n`, Cloud SQL is
+  `<friendly_name_prefix>-n8n-pg`). `friendly_name_prefix` is required, must
+  not contain `n8n`, and is capped at 30 characters.
+- **Breaking:** output `cluster_name` is renamed to `gke_cluster_name`,
+  `cluster_endpoint` to `gke_cluster_endpoint`, and `cluster_ca_certificate`
+  to `gke_cluster_ca_certificate`.
+- Added `common_labels` (`map(string)`, default `{}`), merged into every
+  taggable resource's label set alongside the module's built-in labels.
+
 ## [0.1.0] - 2026-07-21
 
 Initial release.

@@ -7,9 +7,9 @@
 # driver needs static credentials.
 
 resource "google_service_account" "n8n" {
-  account_id   = substr("${local.cluster_name}-n8n", 0, 30)
+  account_id   = substr("${local.name_prefix}-n8n", 0, 30)
   project      = var.project_id
-  display_name = "n8n workload identity (${local.cluster_name})"
+  display_name = "n8n workload identity (${local.name_prefix})"
 }
 
 # Let the Kubernetes ServiceAccount impersonate the Google service account.

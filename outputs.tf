@@ -73,17 +73,17 @@ output "workload_identity_service_account" {
 
 # ── Cluster (wire the kubernetes/helm/kubectl providers in your root/example) ──
 
-output "cluster_name" {
+output "gke_cluster_name" {
   description = "GKE cluster name."
   value       = google_container_cluster.n8n.name
 }
 
-output "cluster_endpoint" {
+output "gke_cluster_endpoint" {
   description = "GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>)."
   value       = google_container_cluster.n8n.endpoint
 }
 
-output "cluster_ca_certificate" {
+output "gke_cluster_ca_certificate" {
   description = "Base64-encoded GKE cluster CA. Pass to kubernetes/helm providers as cluster_ca_certificate (after base64decode)."
   value       = try(google_container_cluster.n8n.master_auth[0].cluster_ca_certificate, null)
   sensitive   = true

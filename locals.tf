@@ -4,8 +4,9 @@
 
 locals {
   # Aliases for inputs so the rest of the module can reference them uniformly.
-  cluster_name = var.cluster_name
-  n8n_domain   = var.n8n_domain
+  # Naming scheme: <friendly_name_prefix>-n8n<-suffix>, e.g. <prefix>-n8n-pg.
+  name_prefix = "${var.friendly_name_prefix}-n8n"
+  n8n_domain  = var.n8n_domain
 
   # (GCP labels live in local.gcp_labels, network.tf.)
 

@@ -4,3 +4,48 @@ Started: 2026-07-23
 ## Codebase Patterns
 - (reusable patterns will be added here by coding iterations)
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 1. Naming foundation
+- Replaced `cluster_name` with `friendly_name_prefix` (required, validated: no
+  "n8n" substring, RFC1035 charset, <= 30 chars) as the naming driver for every
+  GCP resource. Added `common_labels` (map(string), default {}, HVD label
+  charset validation), merged into `local.gcp_labels` in network.tf.
+- Introduced `local.name_prefix = "${var.friendly_name_prefix}-n8n"` in
+  locals.tf, replacing `local.cluster_name`. Mechanical find/replace of
+  `local.cluster_name` -> `local.name_prefix` across cloudsql.tf, dns.tf,
+  gke.tf, memorystore.tf, network.tf, workload_identity.tf, gcs.tf works
+  directly because existing suffixes (`-pg`, `-redis`, `-pool`, etc.) stay the
+  same string once the base local already includes `-n8n`.
+- Exception: the GCS bucket name keeps `<project_id>-n8n-<friendly_name_prefix>`
+  (uses `var.friendly_name_prefix` directly, not `local.name_prefix`) to avoid
+  a doubled "-n8n" and to preserve global-uniqueness semantics. Design D1 calls
+  this out explicitly; don't mechanically replace that one.
+- Renamed outputs `cluster_name`/`cluster_endpoint`/`cluster_ca_certificate` to
+  `gke_cluster_name`/`gke_cluster_endpoint`/`gke_cluster_ca_certificate`.
+  Updated every example's providers.tf (`module.n8n.cluster_endpoint` etc.).
+- Updated all five examples' main.tf/variables.tf/terraform.tfvars.example for
+  the `friendly_name_prefix` rename; example defaults must not contain "n8n"
+  (e.g. "dev", "medium", "large", "godaddy") or the new validator rejects them.
+- Root `tests/defaults.tftest.hcl`: renamed `cluster_name` variable/tests to
+  `friendly_name_prefix`, updated derived-name assertions (GCS bucket, SA
+  account_ids), added `common_labels` propagation assertions on
+  `google_container_cluster.n8n.resource_labels`, and validator rejection runs
+  (uppercase, trailing hyphen, leading digit, "n8n" substring, > 30 chars).
+- **Learnings for future iterations:**
+  - GKE cluster/node-pool names and (assumed) Memorystore instance IDs share a
+    40-character GCP limit; with `local.name_prefix` already appending "-n8n"
+    (4 chars), the tightest additional suffix is `-redis` (6 chars), which is
+    why `friendly_name_prefix` is capped at 30. Document this arithmetic in the
+    validator error message per design D1's instruction.
+  - `terraform-docs .` must be re-run in the module root AND every example
+    after any variable/output rename; each example has its own generated
+    README block.
+  - Local dev artifacts (`examples/small/terraform.tfvars`,
+    `terraform.tfstate*`) are gitignored but still get picked up by
+    `terraform validate`/`test`; update the stale variable name there too so
+    the local loop doesn't warn, but never touch committed secrets.
+  - `git grep <old-name>` after a rename still turns up prose in README.md,
+    AGENTS.md, docs/*.md - those are explicitly section 5 (operator docs) in
+    this change's task breakdown; leave them for that section rather than
+    fixing prose ahead of schedule.
+---

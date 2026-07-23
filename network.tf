@@ -4,22 +4,23 @@
 # Cloud SQL (and optionally Memorystore) peer into for private IP connectivity.
 
 locals {
-  # GCP labels: lowercase keys/values only.
-  gcp_labels = {
+  # GCP labels: lowercase keys/values only. common_labels is merged in first so
+  # the module's own built-in labels win on key collision.
+  gcp_labels = merge(var.common_labels, {
     managed_by = "terraform"
     app        = "n8n"
-    cluster    = local.cluster_name
-  }
+    cluster    = local.name_prefix
+  })
 }
 
 resource "google_compute_network" "n8n" {
-  name                    = "${local.cluster_name}-vpc"
+  name                    = "${local.name_prefix}-vpc"
   auto_create_subnetworks = false
   project                 = var.project_id
 }
 
 resource "google_compute_subnetwork" "n8n" {
-  name                     = "${local.cluster_name}-subnet"
+  name                     = "${local.name_prefix}-subnet"
   project                  = var.project_id
   region                   = var.gcp_region
   network                  = google_compute_network.n8n.id
@@ -27,24 +28,24 @@ resource "google_compute_subnetwork" "n8n" {
   private_ip_google_access = true
 
   secondary_ip_range {
-    range_name    = "${local.cluster_name}-pods"
+    range_name    = "${local.name_prefix}-pods"
     ip_cidr_range = var.pods_cidr
   }
   secondary_ip_range {
-    range_name    = "${local.cluster_name}-services"
+    range_name    = "${local.name_prefix}-services"
     ip_cidr_range = var.services_cidr
   }
 }
 
 resource "google_compute_router" "n8n" {
-  name    = "${local.cluster_name}-router"
+  name    = "${local.name_prefix}-router"
   project = var.project_id
   region  = var.gcp_region
   network = google_compute_network.n8n.id
 }
 
 resource "google_compute_router_nat" "n8n" {
-  name                               = "${local.cluster_name}-nat"
+  name                               = "${local.name_prefix}-nat"
   project                            = var.project_id
   router                             = google_compute_router.n8n.name
   region                             = var.gcp_region
@@ -59,7 +60,7 @@ resource "google_compute_router_nat" "n8n" {
 
 # ── Private Services Access (prerequisite for Cloud SQL private IP) ───────────
 resource "google_compute_global_address" "psa" {
-  name          = "${local.cluster_name}-psa"
+  name          = "${local.name_prefix}-psa"
   project       = var.project_id
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"

@@ -3,20 +3,50 @@
 # (VPC, GKE, Cloud SQL, Memorystore, GCS) is created by the module from the
 # inputs in variables_gcp.tf; see examples/small/.
 
-variable "cluster_name" {
-  description = "Name prefix for the GKE cluster and derived resources. Keep it short (<= 24 chars) so derived names (service-account IDs, Memorystore and LB names) stay within GCP limits."
+variable "friendly_name_prefix" {
+  description = "Prefix used to derive the name of every Google Cloud resource the module creates (e.g. <friendly_name_prefix>-n8n for the GKE cluster, <friendly_name_prefix>-n8n-pg for Cloud SQL). Most commonly an environment (e.g. \"sandbox\", \"prod\"), team, or project name."
   type        = string
-  default     = "n8n-cluster"
 
   validation {
-    condition     = length(var.cluster_name) <= 24
-    error_message = "cluster_name must be 24 characters or fewer so derived GCP resource names stay within limits."
+    condition     = !strcontains(var.friendly_name_prefix, "n8n")
+    error_message = "friendly_name_prefix must not contain 'n8n' - the module already appends it, and including it here produces redundant names like <prefix>-n8n-n8n-pg."
   }
 
   # GCP resource names are RFC1035: fail at plan time instead of mid-apply.
   validation {
-    condition     = can(regex("^[a-z]([a-z0-9-]*[a-z0-9])?$", var.cluster_name))
-    error_message = "cluster_name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (no trailing hyphen), per GCP resource naming rules."
+    condition     = can(regex("^[a-z]([a-z0-9-]*[a-z0-9])?$", var.friendly_name_prefix))
+    error_message = "friendly_name_prefix must start with a lowercase letter and contain only lowercase letters, digits, and hyphens (no trailing hyphen), per GCP resource naming rules."
+  }
+
+  # The tightest 40-character GCP name limit that derives from this prefix is
+  # Memorystore for Redis (<friendly_name_prefix>-n8n-redis): "-n8n" (4 chars)
+  # plus "-redis" (6 chars) leaves 30 characters for friendly_name_prefix
+  # itself. GKE cluster/node-pool names share the same 40-character limit but
+  # carry shorter suffixes ("", "-pool"), so Memorystore is the binding case.
+  validation {
+    condition     = length(var.friendly_name_prefix) <= 30
+    error_message = "friendly_name_prefix must be 30 characters or fewer so the longest derived name (<friendly_name_prefix>-n8n-redis, the Memorystore instance ID) stays within GCP's 40-character resource name limit."
+  }
+}
+
+variable "common_labels" {
+  description = "Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for k, v in var.common_labels :
+      can(regex("^[a-z][a-z0-9_-]{0,62}$", k)) &&
+      (v == "" || can(regex("^[a-z0-9_-]{0,63}$", v)))
+    ])
+    error_message = <<-EOT
+      Invalid common_labels.
+
+      - Label keys must start with a lowercase letter and contain only lowercase letters, numbers, dashes (-), and underscores (_)
+      - Label values must be empty or contain only lowercase letters, numbers, dashes (-), and underscores (_)
+      - Maximum length for both keys and values is 63 characters
+    EOT
   }
 }
 

@@ -11,10 +11,10 @@
 module "n8n" {
   source = "../.."
 
-  project_id   = var.project_id
-  gcp_region   = var.gcp_region
-  cluster_name = var.cluster_name
-  n8n_domain   = var.n8n_domain
+  project_id           = var.project_id
+  gcp_region           = var.gcp_region
+  friendly_name_prefix = var.friendly_name_prefix
+  n8n_domain           = var.n8n_domain
 
   n8n_license_key = var.n8n_license_key
   gcs_location    = var.gcs_location

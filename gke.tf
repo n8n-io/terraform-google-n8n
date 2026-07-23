@@ -4,7 +4,7 @@
 # pool is attached so its shape is fully declared here.
 
 resource "google_container_cluster" "n8n" {
-  name     = local.cluster_name
+  name     = local.name_prefix
   project  = var.project_id
   location = var.gcp_region
 
@@ -25,8 +25,8 @@ resource "google_container_cluster" "n8n" {
   # VPC-native (alias IPs) using the subnet's secondary ranges.
   networking_mode = "VPC_NATIVE"
   ip_allocation_policy {
-    cluster_secondary_range_name  = "${local.cluster_name}-pods"
-    services_secondary_range_name = "${local.cluster_name}-services"
+    cluster_secondary_range_name  = "${local.name_prefix}-pods"
+    services_secondary_range_name = "${local.name_prefix}-services"
   }
 
   # Workload Identity: bind KSAs to Google service accounts.
@@ -79,9 +79,9 @@ locals {
 }
 
 resource "google_service_account" "nodes" {
-  account_id   = substr("${local.cluster_name}-nodes", 0, 30)
+  account_id   = substr("${local.name_prefix}-nodes", 0, 30)
   project      = var.project_id
-  display_name = "GKE node pool (${local.cluster_name})"
+  display_name = "GKE node pool (${local.name_prefix})"
 }
 
 resource "google_project_iam_member" "nodes" {
@@ -93,7 +93,7 @@ resource "google_project_iam_member" "nodes" {
 }
 
 resource "google_container_node_pool" "n8n" {
-  name     = "${local.cluster_name}-pool"
+  name     = "${local.name_prefix}-pool"
   project  = var.project_id
   location = var.gcp_region
   cluster  = google_container_cluster.n8n.name

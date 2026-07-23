@@ -25,19 +25,25 @@ mock_provider "random" {}
 mock_provider "time" {}
 
 variables {
-  project_id      = "test-project"
-  gcp_region      = "us-east4"
-  cluster_name    = "n8n-cluster"
-  n8n_domain      = "n8n.test.example.com"
-  n8n_license_key = "test-license-key-not-real"
+  project_id           = "test-project"
+  gcp_region           = "us-east4"
+  friendly_name_prefix = "test"
+  n8n_domain           = "n8n.test.example.com"
+  n8n_license_key      = "test-license-key-not-real"
 }
 
 run "defaults_produce_valid_plan" {
   command = plan
 
   assert {
-    condition     = google_container_cluster.n8n.name == "n8n-cluster"
-    error_message = "var.cluster_name should flow through to google_container_cluster.name"
+    condition     = google_container_cluster.n8n.name == "test-n8n"
+    error_message = "friendly_name_prefix should flow through to google_container_cluster.name as <friendly_name_prefix>-n8n"
+  }
+
+  # common_labels entries must appear in a labeled resource's merged label set.
+  assert {
+    condition     = google_container_cluster.n8n.resource_labels["managed_by"] == "terraform"
+    error_message = "resource_labels must include the module's built-in labels"
   }
 
   # VPC-native (alias IP) networking is required for private Cloud SQL/Redis
@@ -197,10 +203,10 @@ run "gcs_bucket_is_private" {
     error_message = "gcs_force_destroy should default to false"
   }
 
-  # Bucket name: <project_id>-n8n-<cluster_name>.
+  # Bucket name: <project_id>-n8n-<friendly_name_prefix>.
   assert {
-    condition     = google_storage_bucket.n8n.name == "test-project-n8n-n8n-cluster"
-    error_message = "GCS bucket name should be <project_id>-n8n-<cluster_name>"
+    condition     = google_storage_bucket.n8n.name == "test-project-n8n-test"
+    error_message = "GCS bucket name should be <project_id>-n8n-<friendly_name_prefix>"
   }
 
   assert {
@@ -292,8 +298,8 @@ run "workload_identity_binds_correct_service_accounts" {
   command = plan
 
   assert {
-    condition     = google_service_account.n8n.account_id == "n8n-cluster-n8n"
-    error_message = "n8n GSA account_id should be <cluster_name>-n8n (truncated to 30 chars)"
+    condition     = google_service_account.n8n.account_id == "test-n8n-n8n"
+    error_message = "n8n GSA account_id should be <friendly_name_prefix>-n8n-n8n (truncated to 30 chars)"
   }
 
   # The IAM binding lets the in-cluster KSA (namespace/k8s_service_account_name)
@@ -318,8 +324,8 @@ run "node_pool_uses_dedicated_service_account" {
   # asserted at the SA + IAM level; verify the email wiring with a real
   # `terraform plan` from an example root.
   assert {
-    condition     = google_service_account.nodes.account_id == "n8n-cluster-nodes"
-    error_message = "node SA account_id should be <cluster_name>-nodes (truncated to 30 chars)"
+    condition     = google_service_account.nodes.account_id == "test-n8n-nodes"
+    error_message = "node SA account_id should be <friendly_name_prefix>-n8n-nodes (truncated to 30 chars)"
   }
 
   # The node SA holds exactly the minimal Google-recommended role set:
@@ -1075,37 +1081,82 @@ run "image_tag_rejects_overlong_tag" {
   expect_failures = [var.n8n_image_tag]
 }
 
-# ── cluster_name naming contract ──────────────────────────────────────────────
+# ── friendly_name_prefix naming contract ──────────────────────────────────────
 # GCP resource names are RFC1035 (lowercase letter start, lowercase
 # alphanumerics and hyphens, no trailing hyphen). The validator fails these at
 # plan time instead of letting the first apply die on the VPC or cluster name.
 
-run "cluster_name_rejects_uppercase" {
+run "friendly_name_prefix_rejects_uppercase" {
   command = plan
 
   variables {
-    cluster_name = "N8N-Prod"
+    friendly_name_prefix = "Prod"
   }
 
-  expect_failures = [var.cluster_name]
+  expect_failures = [var.friendly_name_prefix]
 }
 
-run "cluster_name_rejects_trailing_hyphen" {
+run "friendly_name_prefix_rejects_trailing_hyphen" {
   command = plan
 
   variables {
-    cluster_name = "n8n-cluster-"
+    friendly_name_prefix = "prod-"
   }
 
-  expect_failures = [var.cluster_name]
+  expect_failures = [var.friendly_name_prefix]
 }
 
-run "cluster_name_rejects_leading_digit" {
+run "friendly_name_prefix_rejects_leading_digit" {
   command = plan
 
   variables {
-    cluster_name = "8n8-cluster"
+    friendly_name_prefix = "8prod"
   }
 
-  expect_failures = [var.cluster_name]
+  expect_failures = [var.friendly_name_prefix]
+}
+
+run "friendly_name_prefix_rejects_n8n_substring" {
+  command = plan
+
+  variables {
+    friendly_name_prefix = "myn8ncluster"
+  }
+
+  expect_failures = [var.friendly_name_prefix]
+}
+
+run "friendly_name_prefix_rejects_overlong_value" {
+  command = plan
+
+  variables {
+    # 31 characters - one over the 30-char cap.
+    friendly_name_prefix = join("", [for i in range(31) : "a"])
+  }
+
+  expect_failures = [var.friendly_name_prefix]
+}
+
+run "common_labels_merge_into_resource_labels" {
+  command = plan
+
+  variables {
+    common_labels = {
+      team = "platform"
+      env  = "staging"
+    }
+  }
+
+  assert {
+    condition = (
+      google_container_cluster.n8n.resource_labels["team"] == "platform" &&
+      google_container_cluster.n8n.resource_labels["env"] == "staging"
+    )
+    error_message = "common_labels entries must be merged into resource_labels"
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n.resource_labels["managed_by"] == "terraform"
+    error_message = "common_labels must not override the module's built-in labels"
+  }
 }

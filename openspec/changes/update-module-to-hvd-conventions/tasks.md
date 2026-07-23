@@ -9,20 +9,20 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 1. Naming foundation
 
-- [ ] 1.1 Add `friendly_name_prefix` (required, validated per design D1) and
+- [x] 1.1 Add `friendly_name_prefix` (required, validated per design D1) and
       `common_labels` (validated per design D2); remove `cluster_name`
-- [ ] 1.2 Replace `local.cluster_name` with a prefix-derived local and update
+- [x] 1.2 Replace `local.cluster_name` with a prefix-derived local and update
       every resource name (`gke.tf`, `cloudsql.tf`, `memorystore.tf`,
       `gcs.tf`, `network.tf`, `workload_identity.tf`, `dns.tf`, and any other
       file using `local.cluster_name`); merge `common_labels` into
       `local.gcp_labels`
-- [ ] 1.3 Rename outputs `cluster_name`, `cluster_endpoint`,
+- [x] 1.3 Rename outputs `cluster_name`, `cluster_endpoint`,
       `cluster_ca_certificate` to `gke_cluster_name`, `gke_cluster_endpoint`,
       `gke_cluster_ca_certificate`
-- [ ] 1.4 Update all five examples and their tests plus the root test suite;
+- [x] 1.4 Update all five examples and their tests plus the root test suite;
       add assertions: prefix-derived cluster name, `common_labels`
       propagation, validator rejection via `expect_failures`
-- [ ] 1.5 Regenerate terraform-docs everywhere, add CHANGELOG bullets under
+- [x] 1.5 Regenerate terraform-docs everywhere, add CHANGELOG bullets under
       `## [Unreleased] / ### Changed` (breaking), run the full local loop
 
 ## 2. Database interface rename

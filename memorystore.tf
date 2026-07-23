@@ -7,7 +7,7 @@
 # (keda.tf) needs a TriggerAuthentication CRD.
 
 resource "google_redis_instance" "n8n" {
-  name           = "${local.cluster_name}-redis"
+  name           = "${local.name_prefix}-redis"
   project        = var.project_id
   region         = var.gcp_region
   tier           = var.memorystore_tier

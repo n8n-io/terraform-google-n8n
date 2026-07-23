@@ -16,7 +16,7 @@ locals {
 
 # ── Global static IP for the L7 load balancer ─────────────────────────────────
 resource "google_compute_global_address" "lb" {
-  name    = "${local.cluster_name}-lb-ip"
+  name    = "${local.name_prefix}-lb-ip"
   project = var.project_id
 }
 
@@ -60,7 +60,7 @@ resource "google_compute_ssl_certificate" "n8n" {
   count   = local.tls_preshared ? 1 : 0
   project = var.project_id
 
-  name_prefix = "${local.cluster_name}-cert-"
+  name_prefix = "${local.name_prefix}-cert-"
   certificate = var.tls_mode == "custom" ? var.tls_cert_pem : tls_self_signed_cert.self_signed[0].cert_pem
   private_key = var.tls_mode == "custom" ? var.tls_key_pem : tls_private_key.self_signed[0].private_key_pem
 

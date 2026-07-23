@@ -1,9 +1,9 @@
 # Copy to terraform.tfvars and populate. Auth: gcloud auth application-default login.
-project_id   = "my-gcp-project-id"
-gcp_region   = "us-east4" # any region; e.g. us-east4 (N. Virginia), europe-west3 (Frankfurt), europe-west1 (Belgium)
-gcs_location = "US"       # keep near gcp_region: US for us-*, EU for europe-*, or a specific region
-cluster_name = "n8n-dev"
-n8n_domain   = "n8n.example.com"
+project_id           = "my-gcp-project-id"
+gcp_region           = "us-east4" # any region; e.g. us-east4 (N. Virginia), europe-west3 (Frankfurt), europe-west1 (Belgium)
+gcs_location         = "US"       # keep near gcp_region: US for us-*, EU for europe-*, or a specific region
+friendly_name_prefix = "dev"
+n8n_domain           = "n8n.example.com"
 
 n8n_license_key = "your-enterprise-license-key"
 

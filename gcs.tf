@@ -34,13 +34,15 @@ locals {
 resource "google_service_account" "storage" {
   count = local.manage_hmac_key ? 1 : 0
 
-  account_id   = substr("${local.cluster_name}-store", 0, 30)
+  account_id   = substr("${local.name_prefix}-store", 0, 30)
   project      = var.project_id
-  display_name = "n8n GCS binary storage access (${local.cluster_name})"
+  display_name = "n8n GCS binary storage access (${local.name_prefix})"
 }
 
 resource "google_storage_bucket" "n8n" {
-  name                        = "${var.project_id}-n8n-${local.cluster_name}"
+  # Keep the project-id prefix (not local.name_prefix) for global bucket-name
+  # uniqueness: <project_id>-n8n-<friendly_name_prefix>.
+  name                        = "${var.project_id}-n8n-${var.friendly_name_prefix}"
   project                     = var.project_id
   location                    = var.gcs_location
   uniform_bucket_level_access = true

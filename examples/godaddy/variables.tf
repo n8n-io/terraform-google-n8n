@@ -15,10 +15,10 @@ variable "gcs_location" {
   default     = "US"
 }
 
-variable "cluster_name" {
-  description = "Name prefix for the GKE cluster and derived resources."
+variable "friendly_name_prefix" {
+  description = "Prefix used to derive the name of every Google Cloud resource the module creates."
   type        = string
-  default     = "n8n-godaddy"
+  default     = "godaddy"
 }
 
 variable "n8n_domain" {

@@ -11,7 +11,7 @@ resource "random_password" "db_password" {
 }
 
 resource "google_sql_database_instance" "n8n" {
-  name                = "${local.cluster_name}-pg"
+  name                = "${local.name_prefix}-pg"
   project             = var.project_id
   region              = var.gcp_region
   database_version    = var.cloudsql_database_version

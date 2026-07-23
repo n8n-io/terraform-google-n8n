@@ -368,7 +368,7 @@ No modules.
 | <a name="input_cloudsql_edition"></a> [cloudsql\_edition](#input\_cloudsql\_edition) | Cloud SQL edition. ENTERPRISE supports shared-core/legacy tiers like db-g1-small (cheap, dev). ENTERPRISE\_PLUS requires db-perf-optimized-N-* tiers. Pinned because some projects/orgs default new instances to ENTERPRISE\_PLUS, which rejects db-g1-small. | `string` | `"ENTERPRISE"` | no |
 | <a name="input_cloudsql_tier"></a> [cloudsql\_tier](#input\_cloudsql\_tier) | Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE\_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with cloudsql\_edition. | `string` | `"db-g1-small"` | no |
 | <a name="input_cluster_deletion_protection"></a> [cluster\_deletion\_protection](#input\_cluster\_deletion\_protection) | Block terraform destroy of the GKE cluster (google provider default is true). | `bool` | `true` | no |
-| <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name prefix for the GKE cluster and derived resources. Keep it short (<= 24 chars) so derived names (service-account IDs, Memorystore and LB names) stay within GCP limits. | `string` | `"n8n-cluster"` | no |
+| <a name="input_common_labels"></a> [common\_labels](#input\_common\_labels) | Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision. | `map(string)` | `{}` | no |
 | <a name="input_create_database"></a> [create\_database](#input\_create\_database) | When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (db\_host and db\_password must then be supplied). Kept as a static boolean rather than `db_host == null` because count expressions cannot depend on values computed at apply time. | `bool` | `true` | no |
 | <a name="input_db_host"></a> [db\_host](#input\_db\_host) | External database host. Required when create\_database = false. Ignored otherwise. Use this to pass any external PostgreSQL host. | `string` | `null` | no |
 | <a name="input_db_name"></a> [db\_name](#input\_db\_name) | n8n database name. | `string` | `"n8n_enterprise"` | no |
@@ -378,6 +378,7 @@ No modules.
 | <a name="input_db_username"></a> [db\_username](#input\_db\_username) | n8n database user. | `string` | `"n8n"` | no |
 | <a name="input_dns_managed_zone"></a> [dns\_managed\_zone](#input\_dns\_managed\_zone) | Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n\_domain at the static IP output yourself, as examples/cloudflare does). | `string` | `""` | no |
 | <a name="input_enable_private_nodes"></a> [enable\_private\_nodes](#input\_enable\_private\_nodes) | Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via master\_authorized\_networks. | `bool` | `true` | no |
+| <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates (e.g. <friendly\_name\_prefix>-n8n for the GKE cluster, <friendly\_name\_prefix>-n8n-pg for Cloud SQL). Most commonly an environment (e.g. "sandbox", "prod"), team, or project name. | `string` | n/a | yes |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region for regional resources (GKE, Cloud SQL, Memorystore, subnet). | `string` | `"europe-west1"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete a non-empty bucket (dev only). | `bool` | `false` | no |
 | <a name="input_gcs_hmac_access_id"></a> [gcs\_hmac\_access\_id](#input\_gcs\_hmac\_access\_id) | BYO HMAC mode: the HMAC access ID (S3 access key) for the pre-existing key. Required when gcs\_hmac\_service\_account\_email is set. | `string` | `""` | no |
@@ -482,13 +483,13 @@ No modules.
 | ---- | ----------- |
 | <a name="output_cloudsql_connection_name"></a> [cloudsql\_connection\_name](#output\_cloudsql\_connection\_name) | Cloud SQL instance connection name (project:region:instance). |
 | <a name="output_cloudsql_private_ip"></a> [cloudsql\_private\_ip](#output\_cloudsql\_private\_ip) | Cloud SQL private IP (VPC-internal). |
-| <a name="output_cluster_ca_certificate"></a> [cluster\_ca\_certificate](#output\_cluster\_ca\_certificate) | Base64-encoded GKE cluster CA. Pass to kubernetes/helm providers as cluster\_ca\_certificate (after base64decode). |
-| <a name="output_cluster_endpoint"></a> [cluster\_endpoint](#output\_cluster\_endpoint) | GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>). |
-| <a name="output_cluster_name"></a> [cluster\_name](#output\_cluster\_name) | GKE cluster name. |
 | <a name="output_db_password"></a> [db\_password](#output\_db\_password) | Database password. Module-managed when create\_database = true, else var.db\_password. |
 | <a name="output_gcs_bucket_name"></a> [gcs\_bucket\_name](#output\_gcs\_bucket\_name) | GCS bucket used for n8n binary storage. |
 | <a name="output_gcs_hmac_access_id"></a> [gcs\_hmac\_access\_id](#output\_gcs\_hmac\_access\_id) | GCS HMAC access key ID for the n8n S3-compatible binary storage driver (module-created or caller-supplied in BYO mode). |
 | <a name="output_gcs_hmac_secret"></a> [gcs\_hmac\_secret](#output\_gcs\_hmac\_secret) | GCS HMAC secret for the n8n S3-compatible binary storage driver. Null in BYO mode when supplied via an existing Secret (gcs\_hmac\_secret\_name). |
+| <a name="output_gke_cluster_ca_certificate"></a> [gke\_cluster\_ca\_certificate](#output\_gke\_cluster\_ca\_certificate) | Base64-encoded GKE cluster CA. Pass to kubernetes/helm providers as cluster\_ca\_certificate (after base64decode). |
+| <a name="output_gke_cluster_endpoint"></a> [gke\_cluster\_endpoint](#output\_gke\_cluster\_endpoint) | GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>). |
+| <a name="output_gke_cluster_name"></a> [gke\_cluster\_name](#output\_gke\_cluster\_name) | GKE cluster name. |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | Command to configure kubectl for this cluster. |
 | <a name="output_lb_ingress_ip"></a> [lb\_ingress\_ip](#output\_lb\_ingress\_ip) | IP the Ingress reports once the LB is provisioned (should match static\_ip). |
 | <a name="output_memorystore_host"></a> [memorystore\_host](#output\_memorystore\_host) | Memorystore Redis host (VPC-internal). |
