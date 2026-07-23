@@ -225,3 +225,32 @@ Started: 2026-07-23
     introduced by the edit, so you don't chase inline-HTML warnings that
     aren't yours to fix.
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 6. Housekeeping
+- Verified `.github/pull_request_template.md` and
+  `.github/ISSUE_TEMPLATE/{bug,feature}.yml` already match the
+  `terraform-aws-n8n` versions structurally; the only diffs are intentional
+  and correct per this repo's house style: no em-dashes (global AGENTS.md
+  rule) and `terraform-docs .` instead of the AWS sibling's fully-spelled-out
+  `terraform-docs markdown table --output-file README.md --output-mode
+  inject .` (this repo's `.terraform-docs.yml` already encodes those flags,
+  see this repo's AGENTS.md `## 4. Clear documentation`). No edits needed;
+  checked off as-is.
+- Added `.github/CODEOWNERS` (`* @jrx @buddy-n8n`) and `SUPPORT.md` (points to
+  GitHub issues, the n8n community forum, and links `SECURITY.md`,
+  `docs/troubleshooting.md`, `CHANGELOG.md`). Neither `terraform-aws-n8n` nor
+  `terraform-azurerm-n8n` has these files yet, so there was no sibling file to
+  copy; wrote from scratch following D6 and matching `SECURITY.md`'s tone.
+- Added CHANGELOG bullets under `## [Unreleased] / ### Added` (new section,
+  since `### Changed` already existed from prior rename sections).
+- **Learnings for future iterations:**
+  - When a design doc says "align X with the sibling module" but a diff shows
+    only cosmetic differences, check whether those differences trace back to
+    this repo's own AGENTS.md house style before "fixing" them to match the
+    sibling exactly. Matching a sibling's wording verbatim can violate this
+    repo's own documented conventions.
+  - `CHANGELOG.md`'s `## [Unreleased]` section only had `### Changed` before
+    this task; `### Added` needs to be inserted as a new subsection above it
+    (Keep a Changelog groups by change type, and `Added` conventionally
+    precedes `Changed`).
+---

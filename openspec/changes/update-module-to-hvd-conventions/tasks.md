@@ -72,12 +72,12 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 6. Housekeeping
 
-- [ ] 6.1 Align `.github/pull_request_template.md` and
+- [x] 6.1 Align `.github/pull_request_template.md` and
       `.github/ISSUE_TEMPLATE/{bug,feature}.yml` with the `terraform-aws-n8n`
       versions, adapting provider-specific wording to Google Cloud
-- [ ] 6.2 Add `.github/CODEOWNERS` with a `*` rule owned by `@jrx` and
+- [x] 6.2 Add `.github/CODEOWNERS` with a `*` rule owned by `@jrx` and
       `@buddy-n8n`
-- [ ] 6.3 Add `SUPPORT.md` linking GitHub issues and the n8n community forum,
+- [x] 6.3 Add `SUPPORT.md` linking GitHub issues and the n8n community forum,
       consistent in tone with `SECURITY.md`; add CHANGELOG bullets under
       `### Added`
 

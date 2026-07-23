@@ -7,6 +7,12 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- Added `.github/CODEOWNERS` with a `*` rule owned by `@jrx` and
+  `@buddy-n8n`.
+- Added `SUPPORT.md` pointing to GitHub issues and the n8n community forum.
+
 ### Changed
 
 - **Breaking:** `cluster_name` is replaced by `friendly_name_prefix` as the
