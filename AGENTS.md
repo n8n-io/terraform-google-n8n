@@ -169,7 +169,7 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   the registry convention of using a short, descriptive label rather than
   repeating the resource type.
 - Variables and outputs use **`snake_case`** with a leading noun
-  (`cluster_name`, `n8n_domain`, `gcp_region`, `static_ip`).
+  (`friendly_name_prefix`, `n8n_fqdn`, `gcp_region`, `static_ip`).
 - Every variable has a `description` and a `type`. Most have a `validation`
   block that fails fast with a useful error message; preserve this when
   adding new inputs.

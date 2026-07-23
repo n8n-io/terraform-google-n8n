@@ -2,7 +2,7 @@
 
 Deploys the full module and adds, at the example layer:
 
-- a **Cloudflare** A-record for `n8n_domain` pointing at the module's LB static IP;
+- a **Cloudflare** A-record for `n8n_fqdn` pointing at the module's LB static IP;
 - **cert-manager** with a Let's Encrypt `ClusterIssuer` that solves the ACME
   challenge over **Cloudflare DNS-01** (reliable against the slow GCLB, unlike
   HTTP-01) and writes an auto-renewing cert into the `n8n-tls` Secret;

@@ -15,7 +15,7 @@ kubectl get managedcertificate -n n8n   # only for tls_mode = "google_managed"
 
 ## Point your domain at n8n
 
-**If you used `dns_managed_zone`:** nothing to do, the A-record was created during apply. Verify propagation:
+**If you used `cloud_dns_zone_name`:** nothing to do, the A-record was created during apply. Verify propagation:
 
 ```bash
 dig +short n8n.yourdomain.com

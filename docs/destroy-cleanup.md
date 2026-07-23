@@ -7,17 +7,17 @@ This guide covers how to cleanly tear down the n8n infrastructure and troublesho
 Before destroying, back up the following from `terraform output`:
 
 ```bash
-terraform output -raw n8n_encryption_key   # Save to a password manager
-terraform output -raw db_password           # Save to a password manager
+terraform output -raw n8n_encryption_key     # Save to a password manager
+terraform output -raw n8n_database_password  # Save to a password manager
 ```
 
 Set shell variables used throughout this guide:
 
 ```bash
 PROJECT=$(gcloud config get-value project)
-CLUSTER=$(terraform output -raw cluster_name)
+CLUSTER=$(terraform output -raw gke_cluster_name)
 REGION=$(terraform output -raw gcp_region 2>/dev/null || echo us-east4)
-NS=$(terraform output -raw namespace)
+NS=$(terraform output -raw n8n_kube_namespace)
 ```
 
 ## Deletion protection
@@ -26,13 +26,13 @@ Cloud SQL and the GKE cluster ship with deletion protection on by default, and t
 
 ```bash
 terraform apply -auto-approve \
-  -var cluster_deletion_protection=false \
-  -var cloudsql_deletion_protection=false \
+  -var gke_deletion_protection=false \
+  -var postgres_deletion_protection=false \
   -var gcs_force_destroy=true
 
 terraform destroy -auto-approve \
-  -var cluster_deletion_protection=false \
-  -var cloudsql_deletion_protection=false \
+  -var gke_deletion_protection=false \
+  -var postgres_deletion_protection=false \
   -var gcs_force_destroy=true
 ```
 
@@ -66,8 +66,8 @@ Error: Unable to remove Service Networking Connection ... Producer services
 
 ```bash
 terraform destroy -auto-approve \
-  -var cluster_deletion_protection=false \
-  -var cloudsql_deletion_protection=false \
+  -var gke_deletion_protection=false \
+  -var postgres_deletion_protection=false \
   -var gcs_force_destroy=true \
   -var psa_cleanup_destroy_duration=15m
 ```
@@ -80,8 +80,8 @@ gcloud compute networks peerings delete servicenetworking-googleapis-com \
   --project="$PROJECT"
 
 terraform destroy -auto-approve \
-  -var cluster_deletion_protection=false \
-  -var cloudsql_deletion_protection=false \
+  -var gke_deletion_protection=false \
+  -var postgres_deletion_protection=false \
   -var gcs_force_destroy=true
 ```
 

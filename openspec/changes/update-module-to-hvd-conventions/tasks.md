@@ -59,14 +59,14 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 5. Operator docs
 
-- [ ] 5.1 Write `docs/troubleshooting.md` mirroring the
+- [x] 5.1 Write `docs/troubleshooting.md` mirroring the
       `terraform-aws-n8n/docs/troubleshooting.md` section structure, adapted
       per design D7, using only the renamed interface
-- [ ] 5.2 Update `docs/post-deployment.md`, `docs/destroy-cleanup.md`, the
+- [x] 5.2 Update `docs/post-deployment.md`, `docs/destroy-cleanup.md`, the
       README prose (usage snippets outside the generated block), example
       READMEs, and `AGENTS.md` for the renamed variables, outputs, and
       resource names
-- [ ] 5.3 Verify no stale former names remain outside `CHANGELOG.md` and
+- [x] 5.3 Verify no stale former names remain outside `CHANGELOG.md` and
       `openspec/` (`git grep` for each removed name); run markdownlint if
       configured and the full local loop
 

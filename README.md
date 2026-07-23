@@ -85,6 +85,8 @@ The base module is provider-clean and creates its own VPC. The recommended path 
 - **[`examples/cloudflare`](./examples/cloudflare)** , Cloudflare DNS + auto-renewing Let's Encrypt via cert-manager (the validated TLS path).
 - **[`examples/godaddy`](./examples/godaddy)** , GoDaddy DNS + a Google-managed certificate.
 
+If `terraform apply` fails on a `helm_release` or a `ManagedCertificate` stalls in `Provisioning`, see [`docs/troubleshooting.md`](./docs/troubleshooting.md).
+
 ```bash
 cd examples/cloudflare
 cp terraform.tfvars.example terraform.tfvars   # then edit
@@ -101,13 +103,14 @@ module "n8n" {
   source  = "n8n-io/n8n/google"
   version = "~> 0.1.0"
 
-  project_id      = "my-project"
-  gcp_region      = "europe-west1"
-  n8n_domain      = "n8n.example.com"
-  n8n_license_key = var.n8n_license_key
+  friendly_name_prefix = "myteam"
+  project_id           = "my-project"
+  gcp_region           = "europe-west1"
+  n8n_fqdn             = "n8n.example.com"
+  n8n_license_key      = var.n8n_license_key
 
   # Optional: let the module manage the DNS A-record in Cloud DNS.
-  dns_managed_zone = "example-com"
+  cloud_dns_zone_name = "example-com"
 }
 ```
 
@@ -124,7 +127,7 @@ The `gce` Ingress terminates TLS at the load balancer, so the certificate must b
 | `custom` | Pre-shared cert from your PEM (`tls_cert_pem`/`tls_key_pem`) | e.g. a Cloudflare Origin CA cert (long-lived). |
 | `self_signed` | Generated self-signed cert | Smoke tests before DNS is live. |
 
-DNS: the base module can manage a Google Cloud DNS record (`dns_managed_zone`); other providers (Cloudflare, GoDaddy) manage their own record against the `static_ip` output.
+DNS: the base module can manage a Google Cloud DNS record (`cloud_dns_zone_name`); other providers (Cloudflare, GoDaddy) manage their own record against the `static_ip` output.
 
 ---
 
@@ -134,20 +137,20 @@ DNS: the base module can manage a Google Cloud DNS record (`dns_managed_zone`); 
 |---|---|
 | `project_id` | GCP project ID (required). |
 | `gcp_region` | Region (e.g. `us-east4`, `europe-west1`). |
-| `cluster_name` | Name prefix for the cluster and derived resources (<= 24 chars). |
-| `n8n_domain` | Hostname n8n is served on. |
+| `friendly_name_prefix` | Prefix used to derive the name of every Google Cloud resource (<= 30 chars). |
+| `n8n_fqdn` | Hostname n8n is served on. |
 | `n8n_license_key` | n8n Enterprise activation key. |
 | `gcs_location` | GCS bucket location; keep near `gcp_region` (`US` / `EU` / a region). |
 | `tls_mode` | Certificate source (table above). |
 | `manage_sa_key_org_policy` | Opt-in org-policy override for the HMAC key (see Prerequisites). Default `false`. |
 | `gcs_hmac_service_account_email` | BYO HMAC mode for locked-down orgs: supply a pre-existing SA (+ `gcs_hmac_access_id` and `gcs_hmac_secret_name`/`gcs_hmac_secret`) and the module skips HMAC-key creation. Default empty. |
-| `memorystore_auth_enabled` | Enable Redis AUTH (default off); the module wires the KEDA `TriggerAuthentication` when on. |
+| `redis_auth_enabled` | Enable Redis AUTH (default off); the module wires the KEDA `TriggerAuthentication` when on. |
 
 Cloud SQL, Memorystore, node-pool sizing, autoscaling bounds, pruning, and OpenTelemetry are all configurable, see `variables.tf` / `variables_gcp.tf`.
 
 ## Key outputs
 
-`static_ip`, `n8n_url`, `cluster_name`, `cluster_endpoint`, `kubectl_config_command`, `cloudsql_private_ip`, `memorystore_host`, `gcs_bucket_name`. Sensitive: `db_password`, `n8n_encryption_key`, `gcs_hmac_access_id`, `gcs_hmac_secret` (retrieve with `terraform output -raw <name>`).
+`static_ip`, `n8n_url`, `gke_cluster_name`, `gke_cluster_endpoint`, `kubectl_config_command`, `postgres_private_ip`, `redis_host`, `gcs_bucket_name`. Sensitive: `n8n_database_password`, `n8n_encryption_key`, `gcs_hmac_access_id`, `gcs_hmac_secret` (retrieve with `terraform output -raw <name>`).
 
 ## Operations (day-2)
 
@@ -173,7 +176,7 @@ Learnings from the first live deploy:
   Do this **once**, LE production allows only 5 identical certs per week, so don't
   loop the secret delete.
 
-- **Teardown.** `cluster_deletion_protection` and `cloudsql_deletion_protection`
+- **Teardown.** `gke_deletion_protection` and `postgres_deletion_protection`
   default to `true`, so `terraform destroy` refuses until the protection flags are
   flipped on the *live* resources first. Setting the vars to `false` on the destroy
   command alone is not enough (the provider still reads protection from the existing
@@ -182,13 +185,13 @@ Learnings from the first live deploy:
   ```bash
   # 1. flip protection on the live cluster + SQL instance, and allow bucket destroy
   terraform apply -auto-approve \
-    -var cluster_deletion_protection=false \
-    -var cloudsql_deletion_protection=false \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
     -var gcs_force_destroy=true
   # 2. then destroy (repeat the same -var flags)
   terraform destroy -auto-approve \
-    -var cluster_deletion_protection=false \
-    -var cloudsql_deletion_protection=false \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
     -var gcs_force_destroy=true
   ```
 
@@ -212,10 +215,10 @@ Learnings from the first live deploy:
 
   ```bash
   gcloud compute networks peerings delete servicenetworking-googleapis-com \
-    --network=<cluster_name>-vpc --project=<project_id>
+    --network=<friendly_name_prefix>-n8n-vpc --project=<project_id>
   terraform destroy -auto-approve \
-    -var cluster_deletion_protection=false \
-    -var cloudsql_deletion_protection=false \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
     -var gcs_force_destroy=true   # now clears the PSA connection + address + VPC
   ```
 

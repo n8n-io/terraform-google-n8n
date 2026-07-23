@@ -1,7 +1,7 @@
 # Example: n8n on GKE (medium)
 
 Same substrate as [`../small`](../small) (the module creates the VPC, GKE cluster,
-Cloud SQL, Memorystore, GCS, and, when `dns_managed_zone` is set, the Cloud DNS
+Cloud SQL, Memorystore, GCS, and, when `cloud_dns_zone_name` is set, the Cloud DNS
 A-record; TLS is a Google-managed certificate), sized for **steady production /
 moderate load**.
 
@@ -42,7 +42,7 @@ terraform init
 terraform apply
 ```
 
-If `dns_managed_zone` is empty, create the A-record yourself against the
+If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 `static_ip` output. Status: preliminary / not scale-validated.
 
 <!-- BEGIN_TF_DOCS -->

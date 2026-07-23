@@ -173,3 +173,55 @@ Started: 2026-07-23
     single `\bword\b` regex sufficed for all of them across `.tf`, prose
     comments, and `.tftest.hcl` files in one pass.
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 5. Operator docs
+- Added `docs/troubleshooting.md` mirroring the `terraform-aws-n8n` section
+  structure per design D7: the same generic Helm-4-cache issue (verbatim
+  mechanics, this module pins the same `hashicorp/helm ~> 3.0` provider line),
+  a new `ManagedCertificate` stuck in `Provisioning` section (GKE equivalent of
+  the AWS sibling's ALB/ACM validation troubleshooting, root-caused to DNS not
+  yet pointing at `static_ip`), the same macOS `mDNSResponder` HTTP-000 smoke
+  test issue (generic, not cloud-specific), a new Workload Identity
+  permission-denied section (GKE equivalent of the AWS sibling's IRSA
+  troubleshooting), and a closing link to `destroy-cleanup.md` (mirrors the
+  AWS sibling's closing link to its own destroy guide). The AWS sibling's "KEDA
+  install fails on AWS LBC webhook" section has no GKE equivalent (GKE's
+  native `gce` Ingress controller isn't installed by the module and registers
+  no cluster-wide mutating webhook the way the AWS Load Balancer Controller
+  does), so it was replaced rather than force-mapped.
+- Updated `docs/post-deployment.md` (`dns_managed_zone` -> `cloud_dns_zone_name`),
+  `docs/destroy-cleanup.md` (`cluster_name` -> `gke_cluster_name` output,
+  `namespace` -> `n8n_kube_namespace` output, `db_password` ->
+  `n8n_database_password` output, `cluster_deletion_protection` ->
+  `gke_deletion_protection`, `cloudsql_deletion_protection` ->
+  `postgres_deletion_protection`), `README.md` prose (the `module "n8n" {...}`
+  usage snippet, the TLS/DNS section, the Key inputs/outputs tables, and the
+  Operations day-2 teardown walkthrough, all outside the generated
+  `BEGIN_TF_DOCS`/`END_TF_DOCS` block), all five example `README.md` prose
+  sections (`n8n_domain` -> `n8n_fqdn`, `dns_managed_zone` ->
+  `cloud_dns_zone_name`, `node_max_per_zone` -> `gke_node_max_per_zone`), and
+  `AGENTS.md`'s naming-convention example tuple.
+- Added a README pointer to the new troubleshooting doc near the examples list
+  (mirrors the AWS sibling's README line pointing at its own
+  `docs/troubleshooting.md`).
+- **Learnings for future iterations:**
+  - Every example README's `<!-- BEGIN_TF_DOCS -->`/`<!-- END_TF_DOCS -->`
+    block already had the renamed variable/output names from sections 1-4
+    (terraform-docs was re-run each section); section 5's job is exclusively
+    the *hand-written prose* above/below that block. `git grep` for an old
+    name after sections 1-4 land will report exactly the prose lines still
+    needing a fix, nothing more, confirming the "leave prose for section 5"
+    note from earlier iterations' learnings was accurate.
+  - The only legitimate remaining hit for a "renamed" variable name after a
+    full sweep is `random_password.db_password`, a *resource* address, not a
+    variable or output; it's correctly unchanged (see section 2's learning)
+    and should not be treated as a stale-name false negative when running the
+    final `git grep` sweep in section 7.
+  - `npx --yes markdownlint-cli2 <path>` works without any local install and
+    respects this repo's root `.markdownlint.json` even when scoped to a
+    subset of files; running it before vs. after a prose-only edit (via
+    `git stash`) is a fast way to confirm any lint findings are pre-existing
+    (from the terraform-docs-generated HTML anchor table) rather than
+    introduced by the edit, so you don't chase inline-HTML warnings that
+    aren't yours to fix.
+---

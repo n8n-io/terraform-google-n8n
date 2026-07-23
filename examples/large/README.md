@@ -1,7 +1,7 @@
 # Example: n8n on GKE (large)
 
 Same substrate as [`../small`](../small) (the module creates the VPC, GKE cluster,
-Cloud SQL, Memorystore, GCS, and, when `dns_managed_zone` is set, the Cloud DNS
+Cloud SQL, Memorystore, GCS, and, when `cloud_dns_zone_name` is set, the Cloud DNS
 A-record; TLS is a Google-managed certificate), sized for **high throughput**.
 
 Sizing vs the module defaults (small):
@@ -20,7 +20,7 @@ Sizing vs the module defaults (small):
 | Execution concurrency | 100 | 400 |
 
 The ceilings set the webhook max to 80 and the worker max to 160. Keep
-`node_max_per_zone` high enough to schedule the KEDA worker ceiling.
+`gke_node_max_per_zone` high enough to schedule the KEDA worker ceiling.
 
 > **Not scale-validated on GKE.** These bounds are a reasoned starting
 > point, not measured ceilings. Tune them against a load test before relying on
@@ -48,7 +48,7 @@ terraform init
 terraform apply
 ```
 
-If `dns_managed_zone` is empty, create the A-record yourself against the
+If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 `static_ip` output. Status: preliminary / not scale-validated.
 
 <!-- BEGIN_TF_DOCS -->

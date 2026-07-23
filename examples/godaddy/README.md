@@ -2,7 +2,7 @@
 
 Deploys n8n on GKE and manages the DNS record at **GoDaddy** instead of Google
 Cloud DNS. TLS is a **Google-managed certificate**: once the GoDaddy A-record
-resolves `n8n_domain` to the load balancer's static IP, the certificate
+resolves `n8n_fqdn` to the load balancer's static IP, the certificate
 provisions automatically (this takes a few minutes on first apply).
 
 Use this example when your domain is registered with GoDaddy and you want to
@@ -11,9 +11,9 @@ keep DNS there while running n8n on Google Cloud.
 ## How it works
 
 1. The module reserves a global static IP for the L7 load balancer and requests
-   a Google-managed certificate for `n8n_domain` (`tls_mode = "google_managed"`,
-   `dns_managed_zone = ""` so the module does not touch Cloud DNS).
-2. `dns.tf` creates a GoDaddy A-record for `n8n_domain` pointing at that static
+   a Google-managed certificate for `n8n_fqdn` (`tls_mode = "google_managed"`,
+   `cloud_dns_zone_name = ""` so the module does not touch Cloud DNS).
+2. `dns.tf` creates a GoDaddy A-record for `n8n_fqdn` pointing at that static
    IP via the [`veksh/godaddy-dns`](https://registry.terraform.io/providers/veksh/godaddy-dns/latest)
    provider.
 3. Once the record resolves, the managed certificate finishes provisioning and
@@ -38,7 +38,7 @@ terraform init
 terraform apply
 ```
 
-`n8n_domain` must be a host within `godaddy_domain` (for example `n8n.example.com`
+`n8n_fqdn` must be a host within `godaddy_domain` (for example `n8n.example.com`
 in the GoDaddy zone `example.com`).
 
 <!-- BEGIN_TF_DOCS -->
