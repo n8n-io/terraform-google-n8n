@@ -16,7 +16,7 @@
 #
 # Env toggles (match the module's optional paths):
 #   CHECK_ORG_POLICY=true|false   # default true  (manage_sa_key_org_policy path)
-#   CHECK_CLOUD_DNS=true|false    # default false (dns_managed_zone path; off for the Cloudflare example)
+#   CHECK_CLOUD_DNS=true|false    # default false (cloud_dns_zone_name path; off for the Cloudflare example)
 #
 # Exit: 0 = all required checks pass; 1 = a required API/permission is missing;
 #       2 = usage / no auth. Org-policy-override rights are reported as WARNING

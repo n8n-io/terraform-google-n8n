@@ -254,3 +254,67 @@ Started: 2026-07-23
     (Keep a Changelog groups by change type, and `Added` conventionally
     precedes `Changed`).
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 7. Final verification
+- Repo-wide `git grep -w` sweep for every former name in design D3/D4
+  (`cluster_name`, `n8n_domain`, `namespace`, `k8s_service_account_name`,
+  `dns_managed_zone`, `create_database`, `db_host`, `db_password`, `db_name`,
+  `db_username`, `cloudsql_*`, `memorystore_*`, `node_*`,
+  `cluster_deletion_protection`, `enable_private_nodes`, `master_ipv4_cidr`,
+  `master_authorized_networks`, `cluster_endpoint`, `cluster_ca_certificate`)
+  found only expected exceptions: `progress.txt` (historical log, same
+  category as `CHANGELOG.md`, not module docs), `random_password.db_password`
+  (an intentionally-kept resource address, not the module's variable/output
+  surface, see design D3 notes), the `kubernetes`/`kubectl`/`helm` provider
+  blocks' own `cluster_ca_certificate` argument name and GCP's
+  `master_auth[0].cluster_ca_certificate` API attribute (unrelated identifiers
+  from upstream providers, not this module's renamed output), and the literal
+  Kubernetes `namespace` argument/resource type used throughout `n8n.tf`,
+  `keda.tf`, `scaling.tf`, `crds.tf`, and examples (a Terraform provider
+  keyword, not the removed `var.namespace`).
+- Fixed two genuine stale references found by the sweep that were not in the
+  exception list: `scripts/preflight.sh`'s comment
+  `dns_managed_zone path` -> `cloud_dns_zone_name path`, and
+  `tests/scripts/smoke-test.sh`'s `terraform output -raw namespace` ->
+  `terraform output -raw n8n_kube_namespace` (a real runtime bug: the script
+  would have silently failed to read the namespace after the rename). Updated
+  `tests/scripts/README.md` prose (`namespace` -> `n8n_kube_namespace`) to
+  match. `tests/scripts/.env.example`'s `N8N_NAMESPACE` and
+  `smoke-test.sh`'s internal `NAMESPACE` shell variable are the script's own
+  env var names, not the module's `namespace` variable/output, so they were
+  left unchanged.
+- Confirmed `CHANGELOG.md`'s `## [Unreleased]` section lists every breaking
+  rename from sections 1-4 (naming foundation, database, redis/GKE,
+  application/DNS) plus the `### Added` housekeeping bullets from section 6.
+- Ran the complete local loop (`terraform fmt -recursive -check`,
+  `terraform init -backend=false`, `terraform validate`, `terraform test`,
+  `tflint --init && tflint --format compact`,
+  `terraform-docs --output-check .`) in the module root and all five
+  examples (`small`, `medium`, `large`, `cloudflare`, `godaddy` with
+  `GODADDY_API_KEY=stub GODADDY_API_SECRET=stub`): all green, 63 root test
+  runs pass, one `defaults_produce_valid_plan` test pass per example.
+- Ran `npx markdownlint-cli2 "**/*.md"` (markdownlint is configured via
+  `.markdownlint.json` but no lint script existed in the repo yet); it
+  reported pre-existing `MD013`/`MD034`/`MD060` violations in
+  `SECURITY.md` and `tests/scripts/README.md` that predate this change
+  (present since the module's initial import commit `3fc2d3e`, before any
+  section of this OpenSpec change touched those files). Left as-is: fixing
+  them is unrelated scope creep for this rename-focused change.
+- `openspec validate update-module-to-hvd-conventions --strict` passes.
+- **Learnings for future iterations:**
+  - When a design's rename mapping includes a common English word used as a
+    Terraform provider keyword too (here: `namespace`, the Kubernetes
+    resource attribute), the `git grep -w` sweep will always show many hits;
+    triage each one by asking "is this `var.namespace` / `output "namespace"`
+    / `module.n8n.namespace`, or a provider's own field name?" rather than
+    trying to silence the grep with narrower patterns.
+  - `progress.txt` legitimately keeps former variable/output names in its
+    historical entries (it is an append-only log of what changed, like
+    `CHANGELOG.md`); do not "clean up" old names there, and do not treat it
+    as a failure of the "no stale names" sweep.
+  - Shell scripts and their READMEs under `tests/scripts/` are easy to miss
+    in a `.tf`-focused rename because they read Terraform outputs via
+    `terraform output -raw <name>` as plain strings that `terraform validate`
+    and `terraform test` cannot catch; grep them explicitly for output names
+    whenever an output is renamed.
+---

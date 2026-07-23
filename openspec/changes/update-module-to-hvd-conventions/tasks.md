@@ -83,9 +83,9 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 7. Final verification
 
-- [ ] 7.1 Repo-wide sweep: `git grep` every former name from design D3/D4 to
+- [x] 7.1 Repo-wide sweep: `git grep` every former name from design D3/D4 to
       confirm only `CHANGELOG.md` and `openspec/` reference them; confirm
       CHANGELOG lists every breaking rename
-- [ ] 7.2 Run the complete local loop from `AGENTS.md` (root plus all five
+- [x] 7.2 Run the complete local loop from `AGENTS.md` (root plus all five
       examples: fmt, validate, test, tflint, terraform-docs) and fix anything
       red
