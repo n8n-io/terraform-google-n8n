@@ -6,7 +6,7 @@ locals {
   # Aliases for inputs so the rest of the module can reference them uniformly.
   # Naming scheme: <friendly_name_prefix>-n8n<-suffix>, e.g. <prefix>-n8n-pg.
   name_prefix = "${var.friendly_name_prefix}-n8n"
-  n8n_domain  = var.n8n_domain
+  n8n_fqdn    = var.n8n_fqdn
 
   # (GCP labels live in local.gcp_labels, network.tf.)
 

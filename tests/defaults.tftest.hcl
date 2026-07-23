@@ -28,7 +28,7 @@ variables {
   project_id           = "test-project"
   gcp_region           = "us-east4"
   friendly_name_prefix = "test"
-  n8n_domain           = "n8n.test.example.com"
+  n8n_fqdn             = "n8n.test.example.com"
   n8n_license_key      = "test-license-key-not-real"
 }
 
@@ -303,7 +303,7 @@ run "workload_identity_binds_correct_service_accounts" {
     error_message = "n8n GSA account_id should be <friendly_name_prefix>-n8n-n8n (truncated to 30 chars)"
   }
 
-  # The IAM binding lets the in-cluster KSA (namespace/k8s_service_account_name)
+  # The IAM binding lets the in-cluster KSA (namespace/n8n_kube_svc_account)
   # impersonate the Google service account via Workload Identity.
   assert {
     condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:test-project.svc.id.goog[n8n/n8n]"
@@ -433,12 +433,12 @@ run "custom_namespace_propagates_to_workload_identity" {
   command = plan
 
   variables {
-    namespace = "n8n-prod"
+    n8n_kube_namespace = "n8n-prod"
   }
 
   assert {
     condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:test-project.svc.id.goog[n8n-prod/n8n]"
-    error_message = "workload identity member namespace should track var.namespace"
+    error_message = "workload identity member namespace should track var.n8n_kube_namespace"
   }
 }
 

@@ -47,6 +47,12 @@ this project adheres to the stability contract in
   `gke_control_plane_authorized_networks`. Semantics, types, and defaults are
   unchanged; only the names move.
 - **Breaking:** output `memorystore_host` is renamed to `redis_host`.
+- **Breaking:** application and DNS variables are renamed to HVD-style,
+  service-oriented names: `n8n_domain` to `n8n_fqdn`, `namespace` to
+  `n8n_kube_namespace`, `k8s_service_account_name` to
+  `n8n_kube_svc_account`, and `dns_managed_zone` to `cloud_dns_zone_name`.
+  Semantics, types, and defaults are unchanged; only the names move.
+- **Breaking:** output `namespace` is renamed to `n8n_kube_namespace`.
 
 ## [0.1.0] - 2026-07-21
 

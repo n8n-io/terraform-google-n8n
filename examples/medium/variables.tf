@@ -21,7 +21,7 @@ variable "friendly_name_prefix" {
   default     = "medium"
 }
 
-variable "n8n_domain" {
+variable "n8n_fqdn" {
   description = "Hostname n8n is served on."
   type        = string
 }
@@ -33,8 +33,8 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
-variable "dns_managed_zone" {
-  description = "Google Cloud DNS managed-zone name for n8n_domain. Empty means you manage the A-record yourself against the static_ip output."
+variable "cloud_dns_zone_name" {
+  description = "Google Cloud DNS managed-zone name for n8n_fqdn. Empty means you manage the A-record yourself against the static_ip output."
   type        = string
   default     = ""
 }

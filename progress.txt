@@ -134,3 +134,42 @@ Started: 2026-07-23
     `tests/defaults.tftest.hcl` (which the mechanical script already
     covered).
 ---
+
+## 2026-07-23 - update-module-to-hvd-conventions - 4. Application and DNS interface rename
+- Renamed application/DNS variables to HVD-style names per design D3:
+  `n8n_domain` -> `n8n_fqdn`, `namespace` -> `n8n_kube_namespace`,
+  `k8s_service_account_name` -> `n8n_kube_svc_account`, `dns_managed_zone` ->
+  `cloud_dns_zone_name`. Renamed output `namespace` to `n8n_kube_namespace`.
+- Updated `n8n.tf`, `dns.tf`, `crds.tf`, `workload_identity.tf`, `locals.tf`
+  (the `local.n8n_domain` alias became `local.n8n_fqdn`), `scaling.tf`,
+  `keda.tf`, `variables.tf`, `variables_gcp.tf`, `outputs.tf`; updated all
+  five examples' `main.tf`/`variables.tf`/`outputs.tf`/`terraform.tfvars.example`
+  and `tests/defaults.tftest.hcl`; updated the root `tests/defaults.tftest.hcl`.
+  Regenerated terraform-docs at root and every example. Added CHANGELOG
+  bullets under `## [Unreleased] / ### Changed`.
+- **Learnings for future iterations:**
+  - `namespace` cannot be renamed with a blind word-boundary regex like the
+    other three names in this section: the string `namespace` is also a
+    literal Kubernetes/Helm resource attribute key used throughout `n8n.tf`,
+    `crds.tf`, `keda.tf`, `scaling.tf` (e.g.
+    `namespace = kubernetes_namespace.n8n.metadata[0].name`, or the
+    hard-coded `namespace = "keda"` for the KEDA Helm release). Renaming only
+    `var.namespace`, `variable "namespace"`, `output "namespace"`, and
+    `module.n8n.namespace` (four targeted regexes) instead of a plain
+    `\bnamespace\b` replace kept those resource-attribute keys untouched. A
+    plain `\bnamespace\b` regex would have broken `helm_release.keda`'s
+    `namespace = "keda"` argument, for example.
+  - Even with the four targeted regexes, one occurrence was missed on the
+    first pass: a `variables { namespace = "n8n-prod" }` block inside a
+    `run` block in `tests/defaults.tftest.hcl` (an HCL block assigning a test
+    override, not a `var.namespace` reference or a `variable`/`output`
+    declaration). `terraform test` caught it immediately (assertion compared
+    against the still-default namespace). After a `namespace` rename,
+    grep every `.tftest.hcl` `variables { ... }` block by hand in addition to
+    the targeted regexes; `terraform test` is the reliable backstop but it's
+    faster to catch this in the pre-check.
+  - The other three renames in this section (`n8n_domain`, `k8s_service_account_name`,
+    `dns_managed_zone`) had no name collisions anywhere in the repo, so a
+    single `\bword\b` regex sufficed for all of them across `.tf`, prose
+    comments, and `.tftest.hcl` files in one pass.
+---

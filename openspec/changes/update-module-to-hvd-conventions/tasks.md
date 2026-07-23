@@ -48,13 +48,13 @@ tests, generated docs, and a CHANGELOG bullet together.
 
 ## 4. Application and DNS interface rename
 
-- [ ] 4.1 Rename `n8n_domain` to `n8n_fqdn`, `namespace` to
+- [x] 4.1 Rename `n8n_domain` to `n8n_fqdn`, `namespace` to
       `n8n_kube_namespace`, `k8s_service_account_name` to
       `n8n_kube_svc_account`, `dns_managed_zone` to `cloud_dns_zone_name`
-- [ ] 4.2 Update module references (`n8n.tf`, `dns.tf`, `crds.tf`,
+- [x] 4.2 Update module references (`n8n.tf`, `dns.tf`, `crds.tf`,
       `workload_identity.tf`, `locals.tf`) and rename output `namespace` to
       `n8n_kube_namespace`
-- [ ] 4.3 Update examples, tests, regenerate terraform-docs, add CHANGELOG
+- [x] 4.3 Update examples, tests, regenerate terraform-docs, add CHANGELOG
       bullets, run the full local loop
 
 ## 5. Operator docs

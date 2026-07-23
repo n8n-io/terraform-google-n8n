@@ -56,7 +56,7 @@ resource "kubectl_manifest" "redis_trigger_auth" {
     kind       = "TriggerAuthentication"
     metadata = {
       name      = "n8n-redis-auth"
-      namespace = var.namespace
+      namespace = var.n8n_kube_namespace
     }
     spec = {
       secretTargetRef = [{

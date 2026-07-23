@@ -15,7 +15,7 @@ module "n8n" {
   project_id           = var.project_id
   gcp_region           = var.gcp_region
   friendly_name_prefix = var.friendly_name_prefix
-  n8n_domain           = var.n8n_domain
+  n8n_fqdn             = var.n8n_fqdn
 
   n8n_license_key = var.n8n_license_key
   gcs_location    = var.gcs_location
@@ -49,6 +49,6 @@ module "n8n" {
   gcs_force_destroy            = var.gcs_force_destroy
 
   # DNS + TLS: manage the record in Cloud DNS, Google-managed cert.
-  dns_managed_zone = var.dns_managed_zone
-  tls_mode         = "google_managed"
+  cloud_dns_zone_name = var.cloud_dns_zone_name
+  tls_mode            = "google_managed"
 }

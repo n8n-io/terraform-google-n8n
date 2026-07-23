@@ -1,8 +1,8 @@
 # ── Example: GoDaddy DNS + Google-managed TLS ─────────────────────────────────
-# GoDaddy resolves n8n_domain to the LB static IP (dns.tf). TLS is a
+# GoDaddy resolves n8n_fqdn to the LB static IP (dns.tf). TLS is a
 # Google-managed certificate: once the A-record resolves to the load balancer,
 # the ManagedCertificate provisions automatically (takes a few minutes). DNS is
-# managed here via the GoDaddy provider, not by the module, so dns_managed_zone
+# managed here via the GoDaddy provider, not by the module, so cloud_dns_zone_name
 # is left empty.
 
 module "n8n" {
@@ -11,7 +11,7 @@ module "n8n" {
   project_id           = var.project_id
   gcp_region           = var.gcp_region
   friendly_name_prefix = var.friendly_name_prefix
-  n8n_domain           = var.n8n_domain
+  n8n_fqdn             = var.n8n_fqdn
 
   n8n_license_key = var.n8n_license_key
   gcs_location    = var.gcs_location
@@ -25,7 +25,7 @@ module "n8n" {
   gcs_force_destroy            = var.gcs_force_destroy
 
   # DNS is managed here in GoDaddy (dns.tf), not by the module.
-  dns_managed_zone = ""
+  cloud_dns_zone_name = ""
 
   # Google-managed cert; provisions once the GoDaddy A-record resolves.
   tls_mode = "google_managed"

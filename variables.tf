@@ -50,18 +50,18 @@ variable "common_labels" {
   }
 }
 
-variable "n8n_domain" {
+variable "n8n_fqdn" {
   description = "Fully-qualified domain name for n8n (e.g. n8n.example.com). Must match the certificate served for the chosen tls_mode."
   type        = string
 
   validation {
-    condition     = can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.n8n_domain))
+    condition     = can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", var.n8n_fqdn))
     error_message = "Value must be a valid fully qualified domain name (e.g. n8n.example.com)."
   }
 }
 
 variable "n8n_webhook_url" {
-  description = "Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n_domain> when not set. Override when webhooks are served from a different host than the n8n UI."
+  description = "Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n_fqdn> when not set. Override when webhooks are served from a different host than the n8n UI."
   type        = string
   default     = null
 }
@@ -72,7 +72,7 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
-variable "namespace" {
+variable "n8n_kube_namespace" {
   description = "Kubernetes namespace to deploy n8n into"
   type        = string
   default     = "n8n"

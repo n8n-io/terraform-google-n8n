@@ -223,7 +223,7 @@ variable "gcs_hmac_secret_name" {
 
 # ── Workload Identity ─────────────────────────────────────────────────────────
 
-variable "k8s_service_account_name" {
+variable "n8n_kube_svc_account" {
   description = "Kubernetes ServiceAccount the n8n pods run as (annotated for Workload Identity). Matches the n8n Helm chart's serviceAccount name."
   type        = string
   default     = "n8n"
@@ -284,8 +284,8 @@ variable "https_redirect" {
 # example). Alternative DNS providers are examples that manage their own record
 # against the module's static IP output (examples/cloudflare, examples/godaddy).
 
-variable "dns_managed_zone" {
-  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_domain at the static IP output yourself, as examples/cloudflare does)."
+variable "cloud_dns_zone_name" {
+  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does)."
   type        = string
   default     = ""
 }

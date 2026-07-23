@@ -3,11 +3,11 @@ project_id           = "my-gcp-project-id"
 gcp_region           = "us-east4" # any region; e.g. us-east4 (N. Virginia), europe-west3 (Frankfurt), europe-west1 (Belgium)
 gcs_location         = "US"       # keep near gcp_region: US for us-*, EU for europe-*, or a specific region
 friendly_name_prefix = "godaddy"
-n8n_domain           = "n8n.example.com"
+n8n_fqdn           = "n8n.example.com"
 
 n8n_license_key = "your-enterprise-license-key"
 
-# GoDaddy DNS: the registered domain that owns n8n_domain, plus API credentials.
+# GoDaddy DNS: the registered domain that owns n8n_fqdn, plus API credentials.
 # Credentials can also be supplied via GODADDY_API_KEY / GODADDY_API_SECRET.
 godaddy_domain     = "example.com"
 godaddy_api_key    = "your-godaddy-api-key"

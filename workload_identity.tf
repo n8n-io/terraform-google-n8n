@@ -16,7 +16,7 @@ resource "google_service_account" "n8n" {
 resource "google_service_account_iam_member" "n8n_workload_identity" {
   service_account_id = google_service_account.n8n.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.namespace}/${var.k8s_service_account_name}]"
+  member             = "serviceAccount:${var.project_id}.svc.id.goog[${var.n8n_kube_namespace}/${var.n8n_kube_svc_account}]"
 }
 
 # Cloud SQL client role so the workload can reach the database.

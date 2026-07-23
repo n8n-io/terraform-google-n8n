@@ -18,7 +18,7 @@ resource "random_password" "task_runner_token" {
 
 resource "kubernetes_namespace" "n8n" {
   metadata {
-    name = var.namespace
+    name = var.n8n_kube_namespace
   }
 
   timeouts {
@@ -39,10 +39,10 @@ resource "kubernetes_secret" "n8n" {
 
   data = {
     N8N_ENCRYPTION_KEY = random_id.n8n_encryption_key.hex
-    N8N_HOST           = local.n8n_domain
+    N8N_HOST           = local.n8n_fqdn
     N8N_PORT           = "5678"
     N8N_PROTOCOL       = "http"
-    WEBHOOK_URL        = coalesce(var.n8n_webhook_url, "https://${local.n8n_domain}")
+    WEBHOOK_URL        = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
   }
 }
 
@@ -179,7 +179,7 @@ resource "helm_release" "n8n" {
     # (GCS is the exception: it uses the HMAC key above, not Workload Identity.)
     serviceAccount = {
       create = true
-      name   = var.k8s_service_account_name
+      name   = var.n8n_kube_svc_account
       annotations = {
         "iam.gke.io/gcp-service-account" = google_service_account.n8n.email
       }
@@ -313,7 +313,7 @@ resource "helm_release" "n8n" {
           { name = "N8N_LOG_OUTPUT", value = var.n8n_log_output },
           { name = "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS", value = "true" },
           # Override the internally computed http://host:5678 URL so webhooks show the correct HTTPS address.
-          { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_domain}") },
+          { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}") },
           { name = "N8N_RUNNERS_TASK_REQUEST_TIMEOUT", value = tostring(var.n8n_task_runner_request_timeout) },
           # Keeps Memorystore from dropping idle Redis subscriber connections under sustained load.
           # Without this, Bull detects dropped connections, emits queue errors, and pods crash.
@@ -512,7 +512,7 @@ resource "kubernetes_ingress_v1" "n8n" {
 
   spec {
     rule {
-      host = local.n8n_domain
+      host = local.n8n_fqdn
       http {
         # Webhook traffic must go to the dedicated webhook-processor.
         # Production webhooks are disabled on main pods (disableProductionWebhooksOnMainProcess=true).
@@ -545,7 +545,7 @@ resource "kubernetes_ingress_v1" "n8n" {
     dynamic "tls" {
       for_each = var.tls_mode == "secret" ? [1] : []
       content {
-        hosts       = [local.n8n_domain]
+        hosts       = [local.n8n_fqdn]
         secret_name = var.tls_secret_name
       }
     }

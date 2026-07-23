@@ -3,11 +3,11 @@ project_id           = "my-gcp-project-id"
 gcp_region           = "us-east4" # any region; e.g. us-east4 (N. Virginia), europe-west3 (Frankfurt), europe-west1 (Belgium)
 gcs_location         = "US"       # keep near gcp_region: US for us-*, EU for europe-*, or a specific region
 friendly_name_prefix = "dev"
-n8n_domain           = "n8n.example.com"
+n8n_fqdn           = "n8n.example.com"
 
 n8n_license_key = "your-enterprise-license-key"
 
-# Cloudflare (zone that owns n8n_domain) + ACME
+# Cloudflare (zone that owns n8n_fqdn) + ACME
 cloudflare_zone_id   = "your-cloudflare-zone-id"
 cloudflare_api_token = "cf-token-with-Zone.DNS-Edit" # sensitive
 acme_email           = "you@example.com"

@@ -21,7 +21,7 @@ variable "friendly_name_prefix" {
   default     = "dev"
 }
 
-variable "n8n_domain" {
+variable "n8n_fqdn" {
   description = "Hostname n8n is served on (must be in the Cloudflare zone)."
   type        = string
 }
@@ -36,7 +36,7 @@ variable "n8n_license_key" {
 # ── Cloudflare + ACME ─────────────────────────────────────────────────────────
 
 variable "cloudflare_zone_id" {
-  description = "Cloudflare zone ID that owns n8n_domain."
+  description = "Cloudflare zone ID that owns n8n_fqdn."
   type        = string
 }
 

@@ -21,7 +21,7 @@ variable "friendly_name_prefix" {
   default     = "godaddy"
 }
 
-variable "n8n_domain" {
+variable "n8n_fqdn" {
   description = "Hostname n8n is served on. Must be within godaddy_domain."
   type        = string
 }
@@ -35,7 +35,7 @@ variable "n8n_license_key" {
 
 # ── GoDaddy DNS ───────────────────────────────────────────────────────────────
 variable "godaddy_domain" {
-  description = "The GoDaddy zone (registered domain) that owns n8n_domain, e.g. example.com."
+  description = "The GoDaddy zone (registered domain) that owns n8n_fqdn, e.g. example.com."
   type        = string
 }
 

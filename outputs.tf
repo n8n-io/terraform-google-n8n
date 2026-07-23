@@ -1,20 +1,20 @@
 # ── App DNS ───────────────────────────────────────────────────────────────────
 
 output "static_ip" {
-  description = "Reserved global static IP of the L7 load balancer. Point n8n_domain (an A record) at this. The base module creates the record when dns_managed_zone is set; otherwise create it in your DNS provider (as examples/cloudflare does)."
+  description = "Reserved global static IP of the L7 load balancer. Point n8n_fqdn (an A record) at this. The base module creates the record when cloud_dns_zone_name is set; otherwise create it in your DNS provider (as examples/cloudflare does)."
   value       = google_compute_global_address.lb.address
 }
 
 output "n8n_url" {
   description = "URL to access n8n once DNS propagates and the cert is active"
-  value       = "https://${local.n8n_domain}"
+  value       = "https://${local.n8n_fqdn}"
 }
 
 output "lb_ingress_ip" {
   description = "IP the Ingress reports once the LB is provisioned (should match static_ip)."
   value = try(
     kubernetes_ingress_v1.n8n.status[0].load_balancer[0].ingress[0].ip,
-    "LB not yet provisioned, run: kubectl get ingress n8n-ingress -n ${var.namespace}"
+    "LB not yet provisioned, run: kubectl get ingress n8n-ingress -n ${var.n8n_kube_namespace}"
   )
 }
 
@@ -94,7 +94,7 @@ output "kubectl_config_command" {
   value       = "gcloud container clusters get-credentials ${google_container_cluster.n8n.name} --region ${var.gcp_region} --project ${var.project_id}"
 }
 
-output "namespace" {
+output "n8n_kube_namespace" {
   description = "Kubernetes namespace n8n is deployed into."
-  value       = var.namespace
+  value       = var.n8n_kube_namespace
 }

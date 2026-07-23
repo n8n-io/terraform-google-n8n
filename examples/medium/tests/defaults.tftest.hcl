@@ -12,7 +12,7 @@ mock_provider "helm" {}
 
 variables {
   project_id      = "test-project"
-  n8n_domain      = "n8n.test.example.com"
+  n8n_fqdn        = "n8n.test.example.com"
   n8n_license_key = "test-license-key-not-real"
 }
 
@@ -21,6 +21,6 @@ run "defaults_produce_valid_plan" {
 
   assert {
     condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
-    error_message = "the module must serve n8n at https://<n8n_domain>"
+    error_message = "the module must serve n8n at https://<n8n_fqdn>"
   }
 }

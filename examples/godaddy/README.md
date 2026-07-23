@@ -84,9 +84,9 @@ in the GoDaddy zone `example.com`).
 | <a name="input_gke_deletion_protection"></a> [gke\_deletion\_protection](#input\_gke\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
 | <a name="input_godaddy_api_key"></a> [godaddy\_api\_key](#input\_godaddy\_api\_key) | GoDaddy API key. Can also be supplied via the GODADDY\_API\_KEY environment variable. Create one at https://developer.godaddy.com/keys. | `string` | `""` | no |
 | <a name="input_godaddy_api_secret"></a> [godaddy\_api\_secret](#input\_godaddy\_api\_secret) | GoDaddy API secret corresponding to godaddy\_api\_key. Can also be supplied via the GODADDY\_API\_SECRET environment variable. | `string` | `""` | no |
-| <a name="input_godaddy_domain"></a> [godaddy\_domain](#input\_godaddy\_domain) | The GoDaddy zone (registered domain) that owns n8n\_domain, e.g. example.com. | `string` | n/a | yes |
+| <a name="input_godaddy_domain"></a> [godaddy\_domain](#input\_godaddy\_domain) | The GoDaddy zone (registered domain) that owns n8n\_fqdn, e.g. example.com. | `string` | n/a | yes |
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation on the project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise. | `bool` | `false` | no |
-| <a name="input_n8n_domain"></a> [n8n\_domain](#input\_n8n\_domain) | Hostname n8n is served on. Must be within godaddy\_domain. | `string` | n/a | yes |
+| <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. Must be within godaddy\_domain. | `string` | n/a | yes |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key. | `string` | `""` | no |
 | <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID. | `string` | n/a | yes |
@@ -96,7 +96,7 @@ in the GoDaddy zone `example.com`).
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | n/a |
+| <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | n/a |
 | <a name="output_n8n_url"></a> [n8n\_url](#output\_n8n\_url) | n/a |
-| <a name="output_namespace"></a> [namespace](#output\_namespace) | n/a |
 | <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | LB static IP that the GoDaddy A-record points at. |
 <!-- END_TF_DOCS -->

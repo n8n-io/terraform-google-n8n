@@ -21,15 +21,15 @@ resource "google_compute_global_address" "lb" {
 }
 
 # ── Google Cloud DNS A-record (base/default path) ─────────────────────────────
-# Only when dns_managed_zone is set. Alternative DNS providers (Cloudflare,
+# Only when cloud_dns_zone_name is set. Alternative DNS providers (Cloudflare,
 # GoDaddy) manage their own record against google_compute_global_address.lb in
 # the respective examples.
 resource "google_dns_record_set" "n8n" {
-  count = var.dns_managed_zone != "" ? 1 : 0
+  count = var.cloud_dns_zone_name != "" ? 1 : 0
 
   project      = var.project_id
-  managed_zone = var.dns_managed_zone
-  name         = "${var.n8n_domain}."
+  managed_zone = var.cloud_dns_zone_name
+  name         = "${var.n8n_fqdn}."
   type         = "A"
   ttl          = 300
   rrdatas      = [google_compute_global_address.lb.address]
@@ -47,10 +47,10 @@ resource "tls_self_signed_cert" "self_signed" {
   private_key_pem = tls_private_key.self_signed[0].private_key_pem
 
   subject {
-    common_name = var.n8n_domain
+    common_name = var.n8n_fqdn
   }
 
-  dns_names             = [var.n8n_domain]
+  dns_names             = [var.n8n_fqdn]
   validity_period_hours = 8760
   allowed_uses          = ["key_encipherment", "digital_signature", "server_auth"]
 }
