@@ -240,3 +240,51 @@ run "existing_gke_without_workload_identity_fails" {
 
   expect_failures = [data.google_container_cluster.existing]
 }
+
+# ── Managed GKE ignores existing-cluster references ───────────────────────────
+# Regression: a stray existing_gke_workload_identity_pool set while the module
+# manages the cluster must never rewrite the Workload Identity binding; the
+# managed branch is pinned to this project's own pool (locals.tf). The
+# ignored-input check fires as a warning and must be listed in
+# expect_failures (see AGENTS.md), while the asserts prove the pool and the
+# IAM binding member stay on the managed cluster's own pool.
+
+run "managed_gke_ignores_existing_workload_identity_pool" {
+  command = plan
+
+  variables {
+    existing_gke_workload_identity_pool = "other-project.svc.id.goog"
+  }
+
+  assert {
+    condition     = output.workload_identity_pool == "test-project.svc.id.goog"
+    error_message = "workload_identity_pool must stay on the managed cluster's own pool; existing_gke_workload_identity_pool is ignored when create_gke = true."
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:test-project.svc.id.goog[n8n/n8n]"
+    error_message = "The Workload Identity binding member must use the managed cluster's own pool, not the ignored existing_gke_workload_identity_pool."
+  }
+
+  expect_failures = [check.gke_references_ignored_when_managed]
+}
+
+# The new opposite-path diagnostic itself: any existing-cluster reference set
+# while create_gke = true warns (and only warns; the ignored inputs change
+# nothing).
+
+run "gke_references_ignored_when_managed_triggers_warning" {
+  command = plan
+
+  variables {
+    existing_gke_cluster_name              = "shared-cluster"
+    existing_gke_prerequisites_attestation = true
+  }
+
+  assert {
+    condition     = length(data.google_container_cluster.existing) == 0
+    error_message = "create_gke = true must not read the (ignored) existing cluster reference."
+  }
+
+  expect_failures = [check.gke_references_ignored_when_managed]
+}

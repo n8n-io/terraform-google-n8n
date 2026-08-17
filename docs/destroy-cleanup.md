@@ -53,6 +53,25 @@ The module's dependency graph then destroys resources in the correct order:
 
 Most destroys complete in 10 to 20 minutes without intervention.
 
+### Module-created CMEK keys (`create_postgres_kms_key`, `create_redis_kms_key`, `create_gcs_kms_key`)
+
+Module-created Cloud KMS CryptoKeys carry `lifecycle { prevent_destroy = true }`: losing a CMEK key makes the data it protects unrecoverable, so Terraform refuses any plan that would destroy one. This blocks two situations:
+
+1. **Flipping a `create_*_kms_key` switch from `true` back to `false`.** The plan wants to destroy the key and fails. Back out deliberately: first migrate the protected service off the key (for Cloud SQL and Memorystore that means recreating the instance, since neither supports changing CMEK in place), then remove the key from state instead of destroying it:
+
+   ```bash
+   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]'   # or .redis[0] / .gcs[0]
+   ```
+
+   The key stays in Cloud KMS (a destroyed CryptoKey cannot be re-created under the same name anyway; KMS key material is only ever scheduled for destruction). Schedule its versions for destruction out of band with `gcloud kms keys versions destroy` once nothing encrypted with it must remain readable.
+
+2. **A full `terraform destroy` of a deployment that used a module-created key.** Remove the key (and, if module-created, the key ring) from state first, then destroy the rest:
+
+   ```bash
+   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]' 'module.n8n.google_kms_key_ring.n8n[0]'
+   terraform destroy ...
+   ```
+
 ## Troubleshooting
 
 ### Private Service Access peering deletion stalls

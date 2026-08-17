@@ -135,9 +135,14 @@ locals {
   effective_gke_cluster_name           = var.create_gke ? google_container_cluster.n8n[0].name : var.existing_gke_cluster_name
   effective_gke_cluster_endpoint       = var.create_gke ? google_container_cluster.n8n[0].endpoint : data.google_container_cluster.existing[0].endpoint
   effective_gke_cluster_ca_certificate = var.create_gke ? try(google_container_cluster.n8n[0].master_auth[0].cluster_ca_certificate, null) : try(data.google_container_cluster.existing[0].master_auth[0].cluster_ca_certificate, null)
-  effective_gke_workload_identity_pool = coalesce(
+  # existing_gke_workload_identity_pool is only consulted on the
+  # existing-cluster branch; a managed cluster always uses this project's own
+  # pool, so a stray reference input cannot silently rewrite the Workload
+  # Identity binding (checks.tf's gke_references_ignored_when_managed warns
+  # about the ignored input).
+  effective_gke_workload_identity_pool = var.create_gke ? "${var.project_id}.svc.id.goog" : coalesce(
     var.existing_gke_workload_identity_pool,
-    var.create_gke ? null : try(data.google_container_cluster.existing[0].workload_identity_config[0].workload_pool, null),
+    try(data.google_container_cluster.existing[0].workload_identity_config[0].workload_pool, null),
     "${var.project_id}.svc.id.goog"
   )
 

@@ -252,7 +252,9 @@ variable "n8n_image_pull_policy" {
   default     = null
 
   validation {
-    condition     = var.n8n_image_pull_policy == null || contains(["Always", "IfNotPresent", "Never"], var.n8n_image_pull_policy)
+    # Ternary, not ||: Terraform does not short-circuit, and contains() errors
+    # on a null needle under the CI-pinned Terraform 1.9.x.
+    condition     = var.n8n_image_pull_policy == null ? true : contains(["Always", "IfNotPresent", "Never"], var.n8n_image_pull_policy)
     error_message = "n8n_image_pull_policy must be one of Always, IfNotPresent, or Never, or null to use the chart's default (IfNotPresent)."
   }
 }
@@ -666,8 +668,8 @@ variable "n8n_main_fixed_replicas" {
   default     = 2
 
   validation {
-    condition     = var.n8n_main_fixed_replicas >= 1
-    error_message = "n8n_main_fixed_replicas must be at least 1."
+    condition     = var.n8n_main_fixed_replicas >= 1 && floor(var.n8n_main_fixed_replicas) == var.n8n_main_fixed_replicas
+    error_message = "n8n_main_fixed_replicas must be a whole number of at least 1."
   }
 }
 
@@ -704,8 +706,8 @@ variable "n8n_webhook_fixed_replicas" {
   default     = 2
 
   validation {
-    condition     = var.n8n_webhook_fixed_replicas >= 1
-    error_message = "n8n_webhook_fixed_replicas must be at least 1."
+    condition     = var.n8n_webhook_fixed_replicas >= 1 && floor(var.n8n_webhook_fixed_replicas) == var.n8n_webhook_fixed_replicas
+    error_message = "n8n_webhook_fixed_replicas must be a whole number of at least 1."
   }
 }
 
@@ -946,8 +948,8 @@ variable "n8n_worker_fixed_replicas" {
   default     = 1
 
   validation {
-    condition     = var.n8n_worker_fixed_replicas >= 1
-    error_message = "n8n_worker_fixed_replicas must be at least 1."
+    condition     = var.n8n_worker_fixed_replicas >= 1 && floor(var.n8n_worker_fixed_replicas) == var.n8n_worker_fixed_replicas
+    error_message = "n8n_worker_fixed_replicas must be a whole number of at least 1."
   }
 }
 

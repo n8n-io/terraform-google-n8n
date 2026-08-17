@@ -186,10 +186,13 @@ run "source_cidrs_create_module_managed_cloud_armor_policy" {
     error_message = "Non-empty ingress_source_cidrs must create a module-managed Cloud Armor policy."
   }
 
+  # try(), not `length(...) > 0 && ...[0]`: Terraform does not short-circuit
+  # && and the CI-pinned 1.9.x errors on indexing the empty nested block list
+  # (this rule set mixes match.config and match.expr rules; see AGENTS.md).
   assert {
     condition = anytrue([
       for r in google_compute_security_policy.n8n[0].rule :
-      length(r.match[0].config) > 0 && contains(tolist(r.match[0].config[0].src_ip_ranges), "203.0.113.0/24")
+      try(contains(tolist(r.match[0].config[0].src_ip_ranges), "203.0.113.0/24"), false)
     ])
     error_message = "The allow rule must reference the supplied CIDRs."
   }
@@ -197,9 +200,7 @@ run "source_cidrs_create_module_managed_cloud_armor_policy" {
   assert {
     condition = anytrue([
       for r in google_compute_security_policy.n8n[0].rule :
-      length(r.match[0].expr) > 0 &&
-      r.match[0].expr[0].expression == "evaluatePreconfiguredExpr('cve-canary')" &&
-      r.action == "deny(403)"
+      try(r.match[0].expr[0].expression == "evaluatePreconfiguredExpr('cve-canary')" && r.action == "deny(403)", false)
     ])
     error_message = "The module-managed Cloud Armor policy must deny the log4j2 CVE-2021-44228 preconfigured expression (CKV_GCP_73)."
   }

@@ -267,6 +267,27 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- Pinned the managed-GKE Workload Identity binding to the project's own pool:
+  `existing_gke_workload_identity_pool` is now genuinely ignored when
+  `create_gke = true` (it previously rewrote the binding member silently,
+  contradicting its own description), and a new
+  `gke_references_ignored_when_managed` opposite-path `check` diagnostic warns
+  when any existing-cluster reference (`existing_gke_cluster_name`,
+  `existing_gke_workload_identity_pool`,
+  `existing_gke_prerequisites_attestation`) is set on the managed path.
+- Made the `n8n_image_pull_policy` validation compatible with Terraform 1.9
+  (the CI-pinned version), which does not short-circuit `||` and rejects
+  `contains()` with a null needle, failing `terraform validate` in every
+  example.
+- Rejected fractional values on `n8n_main_fixed_replicas`,
+  `n8n_webhook_fixed_replicas`, and `n8n_worker_fixed_replicas`; a replica
+  count must be a whole number.
+- Documented the back-out procedure for module-created CMEK keys (protected by
+  `prevent_destroy`) in `docs/destroy-cleanup.md` and on each
+  `create_*_kms_key` description, and the verified pinned-chart handling of
+  empty `redis.prefix`/`redis.username` values (Go-template truthiness falls
+  back to n8n's own defaults, keeping KEDA's `bull`-prefixed trigger lists in
+  sync).
 - Trusted the Google-managed Memorystore service CA from every n8n workload
   and the KEDA Redis scaler when module-managed Redis transit encryption is
   enabled, instead of leaving both clients unable to verify the Redis server

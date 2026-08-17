@@ -266,6 +266,16 @@ resource "helm_release" "n8n" {
     # Memorystore instance or the supplied external redis_* inputs
     # (locals.tf). The password source (managed AUTH, external direct value,
     # or external Secret reference) is omitted entirely when none is set.
+    #
+    # username and prefix pass "" when unset: verified against the pinned
+    # chart (1.10.1), whose templates guard both with Go-template truthiness
+    # ({{- if .Values.redis.username }} / {{- if .Values.redis.prefix }} in
+    # configmap.yaml and _configmap-env.tpl), so an empty string renders no
+    # QUEUE_BULL_REDIS_USERNAME / QUEUE_BULL_PREFIX env var and n8n falls back
+    # to its own defaults (no username, prefix "bull"). That keeps the KEDA
+    # trigger list names below (local.effective_redis_key_prefix, which
+    # coalesces to "bull") watching the same lists n8n writes to. Re-verify
+    # these guards when bumping n8n_chart_version's default.
     redis = merge({
       enabled     = true
       useExternal = true

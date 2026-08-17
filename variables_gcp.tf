@@ -248,7 +248,7 @@ variable "postgres_restore_source_instance_name" {
 # encryption on an external database (create_postgres_instance = false).
 
 variable "create_postgres_kms_key" {
-  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed Cloud SQL instance to use it as its customer-managed encryption key. Mutually exclusive with existing_postgres_kms_key_id. Ignored when create_postgres_instance = false. Defaults to false (Google-managed encryption)."
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed Cloud SQL instance to use it as its customer-managed encryption key. Mutually exclusive with existing_postgres_kms_key_id. Ignored when create_postgres_instance = false. Defaults to false (Google-managed encryption). The created key is protected by lifecycle prevent_destroy; see docs/destroy-cleanup.md for how to back out of a module-created key."
   type        = bool
   default     = false
   nullable    = false
@@ -467,7 +467,7 @@ variable "redis_transit_encryption_enabled" {
 # Ignored when create_redis_instance = false.
 
 variable "create_redis_kms_key" {
-  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed Memorystore instance to use it as its customer-managed encryption key. Mutually exclusive with existing_redis_kms_key_id. Ignored when create_redis_instance = false. Defaults to false (Google-managed encryption)."
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed Memorystore instance to use it as its customer-managed encryption key. Mutually exclusive with existing_redis_kms_key_id. Ignored when create_redis_instance = false. Defaults to false (Google-managed encryption). The created key is protected by lifecycle prevent_destroy; see docs/destroy-cleanup.md for how to back out of a module-created key."
   type        = bool
   default     = false
   nullable    = false
@@ -514,7 +514,7 @@ variable "existing_gcs_bucket_name" {
 # create_gcs_bucket = false.
 
 variable "create_gcs_kms_key" {
-  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed GCS bucket to use it as its default customer-managed encryption key. Mutually exclusive with existing_gcs_kms_key_id. Ignored when create_gcs_bucket = false. Defaults to false (Google-managed encryption)."
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed GCS bucket to use it as its default customer-managed encryption key. Mutually exclusive with existing_gcs_kms_key_id. Ignored when create_gcs_bucket = false. Defaults to false (Google-managed encryption). The created key is protected by lifecycle prevent_destroy; see docs/destroy-cleanup.md for how to back out of a module-created key."
   type        = bool
   default     = false
   nullable    = false

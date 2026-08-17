@@ -6,6 +6,12 @@
 # customer-managed layer. Missing *required* references on the
 # customer-managed path are enforced separately by hard `validation` blocks on
 # the reference variables themselves (see variables.tf / variables_gcp.tf).
+#
+# Default coupling: Terraform cannot reference a variable's declared default,
+# so the managed-path conditions below repeat each tuning variable's default
+# as a literal. Changing a default in variables.tf / variables_gcp.tf must
+# update the matching literal here, or the check fires falsely (or goes
+# silently stale).
 
 check "network_tuning_ignored_when_existing" {
   assert {
@@ -41,6 +47,23 @@ check "network_references_ignored_when_managed" {
       var.existing_services_range_name == null
     )
     error_message = "create_network is true, but one or more existing_network_*/existing_subnetwork_name/existing_pods_range_name/existing_services_range_name references are set. These are ignored when the module creates and manages the network; unset them or set create_network = false to attach to an existing network."
+  }
+}
+
+# Opposite-path diagnostic for the managed-GKE branch, mirroring
+# network_references_ignored_when_managed above: existing-cluster reference
+# and attestation inputs are meaningless once the module owns the cluster, and
+# a stray existing_gke_workload_identity_pool in particular must never rewrite
+# the managed cluster's Workload Identity binding (locals.tf pins the managed
+# branch to this project's own pool).
+check "gke_references_ignored_when_managed" {
+  assert {
+    condition = !var.create_gke || (
+      var.existing_gke_cluster_name == null &&
+      var.existing_gke_workload_identity_pool == null &&
+      !var.existing_gke_prerequisites_attestation
+    )
+    error_message = "create_gke is true, but one or more existing-cluster references (existing_gke_cluster_name, existing_gke_workload_identity_pool, existing_gke_prerequisites_attestation) are set. These are ignored when the module creates and manages the cluster; unset them or set create_gke = false to deploy onto an existing cluster."
   }
 }
 

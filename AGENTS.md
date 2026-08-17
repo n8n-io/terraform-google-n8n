@@ -257,7 +257,21 @@ file. Use `command = plan` unless you specifically need apply semantics.
   assertions that iterate a security policy's `rule` set must guard
   `match[0].config` before indexing into it, since this rule uses
   `match.expr` instead of `match.config` (see the `for`/`anytrue` guidance
-  above).
+  above). Guard with `try(...)`, not `length(...) > 0 && ...[0]`: Terraform
+  does not short-circuit `&&`, so the CI-pinned 1.9.x still evaluates the
+  empty-list index and fails the run.
+
+- **CI pins Terraform 1.9.x (`TF_VERSION` in
+  `.github/workflows/terraform-tests.yml`); validate every expression against
+  that version's stricter evaluation, not just a newer local CLI.** Two
+  behaviors bite in particular, because Terraform never short-circuits `&&`
+  and `||`: (1) `contains(list, var.x)` errors when `var.x` is null, so a
+  nullable variable's validation must use `var.x == null ? true :
+  contains(...)` rather than `var.x == null || contains(...)`; (2) indexing
+  a possibly-empty list on one side of `&&` errors even when the other side
+  is false, so wrap the whole access in `try(..., false)`. Newer CLIs (1.13+)
+  tolerate both spellings, which makes a green local run misleading; run the
+  loop with the CI-pinned version when touching validations or test asserts.
 
 **Recommended pattern** when end-to-end wiring cannot be tested under mocks:
 
