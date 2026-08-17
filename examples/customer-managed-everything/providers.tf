@@ -3,6 +3,14 @@ provider "google" {
   region  = var.gcp_region
 }
 
+# google-beta mirrors the google provider configuration; the module uses it
+# only to materialize Google-managed service agents (google_project_service_identity)
+# before granting CMEK key IAM.
+provider "google-beta" {
+  project = var.project_id
+  region  = var.gcp_region
+}
+
 # The kubernetes/helm/kubectl providers are configured against the effective
 # GKE cluster the module resolves - here, the existing cluster named by
 # existing_gke_cluster_name (module.n8n.gke_cluster_endpoint/_ca_certificate

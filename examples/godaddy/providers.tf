@@ -3,6 +3,14 @@ provider "google" {
   region  = var.gcp_region
 }
 
+# google-beta mirrors the google provider configuration; the module uses it
+# only to materialize Google-managed service agents (google_project_service_identity)
+# before granting CMEK key IAM.
+provider "google-beta" {
+  project = var.project_id
+  region  = var.gcp_region
+}
+
 # Credentials are read from the GODADDY_API_KEY and GODADDY_API_SECRET
 # environment variables, or set here via variables. Create an API key at
 # https://developer.godaddy.com/keys.

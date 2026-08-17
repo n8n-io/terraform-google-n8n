@@ -26,6 +26,7 @@ mock_provider "google" {
     }
   }
 }
+mock_provider "google-beta" {}
 mock_provider "kubernetes" {}
 mock_provider "kubectl" {}
 mock_provider "helm" {}

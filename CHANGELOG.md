@@ -279,6 +279,11 @@ this project adheres to the stability contract in
   (the CI-pinned version), which does not short-circuit `||` and rejects
   `contains()` with a null needle, failing `terraform validate` in every
   example.
+- Mocked the new `google-beta` provider in every root and example test suite
+  and configured it (mirroring the `google` provider) in every example's
+  `providers.tf`/`versions.tf`, so `terraform test` runs credential-free in CI
+  and a real apply from an example root has an explicit `google-beta`
+  configuration for the CMEK service-agent resources.
 - Rejected fractional values on `n8n_main_fixed_replicas`,
   `n8n_webhook_fixed_replicas`, and `n8n_worker_fixed_replicas`; a replica
   count must be a whole number.
