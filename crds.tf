@@ -11,14 +11,16 @@
 # cloud.google.com/backend-config annotation set in the chart values (n8n.tf).
 
 resource "kubectl_manifest" "backendconfig" {
+  count = var.create_ingress ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "cloud.google.com/v1"
     kind       = "BackendConfig"
     metadata = {
       name      = "n8n-backendconfig"
-      namespace = var.n8n_kube_namespace
+      namespace = local.effective_namespace
     }
-    spec = {
+    spec = merge({
       # Session affinity pins each browser to the same main pod so WebSocket /
       # push connections survive.
       sessionAffinity = {
@@ -31,26 +33,37 @@ resource "kubectl_manifest" "backendconfig" {
         requestPath = "/healthz"
         port        = 5678
       }
-    }
+      }, local.effective_cloud_armor_policy_name != null ? {
+      # Module-created CIDR allow-list (ingress_source_cidrs) or an existing
+      # Cloud Armor policy (existing_cloud_armor_policy_name); the two are
+      # mutually exclusive (see variables_gcp.tf).
+      securityPolicy = {
+        name = local.effective_cloud_armor_policy_name
+      }
+    } : {})
   })
 
   depends_on = [kubernetes_namespace.n8n]
 }
 
 resource "kubectl_manifest" "frontendconfig" {
+  count = var.create_ingress ? 1 : 0
+
   yaml_body = yamlencode({
     apiVersion = "networking.gke.io/v1beta1"
     kind       = "FrontendConfig"
     metadata = {
       name      = "n8n-frontendconfig"
-      namespace = var.n8n_kube_namespace
+      namespace = local.effective_namespace
     }
-    spec = {
+    spec = merge({
       redirectToHttps = {
         enabled          = var.https_redirect
         responseCodeName = "MOVED_PERMANENTLY_DEFAULT"
       }
-    }
+      }, var.ingress_ssl_policy_name != null ? {
+      sslPolicy = var.ingress_ssl_policy_name
+    } : {})
   })
 
   depends_on = [kubernetes_namespace.n8n]
@@ -60,14 +73,14 @@ resource "kubectl_manifest" "frontendconfig" {
 # once the DNS A-record points at the static IP; the Ingress references it by
 # name via the networking.gke.io/managed-certificates annotation (n8n.tf).
 resource "kubectl_manifest" "managed_certificate" {
-  count = var.tls_mode == "google_managed" ? 1 : 0
+  count = var.create_ingress && var.tls_mode == "google_managed" ? 1 : 0
 
   yaml_body = yamlencode({
     apiVersion = "networking.gke.io/v1"
     kind       = "ManagedCertificate"
     metadata = {
       name      = "n8n-managed-cert"
-      namespace = var.n8n_kube_namespace
+      namespace = local.effective_namespace
     }
     spec = {
       domains = [var.n8n_fqdn]

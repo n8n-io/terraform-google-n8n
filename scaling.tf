@@ -4,9 +4,11 @@
 # required to cover webhook processor scaling.
 
 resource "kubernetes_horizontal_pod_autoscaler_v2" "n8n_webhook" {
+  count = var.n8n_webhook_hpa_enabled ? 1 : 0
+
   metadata {
     name      = "n8n-webhook-processor"
-    namespace = var.n8n_kube_namespace
+    namespace = local.effective_namespace
   }
 
   spec {

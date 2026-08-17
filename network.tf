@@ -13,17 +13,25 @@ locals {
   })
 }
 
+# create_network gates the VPC, subnetwork, secondary ranges, router, and NAT
+# as a single unit (D2): with create_network = false the caller supplies an
+# existing network, subnetwork, and secondary range names instead (see
+# variables_gcp.tf and locals.tf's effective_* network locals).
 resource "google_compute_network" "n8n" {
+  count = var.create_network ? 1 : 0
+
   name                    = "${local.name_prefix}-vpc"
   auto_create_subnetworks = false
   project                 = var.project_id
 }
 
 resource "google_compute_subnetwork" "n8n" {
+  count = var.create_network ? 1 : 0
+
   name                     = "${local.name_prefix}-subnet"
   project                  = var.project_id
   region                   = var.gcp_region
-  network                  = google_compute_network.n8n.id
+  network                  = google_compute_network.n8n[0].id
   ip_cidr_range            = var.subnet_cidr
   private_ip_google_access = true
 
@@ -38,16 +46,20 @@ resource "google_compute_subnetwork" "n8n" {
 }
 
 resource "google_compute_router" "n8n" {
+  count = var.create_network ? 1 : 0
+
   name    = "${local.name_prefix}-router"
   project = var.project_id
   region  = var.gcp_region
-  network = google_compute_network.n8n.id
+  network = google_compute_network.n8n[0].id
 }
 
 resource "google_compute_router_nat" "n8n" {
+  count = var.create_network ? 1 : 0
+
   name                               = "${local.name_prefix}-nat"
   project                            = var.project_id
-  router                             = google_compute_router.n8n.name
+  router                             = google_compute_router.n8n[0].name
   region                             = var.gcp_region
   nat_ip_allocate_option             = "AUTO_ONLY"
   source_subnetwork_ip_ranges_to_nat = "ALL_SUBNETWORKS_ALL_IP_RANGES"
@@ -59,19 +71,27 @@ resource "google_compute_router_nat" "n8n" {
 }
 
 # ── Private Services Access (prerequisite for Cloud SQL private IP) ───────────
+# create_psa is independent of create_network (D2): the module can manage the
+# PSA allocation and connection on either a module-managed or an existing
+# network, so these reference local.effective_network_id rather than the
+# google_compute_network resource directly.
 resource "google_compute_global_address" "psa" {
+  count = var.create_psa ? 1 : 0
+
   name          = "${local.name_prefix}-psa"
-  project       = var.project_id
+  project       = local.effective_network_project_id
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
   prefix_length = var.psa_prefix_length
-  network       = google_compute_network.n8n.id
+  network       = local.effective_network_id
 }
 
 resource "google_service_networking_connection" "psa" {
-  network                 = google_compute_network.n8n.id
+  count = var.create_psa ? 1 : 0
+
+  network                 = local.effective_network_id
   service                 = "servicenetworking.googleapis.com"
-  reserved_peering_ranges = [google_compute_global_address.psa.name]
+  reserved_peering_ranges = [google_compute_global_address.psa[0].name]
 }
 
 # ── Destroy-time pause ────────────────────────────────────────────────────────
@@ -95,6 +115,8 @@ resource "google_service_networking_connection" "psa" {
 #   3. google_service_networking_connection.psa                     (destroyed)
 
 resource "time_sleep" "wait_for_psa_cleanup" {
+  count = var.create_psa ? 1 : 0
+
   destroy_duration = var.psa_cleanup_destroy_duration
 
   depends_on = [google_service_networking_connection.psa]

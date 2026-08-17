@@ -3,6 +3,14 @@ provider "google" {
   region  = var.gcp_region
 }
 
+# google-beta mirrors the google provider configuration; the module uses it
+# only to materialize Google-managed service agents (google_project_service_identity)
+# before granting CMEK key IAM.
+provider "google-beta" {
+  project = var.project_id
+  region  = var.gcp_region
+}
+
 # The kubernetes/helm/kubectl providers are configured against the GKE cluster
 # the module creates. On the first apply Terraform creates the cluster before
 # any kubernetes_*/helm_release/kubectl_manifest resource is evaluated. Auth uses

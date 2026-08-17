@@ -8,6 +8,13 @@
 # iam.disableServiceAccountKeyCreation org policy. That policy must be disabled
 # on the project (or an exception granted) or this apply fails, UNLESS you bring
 # your own key (see the BYO-HMAC locals below).
+#
+# create_gcs_bucket gates the bucket alone (D4). HMAC identity ownership
+# (manage_hmac_key, driven by gcs_hmac_service_account_email) is an
+# independent axis: the module can create the bucket but reference an
+# existing HMAC identity, or reference an existing bucket but still create
+# the HMAC identity/key, granting only bucket-scoped IAM to whichever
+# identity is effective. See locals.tf's effective_gcs_bucket_name.
 
 locals {
   # BYO HMAC: orgs that cannot relax
@@ -40,6 +47,8 @@ resource "google_service_account" "storage" {
 }
 
 resource "google_storage_bucket" "n8n" {
+  count = var.create_gcs_bucket ? 1 : 0
+
   # Keep the project-id prefix (not local.name_prefix) for global bucket-name
   # uniqueness: <project_id>-n8n-<friendly_name_prefix>.
   name                        = "${var.project_id}-n8n-${var.friendly_name_prefix}"
@@ -69,10 +78,24 @@ resource "google_storage_bucket" "n8n" {
       num_newer_versions = 3
     }
   }
+
+  # Customer-managed encryption (kms.tf's effective_gcs_kms_key_id) only ever
+  # takes effect here, at bucket creation; an existing bucket's encryption is
+  # the caller's responsibility and is never mutated (D4).
+  dynamic "encryption" {
+    for_each = local.effective_gcs_kms_key_id != null ? [1] : []
+    content {
+      default_kms_key_name = local.effective_gcs_kms_key_id
+    }
+  }
+
+  depends_on = [google_kms_crypto_key_iam_member.gcs]
 }
 
+# Bucket-scoped, least-privilege IAM for the effective HMAC identity, granted
+# regardless of which side (bucket, HMAC identity, or both) is module-managed.
 resource "google_storage_bucket_iam_member" "storage" {
-  bucket = google_storage_bucket.n8n.name
+  bucket = local.effective_gcs_bucket_name
   role   = "roles/storage.objectAdmin"
   member = "serviceAccount:${local.hmac_sa_email}"
 }

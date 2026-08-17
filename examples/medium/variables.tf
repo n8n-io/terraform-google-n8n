@@ -74,6 +74,12 @@ variable "redis_tier" {
   default     = "STANDARD_HA"
 }
 
+variable "n8n_redis_timeout_threshold_ms" {
+  description = "Milliseconds n8n waits for a Redis response before treating the connection as failed. Must be at least 30000 (30s) when redis_tier = STANDARD_HA."
+  type        = number
+  default     = 30000
+}
+
 variable "redis_memory_size_gb" {
   description = "Memorystore capacity in GB."
   type        = number

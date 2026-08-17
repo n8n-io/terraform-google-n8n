@@ -1,0 +1,18 @@
+# Copy to terraform.tfvars and populate. Auth: gcloud auth application-default login.
+project_id           = "my-gcp-project-id"
+gcp_region           = "us-east4"
+gcs_location         = "US"
+friendly_name_prefix = "dev"
+n8n_fqdn             = "n8n.example.com"
+n8n_license_key      = "your-enterprise-license-key"
+cloud_dns_zone_name  = "my-cloud-dns-zone"
+
+existing_gke_cluster_name = "my-existing-cluster"
+
+# Set true only after confirming your cluster meets every prerequisite in
+# README.md; the module trusts this attestation and cannot audit it.
+existing_gke_prerequisites_attestation = true
+
+# Let Terraform disable iam.disableServiceAccountKeyCreation for the GCS HMAC key.
+# Requires org-policy admin rights; otherwise leave false and disable it manually.
+# manage_sa_key_org_policy = true

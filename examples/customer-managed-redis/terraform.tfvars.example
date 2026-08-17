@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars and populate. Auth: gcloud auth application-default login.
+project_id           = "my-gcp-project-id"
+gcp_region           = "us-east4"
+gcs_location         = "US"
+friendly_name_prefix = "dev"
+n8n_fqdn             = "n8n.example.com"
+n8n_license_key      = "your-enterprise-license-key"
+cloud_dns_zone_name  = "my-cloud-dns-zone"
+
+redis_host = "10.20.30.40" # or a hostname reachable from the GKE cluster's VPC
+redis_port = 6379
+
+# Create this Secret out of band before applying:
+#   kubectl create secret generic external-redis-password -n n8n --from-literal=password='...'
+redis_password_secret_name = "external-redis-password"
+
+# Let Terraform disable iam.disableServiceAccountKeyCreation for the GCS HMAC key.
+# Requires org-policy admin rights; otherwise leave false and disable it manually.
+# manage_sa_key_org_policy = true

@@ -77,13 +77,54 @@ jobs:
         working-directory: examples/large
         run: terraform-docs --output-check .
 
+      - name: terraform-docs --output-check (examples/customer-managed-cluster)
+        working-directory: examples/customer-managed-cluster
+        run: terraform-docs --output-check .
+
+      - name: terraform-docs --output-check (examples/customer-managed-redis)
+        working-directory: examples/customer-managed-redis
+        run: terraform-docs --output-check .
+
+      - name: terraform-docs --output-check (examples/customer-managed-gcs)
+        working-directory: examples/customer-managed-gcs
+        run: terraform-docs --output-check .
+
+      - name: terraform-docs --output-check (examples/customer-managed-everything)
+        working-directory: examples/customer-managed-everything
+        run: terraform-docs --output-check .
+
+      # modules/controllers is not the recursive-path default for a bare
+      # `terraform-docs .` invocation from inside modules/, so it needs the
+      # root config passed explicitly (see AGENTS.md).
+      - name: terraform-docs --output-check (modules/controllers)
+        working-directory: modules/controllers
+        run: terraform-docs --config ../../.terraform-docs.yml --output-check .
+
+      - name: terraform-docs --output-check (modules/controllers/examples/direct-use)
+        working-directory: modules/controllers/examples/direct-use
+        run: terraform-docs --config ../../../../.terraform-docs.yml --output-check .
+
   validate:
     name: terraform validate (${{ matrix.target }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        target: [".", "examples/small", "examples/cloudflare", "examples/godaddy", "examples/medium", "examples/large"]
+        target:
+          [
+            ".",
+            "examples/small",
+            "examples/cloudflare",
+            "examples/godaddy",
+            "examples/medium",
+            "examples/large",
+            "examples/customer-managed-cluster",
+            "examples/customer-managed-redis",
+            "examples/customer-managed-gcs",
+            "examples/customer-managed-everything",
+            "modules/controllers",
+            "modules/controllers/examples/direct-use",
+          ]
     steps:
       - uses: actions/checkout@v4
 
@@ -115,7 +156,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [".", "examples/small", "examples/cloudflare", "examples/godaddy", "examples/medium", "examples/large"]
+        target:
+          [
+            ".",
+            "examples/small",
+            "examples/cloudflare",
+            "examples/godaddy",
+            "examples/medium",
+            "examples/large",
+            "examples/customer-managed-cluster",
+            "examples/customer-managed-redis",
+            "examples/customer-managed-gcs",
+            "examples/customer-managed-everything",
+            "modules/controllers",
+            "modules/controllers/examples/direct-use",
+          ]
     steps:
       - uses: actions/checkout@v4
 
@@ -137,7 +192,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [".", "examples/small", "examples/cloudflare", "examples/godaddy", "examples/medium", "examples/large"]
+        target:
+          [
+            ".",
+            "examples/small",
+            "examples/cloudflare",
+            "examples/godaddy",
+            "examples/medium",
+            "examples/large",
+            "examples/customer-managed-cluster",
+            "examples/customer-managed-redis",
+            "examples/customer-managed-gcs",
+            "examples/customer-managed-everything",
+            "modules/controllers",
+            "modules/controllers/examples/direct-use",
+          ]
     steps:
       - uses: actions/checkout@v4
 

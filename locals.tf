@@ -45,6 +45,12 @@ locals {
     "N8N_OTEL_TRACES_PRODUCTION_ONLY",
     "N8N_LOG_STREAMING_MANAGED_BY_ENV",
     "N8N_LOG_STREAMING_DESTINATIONS",
+    "N8N_DISABLED_MODULES",
+    "N8N_EXTERNAL_SECRETS_UPDATE_INTERVAL",
+    "N8N_CUSTOM_EXTENSIONS",
+    "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN",
+    "N8N_EXECUTION_DATA_STORAGE_MODE",
+    "NODE_EXTRA_CA_CERTS",
     # Rendered by the chart from module values (identity, topology, storage,
     # license). DB_*, QUEUE_*, N8N_RUNNERS_*, N8N_EXTERNAL_STORAGE_S3_*,
     # N8N_MULTI_MAIN_*, and AWS_* are covered by n8n_managed_env_prefixes.
@@ -74,5 +80,152 @@ locals {
     "N8N_EXTERNAL_STORAGE_S3_",
     "N8N_MULTI_MAIN_",
     "AWS_",
+  ]
+
+  # External Secrets (D7): the master switch maps to n8n's comma-separated
+  # N8N_DISABLED_MODULES module-disable list. Only one module is disabled
+  # today, but the list shape keeps this extensible without reshaping the env
+  # var wiring in n8n.tf.
+  n8n_disabled_modules = join(",", compact([
+    var.n8n_external_secrets_enabled ? "" : "external-secrets",
+  ]))
+
+  # ── n8n Kubernetes ServiceAccount ownership ────────────────────────────────
+  # The chart creating its own ServiceAccount is the arrangement we want, with
+  # one exception: the pinned chart version renders imagePullSecrets nowhere,
+  # not on the pod spec and not on the ServiceAccount, so a private registry
+  # has no way in through chart values. Attaching the secrets to the account
+  # the pods already run as is the remaining lever, and the chart supports it
+  # (serviceAccount.create = false with an externally managed name).
+  #
+  # The module-managed account uses a different name than the chart's default
+  # (var.n8n_kube_svc_account) so enabling n8n_image_pull_secrets on an
+  # already-applied stack does not collide with the account Helm still owns;
+  # the Workload Identity binding (workload_identity.tf) targets whichever name
+  # is effective.
+  n8n_manages_service_account = length(var.n8n_image_pull_secrets) > 0
+  n8n_service_account_name    = local.n8n_manages_service_account ? "${var.n8n_kube_svc_account}-pull" : var.n8n_kube_svc_account
+}
+
+# ── Ownership-neutral effective coordinates ──────────────────────────────────
+# n8n wiring, controller wiring, and outputs consume these locals instead of
+# branching on ownership themselves, so every downstream file speaks one
+# ownership-neutral contract regardless of whether a layer is module-managed
+# or customer-managed. Resource-level `count` gating for each layer lands in
+# its own task section (network.tf / gke.tf / memorystore.tf / gcs.tf); until
+# then the "managed" branch below still points at the unconditional resource,
+# and the "existing" branch is exercised only through its variable contract.
+
+locals {
+  # Network and Private Service Access. Shared VPC: the existing network can
+  # live in a different host project than project_id.
+  effective_network_project_id = coalesce(var.existing_network_project_id, var.project_id)
+
+  effective_network_self_link = var.create_network ? google_compute_network.n8n[0].self_link : "projects/${local.effective_network_project_id}/global/networks/${var.existing_network_name}"
+  effective_network_id        = var.create_network ? google_compute_network.n8n[0].id : local.effective_network_self_link
+
+  effective_subnetwork_self_link = var.create_network ? google_compute_subnetwork.n8n[0].self_link : "projects/${local.effective_network_project_id}/regions/${var.gcp_region}/subnetworks/${var.existing_subnetwork_name}"
+
+  effective_pods_range_name     = var.create_network ? "${local.name_prefix}-pods" : var.existing_pods_range_name
+  effective_services_range_name = var.create_network ? "${local.name_prefix}-services" : var.existing_services_range_name
+
+  # GKE cluster. The existing-cluster branch reads data.google_container_cluster.existing
+  # (gke.tf), whose lifecycle postconditions enforce the observable
+  # VPC-native/Workload Identity prerequisites before these locals resolve.
+  effective_gke_cluster_name           = var.create_gke ? google_container_cluster.n8n[0].name : var.existing_gke_cluster_name
+  effective_gke_cluster_endpoint       = var.create_gke ? google_container_cluster.n8n[0].endpoint : data.google_container_cluster.existing[0].endpoint
+  effective_gke_cluster_ca_certificate = var.create_gke ? try(google_container_cluster.n8n[0].master_auth[0].cluster_ca_certificate, null) : try(data.google_container_cluster.existing[0].master_auth[0].cluster_ca_certificate, null)
+  # existing_gke_workload_identity_pool is only consulted on the
+  # existing-cluster branch; a managed cluster always uses this project's own
+  # pool, so a stray reference input cannot silently rewrite the Workload
+  # Identity binding (checks.tf's gke_references_ignored_when_managed warns
+  # about the ignored input).
+  effective_gke_workload_identity_pool = var.create_gke ? "${var.project_id}.svc.id.goog" : coalesce(
+    var.existing_gke_workload_identity_pool,
+    try(data.google_container_cluster.existing[0].workload_identity_config[0].workload_pool, null),
+    "${var.project_id}.svc.id.goog"
+  )
+
+  # PostgreSQL. The existing-database branch supplies exactly one password
+  # source (n8n_database_password_secret_ref.name is null on the direct-value
+  # path); manage_db_secret decides whether n8n.tf's kubernetes_secret.n8n_db
+  # is created at all, or whether n8n reads the caller's existing Secret
+  # directly (D7). effective_postgres_kms_key_id lives in kms.tf next to the
+  # key resources it derives from.
+  effective_postgres_host = var.create_postgres_instance ? google_sql_database_instance.n8n[0].private_ip_address : var.n8n_database_host
+
+  manage_db_secret = var.create_postgres_instance || var.n8n_database_password_secret_ref == null
+
+  effective_db_password_secret_name = local.manage_db_secret ? kubernetes_secret.n8n_db[0].metadata[0].name : var.n8n_database_password_secret_ref.name
+  effective_db_password_secret_key  = local.manage_db_secret ? "password" : var.n8n_database_password_secret_ref.key
+
+  # Namespace: the name is the same whether the module creates it or not.
+  effective_namespace = var.n8n_kube_namespace
+
+  # Core Secret (D7): mirrors the PostgreSQL/Redis password-source pattern.
+  # manage_core_secret decides whether n8n.tf's kubernetes_secret.n8n (and the
+  # encryption key it wraps) is created at all, or whether n8n reads the
+  # caller's existing core Secret directly via secretRefs.existingSecret.
+  manage_core_secret         = var.existing_n8n_core_secret_name == null
+  effective_core_secret_name = local.manage_core_secret ? kubernetes_secret.n8n[0].metadata[0].name : var.existing_n8n_core_secret_name
+
+  # Redis. ACL usernames are meaningful only on the external path; managed
+  # Memorystore has no concept of one. manage_redis_secret/
+  # effective_redis_password_secret_* mirror PostgreSQL's D7 password-source
+  # pattern: managed AUTH wraps the generated auth_string (keda.tf's
+  # kubernetes_secret.redis_auth), external Redis accepts a direct value
+  # (wrapped in n8n.tf's kubernetes_secret.n8n_redis) or an existing Secret
+  # reference used as-is. manage_redis_tls_ca identifies the module-managed
+  # Memorystore TLS path whose Google CA must be trusted explicitly by n8n and
+  # KEDA. manage_redis_trigger_auth/manage_redis_username_secret decide whether
+  # KEDA gets a TriggerAuthentication and username Secret.
+  effective_redis_host        = var.create_redis_instance ? google_redis_instance.n8n[0].host : var.redis_host
+  effective_redis_port        = var.create_redis_instance ? google_redis_instance.n8n[0].port : var.redis_port
+  effective_redis_tls_enabled = var.create_redis_instance ? var.redis_transit_encryption_enabled : var.redis_tls_enabled
+  effective_redis_username    = var.create_redis_instance ? null : var.redis_username
+
+  manage_redis_secret = !var.create_redis_instance && var.redis_password != null
+
+  effective_redis_password_secret_name = var.create_redis_instance ? (
+    var.redis_auth_enabled ? kubernetes_secret.redis_auth[0].metadata[0].name : null
+    ) : (
+    var.redis_password_secret_ref != null ? var.redis_password_secret_ref.name : (
+      local.manage_redis_secret ? kubernetes_secret.n8n_redis[0].metadata[0].name : null
+    )
+  )
+  effective_redis_password_secret_key = var.create_redis_instance ? (
+    var.redis_auth_enabled ? "password" : null
+    ) : (
+    var.redis_password_secret_ref != null ? var.redis_password_secret_ref.key : (
+      local.manage_redis_secret ? "password" : null
+    )
+  )
+
+  manage_redis_tls_ca          = var.create_redis_instance && var.redis_transit_encryption_enabled
+  manage_redis_trigger_auth    = local.effective_redis_password_secret_name != null || local.manage_redis_tls_ca
+  manage_redis_username_secret = local.effective_redis_username != null
+  effective_redis_key_prefix   = coalesce(var.redis_key_prefix, "bull")
+
+  # GCS bucket. HMAC identity/key ownership (gcs.tf) is independent of bucket
+  # ownership and already exposes its own locals (hmac_sa_email, etc.).
+  # effective_gcs_kms_key_id lives in kms.tf next to the key resources it
+  # derives from.
+  effective_gcs_bucket_name = var.create_gcs_bucket ? google_storage_bucket.n8n[0].name : var.existing_gcs_bucket_name
+
+  # Stable service and route contract exposed for customer-managed ingress.
+  # These are the n8n Helm chart's fixed service names/port for the release
+  # name "n8n" (see helm_release.n8n in n8n.tf); the full route/backend fix-up
+  # (webhook-waiting, form, form-waiting, mcp) lands in the ingress ownership
+  # task section.
+  effective_main_service_name    = "n8n-main"
+  effective_webhook_service_name = "n8n-webhook-processor"
+  effective_service_port         = 5678
+  effective_main_route_prefixes  = ["/"]
+  effective_webhook_route_prefixes = [
+    "/webhook",
+    "/webhook-waiting",
+    "/form",
+    "/form-waiting",
+    "/mcp",
   ]
 }

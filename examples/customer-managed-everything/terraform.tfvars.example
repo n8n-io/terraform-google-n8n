@@ -1,0 +1,34 @@
+# Copy to terraform.tfvars and populate. Auth: gcloud auth application-default login.
+project_id           = "my-gcp-project-id"
+gcp_region           = "us-east4"
+friendly_name_prefix = "dev"
+n8n_fqdn             = "n8n.example.com"
+n8n_license_key      = "your-enterprise-license-key"
+
+existing_network_name         = "my-existing-vpc"
+existing_subnetwork_name      = "my-existing-subnet"
+existing_pods_range_name      = "my-existing-pods-range"
+existing_services_range_name = "my-existing-services-range"
+
+existing_gke_cluster_name = "my-existing-cluster"
+# Set true only after confirming your cluster meets every prerequisite in
+# ../customer-managed-cluster/README.md; the module trusts this attestation
+# and cannot audit it.
+existing_gke_prerequisites_attestation = true
+
+n8n_database_host = "10.1.2.3"
+# kubectl create secret generic external-postgres-password -n <namespace> --from-literal=password='...'
+n8n_database_password_secret_name = "external-postgres-password"
+
+redis_host        = "10.1.2.4"
+redis_tls_enabled = true
+# kubectl create secret generic external-redis-password -n <namespace> --from-literal=password='...'
+redis_password_secret_name = "external-redis-password"
+
+existing_gcs_bucket_name       = "my-existing-n8n-bucket"
+gcs_hmac_service_account_email = "n8n-hmac@my-gcp-project-id.iam.gserviceaccount.com"
+gcs_hmac_access_id             = "GOOG1E..."
+# kubectl create secret generic external-gcs-hmac-secret -n <namespace> --from-literal=accessSecret='...'
+gcs_hmac_secret_name = "external-gcs-hmac-secret"
+
+n8n_kube_namespace = "existing-n8n-namespace"

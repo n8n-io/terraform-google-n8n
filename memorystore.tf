@@ -1,12 +1,23 @@
 # ── Memorystore for Redis ─────────────────────────────────────────────────────
 # n8n uses Redis as the queue backend distributing executions across workers and
-# coordinating multi-main. BASIC tier (no replica), Redis 7.2, transit encryption
-# disabled.
+# coordinating multi-main.
 #
-# auth_enabled defaults to false here; if flipped true, the KEDA worker trigger
-# (keda.tf) needs a TriggerAuthentication CRD.
+# create_redis_instance gates the instance as a single unit (D4): with
+# create_redis_instance = false the caller supplies an external host and
+# optional port/TLS/username/password (redis_host, redis_port,
+# redis_tls_enabled, redis_username, redis_password /
+# redis_password_secret_ref; see locals.tf's effective_redis_* locals and
+# n8n.tf's kubernetes_secret.n8n_redis) instead of any resource in this file.
+#
+# BASIC tier (no replica) and REDIS_7_2 by default. AUTH and in-transit
+# encryption are both off by default (redis_auth_enabled,
+# redis_transit_encryption_enabled); if flipped on, the KEDA worker trigger
+# (keda.tf) needs a TriggerAuthentication CRD, which locals.tf's
+# manage_redis_trigger_auth already accounts for.
 
 resource "google_redis_instance" "n8n" {
+  count = var.create_redis_instance ? 1 : 0
+
   name           = "${local.name_prefix}-redis"
   project        = var.project_id
   region         = var.gcp_region
@@ -14,14 +25,19 @@ resource "google_redis_instance" "n8n" {
   memory_size_gb = var.redis_memory_size_gb
   redis_version  = var.redis_version
 
-  authorized_network      = google_compute_network.n8n.id
+  authorized_network      = local.effective_network_id
   connect_mode            = "PRIVATE_SERVICE_ACCESS"
   auth_enabled            = var.redis_auth_enabled
-  transit_encryption_mode = "DISABLED"
+  transit_encryption_mode = var.redis_transit_encryption_enabled ? "SERVER_AUTHENTICATION" : "DISABLED"
+  customer_managed_key    = local.effective_redis_kms_key_id
 
   labels = local.gcp_labels
 
   # Depending on the time_sleep (not the connection directly) also delays the
   # peering's destruction until after this instance is gone; see network.tf.
-  depends_on = [time_sleep.wait_for_psa_cleanup]
+  # Also wait for the module-created key's IAM grant (kms.tf).
+  depends_on = [
+    time_sleep.wait_for_psa_cleanup,
+    google_kms_crypto_key_iam_member.redis,
+  ]
 }

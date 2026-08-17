@@ -18,6 +18,7 @@
 #     terraform plan from an example root.
 
 mock_provider "google" {}
+mock_provider "google-beta" {}
 mock_provider "kubernetes" {}
 mock_provider "kubectl" {}
 mock_provider "helm" {}
@@ -36,49 +37,49 @@ run "defaults_produce_valid_plan" {
   command = plan
 
   assert {
-    condition     = google_container_cluster.n8n.name == "test-n8n"
+    condition     = google_container_cluster.n8n[0].name == "test-n8n"
     error_message = "friendly_name_prefix should flow through to google_container_cluster.name as <friendly_name_prefix>-n8n"
   }
 
   # common_labels entries must appear in a labeled resource's merged label set.
   assert {
-    condition     = google_container_cluster.n8n.resource_labels["managed_by"] == "terraform"
+    condition     = google_container_cluster.n8n[0].resource_labels["managed_by"] == "terraform"
     error_message = "resource_labels must include the module's built-in labels"
   }
 
   # VPC-native (alias IP) networking is required for private Cloud SQL/Redis
   # over Private Service Access and for Workload Identity to function.
   assert {
-    condition     = google_container_cluster.n8n.networking_mode == "VPC_NATIVE"
+    condition     = google_container_cluster.n8n[0].networking_mode == "VPC_NATIVE"
     error_message = "cluster must be VPC-native so alias IPs and PSA work"
   }
 
   assert {
-    condition     = google_container_cluster.n8n.release_channel[0].channel == "REGULAR"
+    condition     = google_container_cluster.n8n[0].release_channel[0].channel == "REGULAR"
     error_message = "gke_release_channel should default to REGULAR"
   }
 
   # Workload Identity pool must be the project's fixed <project>.svc.id.goog
   # identity namespace; without it the KSA->GSA binding cannot resolve.
   assert {
-    condition     = google_container_cluster.n8n.workload_identity_config[0].workload_pool == "test-project.svc.id.goog"
+    condition     = google_container_cluster.n8n[0].workload_identity_config[0].workload_pool == "test-project.svc.id.goog"
     error_message = "workload_identity_config must bind the project's svc.id.goog pool"
   }
 
   assert {
-    condition     = google_container_node_pool.n8n.node_config[0].machine_type == "e2-standard-4"
+    condition     = google_container_node_pool.n8n[0].node_config[0].machine_type == "e2-standard-4"
     error_message = "gke_node_type should default to e2-standard-4"
   }
 
   # Regional cluster: min/max are per-zone counts applied across the region's
   # zones. Defaults keep a small footprint that autoscaling can grow.
   assert {
-    condition     = google_container_node_pool.n8n.autoscaling[0].min_node_count == 1
+    condition     = google_container_node_pool.n8n[0].autoscaling[0].min_node_count == 1
     error_message = "gke_node_min_per_zone should default to 1"
   }
 
   assert {
-    condition     = google_container_node_pool.n8n.autoscaling[0].max_node_count == 2
+    condition     = google_container_node_pool.n8n[0].autoscaling[0].max_node_count == 2
     error_message = "gke_node_max_per_zone should default to 2"
   }
 }
@@ -87,47 +88,47 @@ run "cloudsql_private_and_hardened" {
   command = plan
 
   assert {
-    condition     = google_sql_database_instance.n8n.database_version == "POSTGRES_16"
+    condition     = google_sql_database_instance.n8n[0].database_version == "POSTGRES_16"
     error_message = "postgres_version should default to POSTGRES_16"
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].tier == "db-g1-small"
+    condition     = google_sql_database_instance.n8n[0].settings[0].tier == "db-g1-small"
     error_message = "postgres_machine_type should default to db-g1-small"
   }
 
   # Regional availability is the point of the module's HA posture.
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].availability_type == "REGIONAL"
+    condition     = google_sql_database_instance.n8n[0].settings[0].availability_type == "REGIONAL"
     error_message = "postgres_availability_type should default to REGIONAL for HA"
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].disk_type == "PD_SSD"
+    condition     = google_sql_database_instance.n8n[0].settings[0].disk_type == "PD_SSD"
     error_message = "Cloud SQL should use PD_SSD storage"
   }
 
   # Private IP only: the instance must NOT get a public IPv4 address; it is
   # reachable solely over the VPC via Private Service Access.
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].ip_configuration[0].ipv4_enabled == false
+    condition     = google_sql_database_instance.n8n[0].settings[0].ip_configuration[0].ipv4_enabled == false
     error_message = "Cloud SQL must NOT have a public IP (ipv4_enabled must be false)"
   }
 
   # n8n connects with DB_POSTGRESDB_SSL_ENABLED=false, so the instance must
   # accept unencrypted connections over the private path.
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].ip_configuration[0].ssl_mode == "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+    condition     = google_sql_database_instance.n8n[0].settings[0].ip_configuration[0].ssl_mode == "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
     error_message = "Cloud SQL ssl_mode must match n8n's DB_POSTGRESDB_SSL_ENABLED=false path"
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].backup_configuration[0].enabled == true
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].enabled == true
     error_message = "Cloud SQL automated backups must be enabled"
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].backup_configuration[0].point_in_time_recovery_enabled == true
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].point_in_time_recovery_enabled == true
     error_message = "Cloud SQL point-in-time recovery must be enabled"
   }
 }
@@ -156,33 +157,33 @@ run "external_db_missing_password_fails_validation" {
   variables {
     create_postgres_instance = false
     n8n_database_host        = "10.9.8.7"
-    # n8n_database_password intentionally unset
+    # n8n_database_password and n8n_database_password_secret_ref intentionally unset
   }
 
-  expect_failures = [var.n8n_database_password]
+  expect_failures = [var.n8n_database_password_secret_ref]
 }
 
 run "redis_private_and_sized" {
   command = plan
 
   assert {
-    condition     = google_redis_instance.n8n.tier == "BASIC"
+    condition     = google_redis_instance.n8n[0].tier == "BASIC"
     error_message = "redis_tier should default to BASIC"
   }
 
   assert {
-    condition     = google_redis_instance.n8n.memory_size_gb == 1
+    condition     = google_redis_instance.n8n[0].memory_size_gb == 1
     error_message = "redis_memory_size_gb should default to 1"
   }
 
   # Redis must be reached over Private Service Access, never a public endpoint.
   assert {
-    condition     = google_redis_instance.n8n.connect_mode == "PRIVATE_SERVICE_ACCESS"
+    condition     = google_redis_instance.n8n[0].connect_mode == "PRIVATE_SERVICE_ACCESS"
     error_message = "Redis connect_mode must be PRIVATE_SERVICE_ACCESS"
   }
 
   assert {
-    condition     = google_redis_instance.n8n.transit_encryption_mode == "DISABLED"
+    condition     = google_redis_instance.n8n[0].transit_encryption_mode == "DISABLED"
     error_message = "Redis transit_encryption_mode should default to DISABLED (private VPC path)"
   }
 }
@@ -193,38 +194,38 @@ run "gcs_bucket_is_private" {
   # Uniform bucket-level access disables per-object ACLs, so access is governed
   # only by IAM - the GCS equivalent of blocking public ACLs.
   assert {
-    condition     = google_storage_bucket.n8n.uniform_bucket_level_access == true
+    condition     = google_storage_bucket.n8n[0].uniform_bucket_level_access == true
     error_message = "GCS bucket must use uniform bucket-level access (IAM-only, no object ACLs)"
   }
 
   # force_destroy defaults to false so an accidental destroy cannot silently
   # drop a bucket that still holds n8n binary-data attachments.
   assert {
-    condition     = google_storage_bucket.n8n.force_destroy == false
+    condition     = google_storage_bucket.n8n[0].force_destroy == false
     error_message = "gcs_force_destroy should default to false"
   }
 
   # Bucket name: <project_id>-n8n-<friendly_name_prefix>.
   assert {
-    condition     = google_storage_bucket.n8n.name == "test-project-n8n-test"
+    condition     = google_storage_bucket.n8n[0].name == "test-project-n8n-test"
     error_message = "GCS bucket name should be <project_id>-n8n-<friendly_name_prefix>"
   }
 
   assert {
-    condition     = google_storage_bucket.n8n.versioning[0].enabled == true
+    condition     = google_storage_bucket.n8n[0].versioning[0].enabled == true
     error_message = "GCS bucket must have object versioning enabled"
   }
 
   # Hard-block public grants regardless of IAM mistakes elsewhere.
   assert {
-    condition     = google_storage_bucket.n8n.public_access_prevention == "enforced"
+    condition     = google_storage_bucket.n8n[0].public_access_prevention == "enforced"
     error_message = "GCS bucket must enforce public access prevention"
   }
 
   # Versioning without a lifecycle rule grows without bound; the module must
   # ship a noncurrent-version cleanup rule alongside versioning.
   assert {
-    condition     = length(google_storage_bucket.n8n.lifecycle_rule) == 1
+    condition     = length(google_storage_bucket.n8n[0].lifecycle_rule) == 1
     error_message = "GCS bucket must ship exactly one noncurrent-version cleanup lifecycle rule"
   }
 }
@@ -325,7 +326,7 @@ run "node_pool_uses_dedicated_service_account" {
   # asserted at the SA + IAM level; verify the email wiring with a real
   # `terraform plan` from an example root.
   assert {
-    condition     = google_service_account.nodes.account_id == "test-n8n-nodes"
+    condition     = google_service_account.nodes[0].account_id == "test-n8n-nodes"
     error_message = "node SA account_id should be <friendly_name_prefix>-n8n-nodes"
   }
 
@@ -348,20 +349,24 @@ run "node_pool_uses_dedicated_service_account" {
 run "keda_installed" {
   command = plan
 
+  # KEDA is installed by modules/controllers (controllers.tf), addressed here
+  # through its outputs (terraform test cannot reach a child module's
+  # internal resources directly); see modules/controllers/tests for the
+  # submodule's own direct resource-level assertions.
   assert {
-    condition     = helm_release.keda.chart == "keda"
+    condition     = module.controllers.keda_installed == true
     error_message = "KEDA helm release must exist - worker autoscaling depends on it"
   }
 
   assert {
-    condition     = helm_release.keda.namespace == "keda"
+    condition     = module.controllers.keda_namespace == "keda"
     error_message = "KEDA must be installed in its own 'keda' namespace"
   }
 
   # Pinned so applies are reproducible; keep in sync with the
   # keda_chart_version default in variables.tf.
   assert {
-    condition     = helm_release.keda.version == "2.20.1"
+    condition     = module.controllers.keda_chart_version == "2.20.1"
     error_message = "KEDA chart version must be pinned to the keda_chart_version default"
   }
 }
@@ -373,34 +378,14 @@ run "keda_installed" {
 run "pd_balanced_storage_class" {
   command = plan
 
+  # Created by modules/controllers (controllers.tf), addressed here through
+  # its output (terraform test cannot reach a child module's internal
+  # resources directly); see modules/controllers/tests for the submodule's
+  # own direct resource-level assertions covering provisioner, reclaim
+  # policy, binding mode, expansion, and disk type.
   assert {
-    condition     = kubernetes_storage_class_v1.pd_balanced.metadata[0].name == "n8n-pd-balanced"
+    condition     = module.controllers.pd_balanced_storage_class_name == "n8n-pd-balanced"
     error_message = "StorageClass must be named n8n-pd-balanced"
-  }
-
-  assert {
-    condition     = kubernetes_storage_class_v1.pd_balanced.storage_provisioner == "pd.csi.storage.gke.io"
-    error_message = "StorageClass must use the GCE PD CSI provisioner"
-  }
-
-  assert {
-    condition     = kubernetes_storage_class_v1.pd_balanced.volume_binding_mode == "WaitForFirstConsumer"
-    error_message = "StorageClass must use WaitForFirstConsumer so volumes land in the consumer pod's zone"
-  }
-
-  assert {
-    condition     = kubernetes_storage_class_v1.pd_balanced.reclaim_policy == "Delete"
-    error_message = "StorageClass must use the Delete reclaim policy to limit orphaned disks"
-  }
-
-  assert {
-    condition     = kubernetes_storage_class_v1.pd_balanced.allow_volume_expansion == true
-    error_message = "StorageClass must allow volume expansion"
-  }
-
-  assert {
-    condition     = kubernetes_storage_class_v1.pd_balanced.parameters["type"] == "pd-balanced"
-    error_message = "StorageClass must provision pd-balanced disks"
   }
 }
 
@@ -414,17 +399,17 @@ run "custom_database_sizing" {
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].tier == "db-custom-8-30720"
+    condition     = google_sql_database_instance.n8n[0].settings[0].tier == "db-custom-8-30720"
     error_message = "postgres_machine_type variable did not propagate"
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.settings[0].disk_size == 200
+    condition     = google_sql_database_instance.n8n[0].settings[0].disk_size == 200
     error_message = "postgres_disk_size variable did not propagate"
   }
 
   assert {
-    condition     = google_sql_database_instance.n8n.database_version == "POSTGRES_15"
+    condition     = google_sql_database_instance.n8n[0].database_version == "POSTGRES_15"
     error_message = "postgres_version variable did not propagate"
   }
 }
@@ -1150,14 +1135,14 @@ run "common_labels_merge_into_resource_labels" {
 
   assert {
     condition = (
-      google_container_cluster.n8n.resource_labels["team"] == "platform" &&
-      google_container_cluster.n8n.resource_labels["env"] == "staging"
+      google_container_cluster.n8n[0].resource_labels["team"] == "platform" &&
+      google_container_cluster.n8n[0].resource_labels["env"] == "staging"
     )
     error_message = "common_labels entries must be merged into resource_labels"
   }
 
   assert {
-    condition     = google_container_cluster.n8n.resource_labels["managed_by"] == "terraform"
+    condition     = google_container_cluster.n8n[0].resource_labels["managed_by"] == "terraform"
     error_message = "common_labels must not override the module's built-in labels"
   }
 }
