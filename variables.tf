@@ -71,29 +71,147 @@ variable "n8n_webhook_url" {
 }
 
 variable "n8n_license_key" {
-  description = "n8n Enterprise license activation key. Get one at https://n8n.io/pricing"
+  description = "n8n Enterprise license activation key. Get one at https://n8n.io/pricing. Exactly one of n8n_license_key or n8n_license_key_secret_ref is required."
   type        = string
+  default     = null
   sensitive   = true
 }
 
+# The completeness/mutual-exclusivity condition below references both this
+# variable and n8n_license_key, so it lives on exactly one of the two (here)
+# rather than being duplicated on both, per the acyclicity rationale documented
+# on n8n_database_password_secret_ref.
+variable "n8n_license_key_secret_ref" {
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n_license_key. key defaults to \"license-key\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Exactly one of n8n_license_key or n8n_license_key_secret_ref is required. Also required (instead of n8n_license_key) when existing_n8n_core_secret_name is set, per the chart's core-Secret contract (see existing_n8n_core_secret_name)."
+  type = object({
+    name = string
+    key  = optional(string, "license-key")
+  })
+  default = null
+
+  validation {
+    condition     = (var.n8n_license_key != null) != (var.n8n_license_key_secret_ref != null)
+    error_message = "Exactly one of n8n_license_key or n8n_license_key_secret_ref is required."
+  }
+}
+
 variable "n8n_kube_namespace" {
-  description = "Kubernetes namespace to deploy n8n into"
+  description = "Kubernetes namespace to deploy n8n into. Also names the existing namespace when create_namespace = false."
   type        = string
   default     = "n8n"
+}
+
+variable "create_namespace" {
+  description = "When true (the default), the module creates the n8n_kube_namespace namespace. Set to false to deploy into an existing namespace the module does not read, create, change, or delete."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+# ── Existing core Secret (n8n_kube_namespace) ─────────────────────────────────
+
+variable "existing_n8n_core_secret_name" {
+  description = "Name of an existing Kubernetes Secret (in n8n_kube_namespace) holding N8N_ENCRYPTION_KEY, N8N_HOST, N8N_PORT, and N8N_PROTOCOL - the n8n Helm chart's secretRefs.existingSecret core-Secret contract. When set, the module creates no core Secret and generates no encryption key; n8n_license_key_secret_ref must then be set, because the chart's core-Secret contract requires the license to come from a separate Secret, not n8n_license_key. Leave null (the default) for the module to generate the encryption key and create the core Secret itself."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.existing_n8n_core_secret_name == null || var.n8n_license_key_secret_ref != null
+    error_message = "n8n_license_key_secret_ref is required when existing_n8n_core_secret_name is set; the chart's core-Secret contract requires the license to come from a separate Secret reference, not n8n_license_key."
+  }
+}
+
+# ── Ingress ownership ──────────────────────────────────────────────────────────
+
+variable "create_ingress" {
+  description = "When true (the default), the module creates and manages the global load-balancer address, Cloud DNS record, GKE ingress, BackendConfig, FrontendConfig, TLS resources, and load-balancer teardown delay. Set to false to let the caller own ingress, DNS, and TLS; use the module's route and service outputs to build a compatible ingress."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 # ── n8n chart ─────────────────────────────────────────────────────────────────
 
 variable "n8n_chart_version" {
-  description = "n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n)"
+  description = "n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n). Must be an exact semantic version (e.g. \"1.10.1\"), not a range or floating tag, so every apply is deterministic."
   type        = string
   default     = "1.10.1"
+
+  validation {
+    condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.n8n_chart_version))
+    error_message = "n8n_chart_version must be an exact semantic version, e.g. \"1.10.1\" (optionally with a -prerelease or +build suffix). Version ranges (~>, >=) and floating tags (latest) are not accepted."
+  }
+}
+
+variable "n8n_chart_repository" {
+  description = "Helm chart repository the n8n chart is installed from. Accepts an HTTPS chart-repository URL or an OCI registry reference (oci://...), so a private mirror can replace the public upstream (oci://ghcr.io/n8n-io/n8n-helm-chart) for a cluster with no egress to it. The mirror must serve the exact version named by n8n_chart_version; this module does not verify that a mirrored repository actually carries it."
+  type        = string
+  default     = "oci://ghcr.io/n8n-io/n8n-helm-chart"
+  nullable    = false
+
+  validation {
+    condition     = startswith(var.n8n_chart_repository, "https://") || startswith(var.n8n_chart_repository, "oci://")
+    error_message = "n8n_chart_repository must start with https:// or oci://."
+  }
 }
 
 variable "keda_chart_version" {
-  description = "KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest."
+  description = "KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Passed through to modules/controllers. Ignored when install_keda = false."
   type        = string
   default     = "2.20.1"
+
+  validation {
+    condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.keda_chart_version))
+    error_message = "keda_chart_version must be an exact semantic version, e.g. \"2.20.1\" (optionally with a -prerelease or +build suffix). Version ranges (~>, >=) and floating tags (latest) are not accepted."
+  }
+}
+
+# ── Controllers submodule (modules/controllers) ───────────────────────────────
+# The root module invokes modules/controllers by default to install KEDA and
+# the optional pd-balanced StorageClass (controllers.tf). These inputs are the
+# root's pass-through/ownership surface for that submodule; see
+# modules/controllers/variables.tf for the submodule's own contract.
+
+variable "install_keda" {
+  description = "When true (the default), the module installs and manages the KEDA Helm release via modules/controllers before creating n8n worker ScaledObjects. Set to false to use an existing KEDA installation; existing_keda_prerequisites_attestation must then be true whenever n8n_worker_keda_enabled = true."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+# This attestation is only ever consumed by its own validation block below;
+# tflint does not treat a variable's self-referential validation condition as
+# a use.
+# tflint-ignore: terraform_unused_declarations
+variable "existing_keda_prerequisites_attestation" {
+  description = "Explicit attestation that a compatible KEDA operator and CRDs are already installed and running on the cluster. The module cannot safely audit this; it trusts this attestation. Required (must be true) when install_keda = false and n8n_worker_keda_enabled = true. Ignored otherwise."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.install_keda || !var.n8n_worker_keda_enabled || var.existing_keda_prerequisites_attestation
+    error_message = "existing_keda_prerequisites_attestation must be true when install_keda = false and n8n_worker_keda_enabled = true, confirming a compatible KEDA operator and CRDs already exist on the cluster."
+  }
+}
+
+variable "keda_chart_repository" {
+  description = "Helm chart repository KEDA is installed from (modules/controllers). Accepts an HTTPS chart-repository URL or an OCI registry reference (oci://...), so a private mirror can replace the public kedacore charts. Ignored when install_keda = false."
+  type        = string
+  default     = "https://kedacore.github.io/charts"
+  nullable    = false
+
+  validation {
+    condition     = startswith(var.keda_chart_repository, "https://") || startswith(var.keda_chart_repository, "oci://")
+    error_message = "keda_chart_repository must start with https:// or oci://."
+  }
+}
+
+variable "create_pd_balanced_storage_class" {
+  description = "When true (the default), the module creates an explicit pd-balanced StorageClass via modules/controllers for stateful workloads that run beside n8n (n8n itself is stateless). Set to false to omit it, e.g. when the caller already defines an equivalent StorageClass."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "n8n_image_tag" {
@@ -104,6 +222,94 @@ variable "n8n_image_tag" {
   validation {
     condition     = var.n8n_image_tag == null ? true : can(regex("^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$", var.n8n_image_tag))
     error_message = "n8n_image_tag must be a non-empty string with no whitespace, containing only alphanumeric characters, dots, underscores, and hyphens (e.g. \"1.2.3\", \"1.2.3-alpine\"). Set to null to use the chart's default (stable)."
+  }
+}
+
+# ── Application images ─────────────────────────────────────────────────────────
+
+variable "n8n_image_repository" {
+  description = "Container image repository for the n8n application, without a tag (e.g. \"us-docker.pkg.dev/<project>/<repo>/n8n\"). When it is null (the default), the Helm chart's own repository applies (currently docker.n8n.io/n8nio/n8n). Point this at a custom image, for example one with community packages baked in so they are not reinstalled on every pod boot. The image must be pullable: a public registry needs nothing extra, GKE nodes can already pull from Artifact Registry and Container Registry in the same project without credentials, and any other private registry needs its credentials listed in n8n_image_pull_secrets. Set the tag through n8n_image_tag, not here, and set n8n_task_runner_image_tag alongside it whenever the tag is not itself a published n8n version."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.n8n_image_repository == null ? true : (
+      length(var.n8n_image_repository) <= 255 &&
+      can(regex("^(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*|\\[[0-9A-Fa-f:]+\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:__|[._]|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:__|[._]|-+)[a-z0-9]+)*)*$", var.n8n_image_repository))
+    )
+    error_message = "n8n_image_repository must be a bare image repository reference that Docker can pull: an optional registry host with an optional port, then one or more lowercase path components (e.g. \"us-docker.pkg.dev/my-project/n8n/n8n\", \"n8nio/n8n\"). No scheme (\"https://\"), no whitespace, no uppercase path components, and no empty label anywhere, which rules out a trailing slash, a doubled slash, and a doubled dot. Set to null to use the chart's default (docker.n8n.io/n8nio/n8n)."
+  }
+
+  validation {
+    condition     = var.n8n_image_repository == null ? true : !can(regex(":", reverse(split("/", var.n8n_image_repository))[0]))
+    error_message = "n8n_image_repository must not include a tag or digest, because the chart appends the tag itself. Pass the version via n8n_image_tag instead."
+  }
+}
+
+variable "n8n_image_pull_policy" {
+  description = "Image pull policy for the n8n application image. Maps to the chart's image.pullPolicy. Leave null (the default) to use the chart's own default (IfNotPresent). One of Always, IfNotPresent, or Never."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.n8n_image_pull_policy == null || contains(["Always", "IfNotPresent", "Never"], var.n8n_image_pull_policy)
+    error_message = "n8n_image_pull_policy must be one of Always, IfNotPresent, or Never, or null to use the chart's default (IfNotPresent)."
+  }
+}
+
+variable "n8n_image_pull_secrets" {
+  description = "Names of existing Kubernetes Secrets of type kubernetes.io/dockerconfigjson, in the n8n namespace, that the pods authenticate to their image registry with. Leave empty (the default) unless n8n_image_repository points somewhere the node pool's default credentials cannot already reach: a public registry and Artifact Registry/Container Registry in this project both pull without credentials. Setting this moves ownership of the n8n Kubernetes ServiceAccount from the Helm chart to the module (the pinned chart renders imagePullSecrets nowhere, on the pod spec or on the ServiceAccount, so attaching the secrets to the account the pods already run as is the only way in), and the module keeps the Workload Identity annotation on the account it creates instead. Create and rotate the Secrets yourself; the module takes names, not credentials, so none of them land in Terraform state."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for name in var.n8n_image_pull_secrets :
+      can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", name))
+    ])
+    error_message = "Every n8n_image_pull_secrets entry must be a DNS-1123 subdomain, which is what Kubernetes requires of a Secret name: lowercase alphanumerics, hyphens and dots, starting and ending with an alphanumeric, with no empty label (e.g. \"ar-pull-creds\")."
+  }
+
+  validation {
+    condition = alltrue([
+      for name in var.n8n_image_pull_secrets : length(name) <= 253
+    ])
+    error_message = "Every n8n_image_pull_secrets entry must be 253 characters or fewer, the Kubernetes limit on a Secret name."
+  }
+
+  validation {
+    condition     = length(distinct(var.n8n_image_pull_secrets)) == length(var.n8n_image_pull_secrets)
+    error_message = "n8n_image_pull_secrets must not repeat a Secret name. Listing one twice adds nothing, since the kubelet tries each entry once."
+  }
+}
+
+variable "n8n_custom_extensions_path" {
+  description = "Absolute path inside the n8n container that n8n scans for custom nodes at startup (e.g. \"/opt/n8n-nodes\"). Maps to N8N_CUSTOM_EXTENSIONS, and is set on every pod type (main, worker, webhook processor). This is the supported way to ship nodes baked into a custom image: since n8n 1.0 the loader no longer picks up nodes from the image's global node_modules, so a plain npm install into the image is never seen. Something has to put files at this path, so pair this with n8n_image_repository pointing at an image that bakes them in. The path must be outside /home/node/.n8n, which the chart mounts over on main pods. Nodes loaded this way are registered under the package name CUSTOM, so a node whose type was n8n-nodes-example.myNode when installed from npm becomes CUSTOM.myNode, and existing workflows referencing the npm-qualified type will not resolve. Leave null (the default) to omit the env var entirely."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.n8n_custom_extensions_path == null ? true : can(regex("^/[^[:space:];]*$", var.n8n_custom_extensions_path))
+    error_message = "n8n_custom_extensions_path must be an absolute container path with no whitespace and no semicolon (e.g. \"/opt/n8n-nodes\"). n8n splits N8N_CUSTOM_EXTENSIONS on \";\", so a semicolon here would be parsed as two directories and silently drop all but the last."
+  }
+
+  validation {
+    condition     = var.n8n_custom_extensions_path == null ? true : !can(regex("//|/\\.\\.?(/|$)", var.n8n_custom_extensions_path))
+    error_message = "n8n_custom_extensions_path must be a canonical path: no repeated slashes and no \".\" or \"..\" components (e.g. \"/opt/n8n-nodes\"). Those spellings resolve to the same directory inside the container but would slip past the /home/node/.n8n shadowing check."
+  }
+
+  validation {
+    condition     = var.n8n_custom_extensions_path == null ? true : (var.n8n_custom_extensions_path == "/" || !endswith(var.n8n_custom_extensions_path, "/"))
+    error_message = "n8n_custom_extensions_path must not end in a trailing slash (e.g. \"/opt/n8n-nodes\", not \"/opt/n8n-nodes/\"). Same reason as the canonical-path rule above: the two spellings are the same directory to the container but different strings to any coverage check that compares this path literally."
+  }
+
+  validation {
+    condition = var.n8n_custom_extensions_path == null ? true : !(
+      var.n8n_custom_extensions_path == "/home/node/.n8n" ||
+      startswith(var.n8n_custom_extensions_path, "/home/node/.n8n/")
+    )
+    error_message = "n8n_custom_extensions_path must not be inside /home/node/.n8n. The chart mounts an emptyDir there on main pods, which hides whatever the image baked in, so the nodes would load on workers and webhook processors but not on mains. Use a path outside it, for example /opt/n8n-nodes."
   }
 }
 
@@ -331,6 +537,36 @@ variable "n8n_task_runner_python_enabled" {
   default     = true
 }
 
+variable "n8n_task_runner_image_repository" {
+  description = "Container image repository for the task runner sidecar (chart default: n8nio/runners), without a tag. Leave null (the default) to use the chart's own repository. Set this alongside n8n_task_runner_image_tag when the n8n application image is mirrored into a private registry the runner image must also come from. Ignored when n8n_task_runners_enabled = false."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.n8n_task_runner_image_repository == null ? true : (
+      length(var.n8n_task_runner_image_repository) <= 255 &&
+      can(regex("^(?:(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*|\\[[0-9A-Fa-f:]+\\])(?::[0-9]+)?/)?[a-z0-9]+(?:(?:__|[._]|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:__|[._]|-+)[a-z0-9]+)*)*$", var.n8n_task_runner_image_repository))
+    )
+    error_message = "n8n_task_runner_image_repository must be a bare image repository reference that Docker can pull, e.g. \"us-docker.pkg.dev/my-project/n8n/runners\" or \"n8nio/runners\". No scheme, no whitespace, no uppercase path components, and no tag or digest (set the tag via n8n_task_runner_image_tag). Set to null to use the chart's default (n8nio/runners)."
+  }
+
+  validation {
+    condition     = var.n8n_task_runner_image_repository == null ? true : !can(regex(":", reverse(split("/", var.n8n_task_runner_image_repository))[0]))
+    error_message = "n8n_task_runner_image_repository must not include a tag or digest, because the chart appends the tag itself. Pass the version via n8n_task_runner_image_tag instead."
+  }
+}
+
+variable "n8n_task_runner_image_tag" {
+  description = "Image tag for the task runner sidecar (n8nio/runners, or n8n_task_runner_image_repository when set). When it is null (the default), the chart falls back to the n8n application image's tag, which is correct as long as that tag is a published n8n version. Set this to the underlying n8n version when running a custom application image whose tag is not one (e.g. n8n_image_tag = \"2.27.4-mypackages\" together with n8n_task_runner_image_tag = \"2.27.4\"); otherwise the sidecar tries to pull an image tag that does not exist and every main and worker pod stays in ImagePullBackOff. Ignored when n8n_task_runners_enabled = false."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.n8n_task_runner_image_tag == null ? true : can(regex("^[a-zA-Z0-9_][a-zA-Z0-9._-]{0,127}$", var.n8n_task_runner_image_tag))
+    error_message = "n8n_task_runner_image_tag must be a non-empty string with no whitespace, containing only alphanumeric characters, dots, underscores, and hyphens (e.g. \"2.27.4\"). Set to null to inherit the n8n application image's tag."
+  }
+}
+
 variable "n8n_task_runner_request_timeout" {
   description = "Seconds n8n waits for a task runner to accept a Code node task. Wired to the N8N_RUNNERS_TASK_REQUEST_TIMEOUT env var on the main pod. Increase if Code nodes fail with 'task request timed out' under high concurrency (many parallel Code nodes competing for the single runner sidecar)."
   type        = number
@@ -340,9 +576,10 @@ variable "n8n_task_runner_request_timeout" {
 # ── Cloud SQL PostgreSQL ─────────────────────────────────────────────────────────────
 
 variable "create_postgres_instance" {
-  description = "When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance. Set to false to use an external database (n8n_database_host and n8n_database_password must then be supplied). Kept as a static boolean rather than `n8n_database_host == null` because count expressions cannot depend on values computed at apply time."
+  description = "When true (the default), the module creates and manages a Cloud SQL PostgreSQL instance, its database, its user, and its Cloud SQL-specific IAM bindings. Set to false to use an external database; n8n_database_host and exactly one of n8n_database_password / n8n_database_password_secret_ref must then be supplied. Kept as a static boolean rather than inferred from n8n_database_host == null because count expressions cannot depend on values computed at apply time."
   type        = bool
   default     = true
+  nullable    = false
 }
 
 variable "n8n_database_host" {
@@ -357,14 +594,29 @@ variable "n8n_database_host" {
 }
 
 variable "n8n_database_password" {
-  description = "Password for the external database specified by n8n_database_host. Required when create_postgres_instance = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance)."
+  description = "Direct password for the external database specified by n8n_database_host. Exactly one of n8n_database_password or n8n_database_password_secret_ref is required when create_postgres_instance = false. Ignored otherwise (the module generates a random password for its managed Cloud SQL instance)."
   type        = string
   default     = null
   sensitive   = true
+}
+
+# The completeness/mutual-exclusivity condition below references both this
+# variable and n8n_database_password, so it lives on exactly one of the two
+# (here) rather than being duplicated on both: a validation block on each
+# variable referencing the other would form a validation-graph cycle.
+variable "n8n_database_password_secret_ref" {
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the external database password, instead of passing the value directly through n8n_database_password. key defaults to \"password\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's database.passwordSecret. Exactly one of n8n_database_password or n8n_database_password_secret_ref is required when create_postgres_instance = false. Ignored otherwise."
+  type = object({
+    name = string
+    key  = optional(string, "password")
+  })
+  default = null
 
   validation {
-    condition     = var.create_postgres_instance || var.n8n_database_password != null
-    error_message = "n8n_database_password is required when create_postgres_instance = false."
+    condition = var.create_postgres_instance || (
+      (var.n8n_database_password != null) != (var.n8n_database_password_secret_ref != null)
+    )
+    error_message = "Exactly one of n8n_database_password or n8n_database_password_secret_ref is required when create_postgres_instance = false."
   }
 }
 
@@ -385,7 +637,39 @@ variable "db_postgresdb_ssl_enabled" {
   default     = false
 }
 
+# ── Execution data storage ────────────────────────────────────────────────────
+
+variable "n8n_execution_data_storage_mode" {
+  description = "Where n8n stores the data of each new execution. Maps to N8N_EXECUTION_DATA_STORAGE_MODE. \"database\" (the default) keeps execution data in PostgreSQL, matching n8n's own default, and emits no env var. \"s3\" offloads it to the effective GCS S3-compatible storage contract this module already configures for binary data (the same bucket, HMAC identity, and Secret), so no extra bucket or credentials are needed. Requires n8n >= 2.27 (pin n8n_image_tag accordingly) and an Enterprise license carrying the feat:executionDataS3 entitlement, a different entitlement from the one binary data offload uses. There is no backfill: only new executions go to object storage. \"filesystem\" is not accepted: pod filesystems are ephemeral and unshared in this module's queue-mode topology."
+  type        = string
+  default     = "database"
+  nullable    = false
+
+  validation {
+    condition     = contains(["database", "s3"], var.n8n_execution_data_storage_mode)
+    error_message = "n8n_execution_data_storage_mode must be either \"database\" (n8n's default, execution data in PostgreSQL) or \"s3\" (execution data offloaded to the effective GCS storage contract). \"filesystem\" is not supported by this module: pod filesystems are ephemeral and unshared in queue mode."
+  }
+}
+
 # ── HPA: main pods ────────────────────────────────────────────────────────────
+
+variable "n8n_main_hpa_enabled" {
+  description = "When true (the default), the module creates and manages the HPA for n8n main pods. Set to false to let the caller own main-pod scaling (or run a fixed replica count); no n8n main HPA is rendered. n8n_main_fixed_replicas sets the replica count while disabled."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "n8n_main_fixed_replicas" {
+  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.n8n_main_fixed_replicas >= 1
+    error_message = "n8n_main_fixed_replicas must be at least 1."
+  }
+}
 
 variable "n8n_main_hpa_min_replicas" {
   description = "Minimum replicas for n8n main pods. HPA will not scale below this."
@@ -407,6 +691,24 @@ variable "n8n_main_hpa_cpu_threshold" {
 
 # ── HPA: webhook processor pods ───────────────────────────────────────────────
 
+variable "n8n_webhook_hpa_enabled" {
+  description = "When true (the default), the module creates and manages the HPA for n8n webhook processor pods. Set to false to let the caller own webhook-pod scaling (or run a fixed replica count); no n8n webhook HPA is rendered. n8n_webhook_fixed_replicas sets the replica count while disabled."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "n8n_webhook_fixed_replicas" {
+  description = "Fixed replica count for n8n webhook processor pods when n8n_webhook_hpa_enabled = false. Ignored while the HPA is enabled."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.n8n_webhook_fixed_replicas >= 1
+    error_message = "n8n_webhook_fixed_replicas must be at least 1."
+  }
+}
+
 variable "n8n_webhook_hpa_min_replicas" {
   description = "Minimum replicas for n8n webhook processor pods. HPA will not scale below this."
   type        = number
@@ -423,6 +725,15 @@ variable "n8n_webhook_hpa_cpu_threshold" {
   description = "Target average CPU utilization (%) that triggers scaling of n8n webhook pods."
   type        = number
   default     = 65
+}
+
+# ── License shutdown behavior ─────────────────────────────────────────────────
+
+variable "n8n_license_detach_floating_on_shutdown" {
+  description = "Whether n8n main pods detach their floating license entitlement on shutdown. Maps to N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN. n8n's upstream default is true, which is safe for a single main but breaks multi-main (the module default, two main replicas): the leader main detaches on shutdown and zeroes the shared floating cert in the database, so any fresh main pod that starts as a follower reads the zeroed cert, fails the init-time license gate, and crash-loops, which can push a Helm release with atomic = true into a stuck pending-rollback state. The module defaults this to false, overriding n8n's own default, because all mains share the same device fingerprint: a single floating seat is reused across restarts and nothing leaks. Set to true only to restore n8n's upstream behavior, and only for single-main deployments."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 # ── Observability ─────────────────────────────────────────────────────────────
@@ -622,6 +933,24 @@ variable "n8n_extra_env" {
 
 # ── KEDA: worker pods ─────────────────────────────────────────────────────────
 
+variable "n8n_worker_keda_enabled" {
+  description = "When true (the default), the module creates and manages the KEDA ScaledObject for n8n worker pods. Set to false to let the caller own worker scaling (or run a fixed replica count); no n8n worker ScaledObject is rendered. n8n_worker_fixed_replicas sets the replica count while disabled."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "n8n_worker_fixed_replicas" {
+  description = "Fixed replica count for n8n worker pods when n8n_worker_keda_enabled = false. Ignored while KEDA scaling is enabled."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.n8n_worker_fixed_replicas >= 1
+    error_message = "n8n_worker_fixed_replicas must be at least 1."
+  }
+}
+
 variable "n8n_worker_keda_min_replicas" {
   description = "Minimum worker replicas. KEDA keeps at least this many workers running even when the queue is empty."
   type        = number
@@ -638,4 +967,57 @@ variable "n8n_worker_keda_jobs_per_replica" {
   description = "Number of waiting jobs per worker replica used as the KEDA scaling threshold. KEDA targets ceil(queue_depth / jobs_per_replica) replicas."
   type        = number
   default     = 5
+}
+
+# ── External Secrets and Google Secret Manager ────────────────────────────────
+# D7: n8n's generic External Secrets feature (vault-provider connections
+# configured in-product) is a separate concern from Google Secret Manager
+# access for the n8n Workload Identity service account. The master switch
+# below only turns the n8n *feature* on or off; it does not configure a vault
+# provider. n8n_secret_manager_* grants IAM so a Google Secret Manager vault
+# provider configured in n8n can actually read secrets, scoped to an explicit,
+# wildcard-free allow-list, never project-wide.
+
+variable "n8n_external_secrets_enabled" {
+  description = "Master switch for n8n's External Secrets feature (vault-provider connections configured in Settings > External Secrets). When true (the default, matching n8n's own default), the feature is available. When false, the module adds \"external-secrets\" to N8N_DISABLED_MODULES on every n8n pod, disabling the feature entirely."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "n8n_external_secrets_update_interval" {
+  description = "Seconds between checks for updates to resolved external secret values. Maps to N8N_EXTERNAL_SECRETS_UPDATE_INTERVAL. Leave null (the default) to use n8n's own default (300s). Ignored when n8n_external_secrets_enabled = false."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_external_secrets_update_interval == null ? true : var.n8n_external_secrets_update_interval > 0
+    error_message = "n8n_external_secrets_update_interval must be a positive number of seconds, or null to use n8n's default."
+  }
+}
+
+variable "n8n_secret_manager_enabled" {
+  description = "When true, the module grants the n8n Workload Identity Google service account roles/secretmanager.secretAccessor on every secret listed in n8n_secret_manager_secret_ids, scoped to those secrets only (never project-wide). Requires a non-empty n8n_secret_manager_secret_ids. Configuring n8n's Google Secret Manager vault-provider connection itself (Settings > External Secrets) remains an in-product operator action; this only grants the underlying GCP IAM that connection needs. Defaults to false (no Secret Manager IAM granted)."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.n8n_secret_manager_enabled || length(var.n8n_secret_manager_secret_ids) > 0
+    error_message = "n8n_secret_manager_secret_ids must be a non-empty allow-list when n8n_secret_manager_enabled = true; the module grants no project-wide Secret Manager access."
+  }
+}
+
+variable "n8n_secret_manager_secret_ids" {
+  description = "Explicit allow-list of Google Secret Manager secret resource IDs (format projects/<project>/secrets/<secret_id>) the n8n Workload Identity service account may read. Required (non-empty) when n8n_secret_manager_enabled = true. Ignored otherwise. Each entry must be a fully qualified secret resource ID with no wildcard, whitespace, or version suffix (IAM is granted at the secret level, not a specific version)."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for id in var.n8n_secret_manager_secret_ids : can(regex("^projects/[^/[:space:]*]+/secrets/[^/[:space:]*]+$", id))
+    ])
+    error_message = "Each n8n_secret_manager_secret_ids entry must be a fully qualified secret resource ID in the form projects/<project>/secrets/<secret_id>, with no wildcard (*), whitespace, or /versions/... suffix."
+  }
 }

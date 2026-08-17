@@ -29,8 +29,9 @@ module "n8n" {
   postgres_disk_size         = var.postgres_disk_size
   postgres_availability_type = var.postgres_availability_type
 
-  redis_tier           = var.redis_tier
-  redis_memory_size_gb = var.redis_memory_size_gb
+  redis_tier                     = var.redis_tier
+  redis_memory_size_gb           = var.redis_memory_size_gb
+  n8n_redis_timeout_threshold_ms = var.n8n_redis_timeout_threshold_ms
 
   gke_node_type         = var.gke_node_type
   gke_node_min_per_zone = var.gke_node_min_per_zone

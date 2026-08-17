@@ -2,6 +2,10 @@
 
 This guide covers how to cleanly tear down the n8n infrastructure and troubleshoot the issues that most commonly arise during `terraform destroy` on Google Cloud.
 
+## Customer-managed layers
+
+On a mixed-ownership deployment (any `create_*` switch set to `false`), Terraform never destroys the resource you own: an existing network, GKE cluster, PostgreSQL database, Redis instance, GCS bucket, namespace, KEDA installation, or Cloud KMS key. Run `terraform plan -destroy` first and confirm it lists only module-owned resources before proceeding; see [`customer-managed-infrastructure.md`](./customer-managed-infrastructure.md#customer-managed-resource-teardown-boundary) for the full contract.
+
 ## Prerequisites
 
 Before destroying, back up the following from `terraform output`:

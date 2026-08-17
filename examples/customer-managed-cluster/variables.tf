@@ -1,0 +1,70 @@
+variable "project_id" {
+  description = "GCP project ID. Must own (or share Workload Identity with) existing_gke_cluster_name."
+  type        = string
+}
+
+variable "gcp_region" {
+  description = "GCP region of the existing regional GKE cluster (e.g. us-east4, us-east1, europe-west1)."
+  type        = string
+  default     = "us-east4"
+}
+
+variable "gcs_location" {
+  description = "GCS bucket location for binary storage. Keep it near gcp_region (e.g. US for a us-* region, EU for europe-*)."
+  type        = string
+  default     = "US"
+}
+
+variable "friendly_name_prefix" {
+  description = "Prefix used to derive the name of every Google Cloud resource the module still creates."
+  type        = string
+  default     = "dev"
+}
+
+variable "n8n_fqdn" {
+  description = "Hostname n8n is served on."
+  type        = string
+}
+
+variable "n8n_license_key" {
+  description = "n8n Enterprise license activation key (multi-main requires Enterprise)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "existing_gke_cluster_name" {
+  description = "Name of the existing regional GKE cluster (in gcp_region) to deploy n8n onto. See README.md for the required cluster properties."
+  type        = string
+}
+
+variable "existing_gke_prerequisites_attestation" {
+  description = "Explicit confirmation that existing_gke_cluster_name is reachable by the providers configured in providers.tf, uses VPC-native networking, has Workload Identity enabled, runs GKE's native ingress/metrics/autoscaling/PD CSI controllers, has capacity for the requested n8n workload, and grants this deployment permission to create namespaced resources. No default: set it to true only after confirming these against your own cluster (see README.md)."
+  type        = bool
+}
+
+variable "cloud_dns_zone_name" {
+  description = "Google Cloud DNS managed-zone name for n8n_fqdn. Empty means you manage the A-record yourself against the static_ip output."
+  type        = string
+  default     = ""
+}
+
+variable "manage_sa_key_org_policy" {
+  description = "Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation for this project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise."
+  type        = bool
+  default     = false
+}
+
+# ── Teardown controls (safe defaults) ─────────────────────────────────────────
+
+variable "postgres_deletion_protection" {
+  description = "Block terraform destroy of the Cloud SQL instance."
+  type        = bool
+  default     = true
+}
+
+variable "gcs_force_destroy" {
+  description = "Allow terraform destroy to delete the (non-empty) GCS bucket."
+  type        = bool
+  default     = false
+}

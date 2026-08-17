@@ -81,7 +81,6 @@ Thumbs.db
 
 # ── Agent loop residue (Ralph) ────────────────────────────────────────────────
 # Local agent-loop scaffolding; never ship in the registry artifact.
+# openspec/init.sh is tracked on purpose; only runtime logs are ignored.
 .pi/
-init.sh
-progress.txt
-logs/
+openspec/logs/

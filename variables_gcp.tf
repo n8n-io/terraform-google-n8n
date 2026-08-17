@@ -14,7 +14,94 @@ variable "gcp_region" {
   default     = "europe-west1"
 }
 
-# ── Networking (VPC-native) ───────────────────────────────────────────────────
+# ── Networking ownership (infrastructure-ownership) ───────────────────────────
+# Static, non-null ownership switch: count expressions cannot depend on values
+# computed at apply time, so this must stay a plan-known boolean rather than
+# being inferred from existing_network_name being null.
+
+variable "create_network" {
+  description = "When true (the default), the module creates and manages the VPC, subnetwork, secondary ranges, Cloud Router, and Cloud NAT. Set to false to attach to an existing network; existing_network_name, existing_subnetwork_name, existing_pods_range_name, and existing_services_range_name must then be supplied."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "existing_network_name" {
+  description = "Name of the existing VPC network to use. Required when create_network = false. Ignored otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_network || var.existing_network_name != null
+    error_message = "existing_network_name is required when create_network = false."
+  }
+}
+
+variable "existing_network_project_id" {
+  description = "Host project ID of the existing network, when it lives in a Shared VPC host project different from project_id. Ignored when create_network = true. Defaults to project_id (the network lives in the same project) when left null."
+  type        = string
+  default     = null
+}
+
+variable "existing_subnetwork_name" {
+  description = "Name of the existing subnetwork (in gcp_region) that GKE and data services attach to. Required when create_network = false. Ignored otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_network || var.existing_subnetwork_name != null
+    error_message = "existing_subnetwork_name is required when create_network = false."
+  }
+}
+
+variable "existing_pods_range_name" {
+  description = "Name of the existing secondary IP range on existing_subnetwork_name used for GKE pod alias IPs. Required when create_network = false. Ignored otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_network || var.existing_pods_range_name != null
+    error_message = "existing_pods_range_name is required when create_network = false."
+  }
+}
+
+variable "existing_services_range_name" {
+  description = "Name of the existing secondary IP range on existing_subnetwork_name used for GKE service alias IPs. Required when create_network = false. Ignored otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_network || var.existing_services_range_name != null
+    error_message = "existing_services_range_name is required when create_network = false."
+  }
+}
+
+# ── Private Service Access ownership ──────────────────────────────────────────
+
+variable "create_psa" {
+  description = "When true (the default), the module allocates and manages the Private Service Access range and service networking connection used by Cloud SQL and Memorystore. Set to false when the network already has a Private Service Access connection the module should not manage; existing_psa_prerequisites_attestation must then be true if any module-managed data service is created."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+# This attestation is only ever consumed by its own validation block below;
+# tflint does not treat a variable's self-referential validation condition as
+# a use.
+# tflint-ignore: terraform_unused_declarations
+variable "existing_psa_prerequisites_attestation" {
+  description = "Explicit attestation that an existing Private Service Access allocation and service networking connection already exist on the target network and are compatible with a module-managed Cloud SQL or Memorystore instance. Required (must be true) when create_psa = false and either create_postgres_instance or create_redis_instance is true. The module does not read or verify the existing connection; it only trusts this attestation and never mutates or deletes it."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.create_psa || !(var.create_postgres_instance || var.create_redis_instance) || var.existing_psa_prerequisites_attestation
+    error_message = "existing_psa_prerequisites_attestation must be true when create_psa = false and the module creates Cloud SQL or Memorystore (create_postgres_instance or create_redis_instance), confirming a compatible Private Service Access connection already exists."
+  }
+}
+
+# ── Networking (VPC-native) ────────────────────────────────────────────────────
 
 variable "subnet_cidr" {
   description = "Primary CIDR for the node subnet."
@@ -95,12 +182,255 @@ variable "n8n_database_user" {
   default     = "n8n"
 }
 
+# ── Cloud SQL restore source (managed instance only) ──────────────────────────
+# Provider-supported backup restore or clone context for a NEW module-managed
+# Cloud SQL instance (D4). Both mechanisms only apply at instance creation;
+# neither retroactively restores/clones an already-created instance. Mutually
+# exclusive with each other and meaningless when create_postgres_instance =
+# false (see the postgres_restore_ignored_when_external check in checks.tf).
+# Restoring/cloning does not carry over the n8n encryption key: see the
+# postgres_restore_without_encryption_key_continuity check in checks.tf.
+
+variable "postgres_clone_source_instance_name" {
+  description = "Name of an existing Cloud SQL instance to clone from when creating the module-managed instance (the resource's clone block). Mutually exclusive with postgres_restore_backup_run_id. Ignored when create_postgres_instance = false. Only takes effect the first time the instance is created; it has no effect on an already-created instance."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.postgres_clone_source_instance_name == null || var.postgres_restore_backup_run_id == null
+    error_message = "postgres_clone_source_instance_name and postgres_restore_backup_run_id are mutually exclusive; use exactly one restore mechanism."
+  }
+
+  validation {
+    condition     = var.create_postgres_instance || var.postgres_clone_source_instance_name == null
+    error_message = "postgres_clone_source_instance_name requires create_postgres_instance = true; cloning only applies to a module-managed instance."
+  }
+}
+
+variable "postgres_clone_point_in_time" {
+  description = "RFC3339 timestamp to clone postgres_clone_source_instance_name from a specific point in time (requires point-in-time recovery enabled on the source). Requires postgres_clone_source_instance_name when set."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.postgres_clone_point_in_time == null || var.postgres_clone_source_instance_name != null
+    error_message = "postgres_clone_point_in_time requires postgres_clone_source_instance_name; a point in time without a clone source would be ignored."
+  }
+}
+
+variable "postgres_restore_backup_run_id" {
+  description = "Backup run ID to restore into the module-managed Cloud SQL instance at creation (the resource's restore_backup_context block). Requires postgres_restore_source_instance_name. Mutually exclusive with postgres_clone_source_instance_name. Ignored when create_postgres_instance = false."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.create_postgres_instance || var.postgres_restore_backup_run_id == null
+    error_message = "postgres_restore_backup_run_id requires create_postgres_instance = true; restoring only applies to a module-managed instance."
+  }
+}
+
+variable "postgres_restore_source_instance_name" {
+  description = "Name of the Cloud SQL instance that owns the backup named by postgres_restore_backup_run_id. Must be set together with postgres_restore_backup_run_id."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = (var.postgres_restore_backup_run_id == null) == (var.postgres_restore_source_instance_name == null)
+    error_message = "postgres_restore_backup_run_id and postgres_restore_source_instance_name must be set together."
+  }
+}
+
+# ── Cloud SQL customer-managed encryption (Cloud KMS) ─────────────────────────
+# Explicit create-or-reference contract (D4): create_postgres_kms_key creates a
+# key in the shared key ring (create_kms_key_ring / existing_kms_key_ring_id,
+# below), existing_postgres_kms_key_id references an already-existing key, and
+# leaving both unset keeps Google-managed encryption. The module never mutates
+# encryption on an external database (create_postgres_instance = false).
+
+variable "create_postgres_kms_key" {
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed Cloud SQL instance to use it as its customer-managed encryption key. Mutually exclusive with existing_postgres_kms_key_id. Ignored when create_postgres_instance = false. Defaults to false (Google-managed encryption)."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.create_postgres_kms_key || var.existing_postgres_kms_key_id == null
+    error_message = "create_postgres_kms_key and existing_postgres_kms_key_id are mutually exclusive; create a key or reference an existing one, not both."
+  }
+}
+
+variable "existing_postgres_kms_key_id" {
+  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed Cloud SQL instance should use for customer-managed encryption. Mutually exclusive with create_postgres_kms_key. The module grants no IAM on a supplied existing key; grant the Cloud SQL service agent roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. Ignored when create_postgres_instance = false."
+  type        = string
+  default     = null
+}
+
+# ── Shared Cloud KMS key ring ──────────────────────────────────────────────────
+# A single optional key ring hosts every module-created CMEK key (Cloud SQL
+# today; Memorystore and GCS extend this same ring in later sections). Its
+# creation is independent of any individual service's key-creation switch: it
+# is required only when at least one service opts into a module-created key.
+
+variable "create_kms_key_ring" {
+  description = "When true, the module creates and manages a Cloud KMS key ring to host module-created CMEK keys (create_postgres_kms_key, create_redis_kms_key, create_gcs_kms_key). Ignored unless at least one service's create_*_kms_key switch is true. Set to false and supply existing_kms_key_ring_id to host module-created keys in an existing key ring instead. Defaults to false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "existing_kms_key_ring_id" {
+  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>) of an existing Cloud KMS key ring to host module-created CMEK keys. Required when create_kms_key_ring = false and at least one service's create_*_kms_key switch is true. Ignored when create_kms_key_ring = true or no module-created key is requested."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.create_kms_key_ring || !(
+      (var.create_postgres_instance && var.create_postgres_kms_key) ||
+      (var.create_redis_instance && var.create_redis_kms_key) ||
+      (var.create_gcs_bucket && var.create_gcs_kms_key)
+    ) || var.existing_kms_key_ring_id != null
+    error_message = "existing_kms_key_ring_id is required when create_kms_key_ring = false and create_postgres_kms_key, create_redis_kms_key, or create_gcs_kms_key is true."
+  }
+
+  validation {
+    condition = var.existing_kms_key_ring_id == null || can(regex(
+      "^projects/[^/]+/locations/[^/]+/keyRings/[^/]+$",
+      var.existing_kms_key_ring_id,
+    ))
+    error_message = "existing_kms_key_ring_id must be a fully qualified key-ring ID: projects/<project>/locations/<location>/keyRings/<ring>."
+  }
+
+  validation {
+    condition = var.existing_kms_key_ring_id == null ? true : (
+      (!(var.create_postgres_instance && var.create_postgres_kms_key) && !(var.create_redis_instance && var.create_redis_kms_key)) || try(lower(split("/", var.existing_kms_key_ring_id)[3]), "") == lower(var.gcp_region)
+      ) && (
+      !(var.create_gcs_bucket && var.create_gcs_kms_key) || try(lower(split("/", var.existing_kms_key_ring_id)[3]), "") == (lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location))
+    )
+    error_message = "The existing key ring location must match every service using a module-created key: gcp_region for Cloud SQL/Redis, and the GCS-compatible location (EU maps to europe) for GCS. A single ring cannot serve incompatible locations."
+  }
+}
+
+variable "kms_key_ring_location" {
+  description = "Location for the module-managed Cloud KMS key ring. Defaults to gcp_region for Cloud SQL/Redis keys, or to the GCS-compatible bucket location for a GCS-only ring (EU maps to europe). Every service sharing the ring must support the same location."
+  type        = string
+  default     = null
+
+  validation {
+    condition = !var.create_kms_key_ring || (
+      (!(var.create_postgres_instance && var.create_postgres_kms_key) && !(var.create_redis_instance && var.create_redis_kms_key)) || (var.kms_key_ring_location == null ? true : lower(var.kms_key_ring_location) == lower(var.gcp_region))
+      ) && (
+      !(var.create_gcs_bucket && var.create_gcs_kms_key) || (var.kms_key_ring_location == null ? true : lower(var.kms_key_ring_location) == (lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location)))
+      ) && (
+      !((var.create_postgres_instance && var.create_postgres_kms_key) || (var.create_redis_instance && var.create_redis_kms_key)) ||
+      !(var.create_gcs_bucket && var.create_gcs_kms_key) ||
+      lower(var.gcp_region) == (lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location))
+    )
+    error_message = "kms_key_ring_location must match every service using the shared ring: gcp_region for Cloud SQL/Redis, and the GCS-compatible location (EU maps to europe) for GCS. A single ring cannot serve incompatible locations."
+  }
+}
+
+variable "create_redis_instance" {
+  description = "When true (the default), the module creates and manages a Memorystore for Redis instance. Set to false to use an external Redis-compatible service; redis_host must then be supplied (redis_port, redis_tls_enabled, redis_username, and a password source are optional depending on the target service)."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "redis_host" {
+  description = "External Redis host. Required when create_redis_instance = false. Ignored otherwise (n8n and KEDA use the module-managed Memorystore host)."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_redis_instance || var.redis_host != null
+    error_message = "redis_host is required when create_redis_instance = false."
+  }
+}
+
+variable "redis_port" {
+  description = "External Redis port. Ignored when create_redis_instance = true (Memorystore always uses 6379)."
+  type        = number
+  default     = 6379
+
+  validation {
+    condition     = var.redis_port > 0 && var.redis_port <= 65535
+    error_message = "redis_port must be a valid TCP port (1-65535)."
+  }
+}
+
+variable "redis_tls_enabled" {
+  description = "Whether n8n and KEDA connect to the external Redis host over TLS. Ignored when create_redis_instance = true (managed Memorystore transit encryption is controlled separately)."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "redis_username" {
+  description = "Optional ACL username for the external Redis host (Redis 6+ ACL-compatible services). Ignored when create_redis_instance = true. Passed to n8n as a plain chart value and wrapped in a module-managed Secret purely so KEDA's TriggerAuthentication can reference it too."
+  type        = string
+  default     = null
+}
+
+variable "redis_password" {
+  description = "Optional direct password for the external Redis host. Mutually exclusive with redis_password_secret_ref. Ignored when create_redis_instance = true (the module manages Memorystore AUTH via redis_auth_enabled instead)."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+# The completeness/mutual-exclusivity condition below references both this
+# variable and redis_password, so it lives on exactly one of the two (here)
+# rather than being duplicated on both: a validation block on each variable
+# referencing the other would form a validation-graph cycle (see
+# n8n_database_password_secret_ref for the same pattern).
+variable "redis_password_secret_ref" {
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the external Redis password, instead of passing the value directly through redis_password. key defaults to \"password\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's redis.passwordSecret and to KEDA's TriggerAuthentication. Mutually exclusive with redis_password. Both are optional (unlike PostgreSQL, external Redis may run without a password). Ignored when create_redis_instance = true."
+  type = object({
+    name = string
+    key  = optional(string, "password")
+  })
+  default = null
+
+  validation {
+    condition     = var.redis_password == null || var.redis_password_secret_ref == null
+    error_message = "redis_password and redis_password_secret_ref are mutually exclusive; supply the external Redis password directly or via an existing Secret reference, not both."
+  }
+}
+
+variable "redis_key_prefix" {
+  description = "Optional prefix n8n applies to its Bull queue Redis keys (the chart's redis.prefix, chart default \"bull\"), synchronized with the corresponding KEDA queue list names (\"<prefix>:jobs:wait\" / \"<prefix>:jobs:active\"). Leave null (the default) to use the chart's own default prefix. Changing this value on a deployment with in-flight or queued jobs strands them under the old prefix; drain the queue first (see docs/customer-managed-infrastructure.md)."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.redis_key_prefix == null || can(regex("^[A-Za-z0-9_-]+$", var.redis_key_prefix))
+    error_message = "redis_key_prefix must be null or a non-blank value containing only letters, digits, hyphens, and underscores; whitespace and colons (the Bull key separator) would produce a malformed key."
+  }
+}
+
+variable "n8n_redis_timeout_threshold_ms" {
+  description = "Milliseconds n8n waits for a Redis response before treating the connection as failed (the chart's redis.timeout / QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD). Must be at least 30000 when redis_tier = STANDARD_HA on a module-managed instance, covering Memorystore's documented ~30s average unavailability during an automated failover."
+  type        = number
+  default     = 10000
+  nullable    = false
+
+  validation {
+    condition     = !(var.create_redis_instance && var.redis_tier == "STANDARD_HA") || var.n8n_redis_timeout_threshold_ms >= 30000
+    error_message = "n8n_redis_timeout_threshold_ms must be at least 30000 (30s) when redis_tier = STANDARD_HA, matching Memorystore's documented average failover unavailability window; a lower value risks n8n exiting mid-failover."
+  }
+}
+
 # ── Memorystore ───────────────────────────────────────────────────────────────
 
 variable "redis_tier" {
-  description = "Memorystore tier: BASIC (no replica) or STANDARD_HA."
+  description = "Memorystore tier: BASIC (no replica) or STANDARD_HA (adds a replica and automated failover)."
   type        = string
   default     = "BASIC"
+
+  validation {
+    condition     = contains(["BASIC", "STANDARD_HA"], var.redis_tier)
+    error_message = "redis_tier must be BASIC or STANDARD_HA."
+  }
 }
 
 variable "redis_memory_size_gb" {
@@ -116,9 +446,89 @@ variable "redis_version" {
 }
 
 variable "redis_auth_enabled" {
-  description = "Enable Redis AUTH. If true, the KEDA worker trigger needs a TriggerAuthentication CRD."
+  description = "Enable Redis AUTH on the module-managed Memorystore instance. If true, the KEDA worker trigger gets a TriggerAuthentication CRD referencing the generated AUTH string."
   type        = bool
   default     = false
+}
+
+variable "redis_transit_encryption_enabled" {
+  description = "Enable in-transit (TLS) encryption on the module-managed Memorystore instance (transit_encryption_mode = SERVER_AUTHENTICATION). n8n and KEDA connect over TLS when set. Ignored when create_redis_instance = false; use redis_tls_enabled for an external Redis host instead."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+# ── Memorystore customer-managed encryption (Cloud KMS) ───────────────────────
+# Same explicit create-or-reference contract as Cloud SQL (D4): create_redis_kms_key
+# creates a key in the shared ring (create_kms_key_ring/existing_kms_key_ring_id),
+# existing_redis_kms_key_id references an already-existing key, and leaving both
+# unset keeps Google-managed encryption. Memorystore does not support enabling
+# CMEK on an already-created instance, so this only takes effect at creation.
+# Ignored when create_redis_instance = false.
+
+variable "create_redis_kms_key" {
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed Memorystore instance to use it as its customer-managed encryption key. Mutually exclusive with existing_redis_kms_key_id. Ignored when create_redis_instance = false. Defaults to false (Google-managed encryption)."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.create_redis_kms_key || var.existing_redis_kms_key_id == null
+    error_message = "create_redis_kms_key and existing_redis_kms_key_id are mutually exclusive; create a key or reference an existing one, not both."
+  }
+}
+
+variable "existing_redis_kms_key_id" {
+  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed Memorystore instance should use for customer-managed encryption. Mutually exclusive with create_redis_kms_key. The module grants no IAM on a supplied existing key; grant the Memorystore service agent roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. Ignored when create_redis_instance = false."
+  type        = string
+  default     = null
+}
+
+# ── GCS bucket ownership ──────────────────────────────────────────────────────
+
+variable "create_gcs_bucket" {
+  description = "When true (the default), the module creates and manages the GCS bucket used for n8n binary storage. Set to false to use an existing bucket; existing_gcs_bucket_name must then be supplied. HMAC identity ownership (gcs_hmac_service_account_email) is independent of bucket ownership: the module still grants bucket-scoped IAM to the effective HMAC identity."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "existing_gcs_bucket_name" {
+  description = "Name of the existing GCS bucket used for n8n binary storage. Required when create_gcs_bucket = false. Ignored otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_gcs_bucket || var.existing_gcs_bucket_name != null
+    error_message = "existing_gcs_bucket_name is required when create_gcs_bucket = false."
+  }
+}
+
+# ── GCS customer-managed encryption (Cloud KMS) ───────────────────────────────
+# Same explicit create-or-reference contract as Cloud SQL and Memorystore (D4):
+# create_gcs_kms_key creates a key in the shared ring (create_kms_key_ring/
+# existing_kms_key_ring_id), existing_gcs_kms_key_id references an
+# already-existing key, and leaving both unset keeps Google-managed
+# encryption. Only takes effect for a module-managed bucket at creation;
+# ignored (and never mutates) an existing bucket. Ignored when
+# create_gcs_bucket = false.
+
+variable "create_gcs_kms_key" {
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed GCS bucket to use it as its default customer-managed encryption key. Mutually exclusive with existing_gcs_kms_key_id. Ignored when create_gcs_bucket = false. Defaults to false (Google-managed encryption)."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.create_gcs_kms_key || var.existing_gcs_kms_key_id == null
+    error_message = "create_gcs_kms_key and existing_gcs_kms_key_id are mutually exclusive; create a key or reference an existing one, not both."
+  }
+}
+
+variable "existing_gcs_kms_key_id" {
+  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed GCS bucket should use for customer-managed encryption. Mutually exclusive with create_gcs_kms_key. The module grants no IAM on a supplied existing key; grant the Cloud Storage service agent roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. Ignored when create_gcs_bucket = false."
+  type        = string
+  default     = null
 }
 
 # ── GCS binary storage ────────────────────────────────────────────────────────
@@ -288,6 +698,77 @@ variable "cloud_dns_zone_name" {
   description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does)."
   type        = string
   default     = ""
+}
+
+# ── Managed-ingress security controls ─────────────────────────────────────
+# All three are ignored when create_ingress = false (checks.tf emits the
+# opposite-path diagnostic); a caller who owns ingress also owns any TLS
+# policy or source restriction out of band.
+
+variable "ingress_ssl_policy_name" {
+  description = "Name of an existing Google Cloud SSL policy the managed ingress's target HTTPS proxy should use, e.g. to enforce TLS 1.2+ or a restricted cipher profile. Attached via the FrontendConfig CR's sslPolicy field (crds.tf). Leave null (the default) for GKE's default SSL policy. Ignored when create_ingress = false."
+  type        = string
+  default     = null
+}
+
+variable "ingress_source_cidrs" {
+  description = "CIDR blocks allowed to reach n8n through the managed ingress. When non-empty, the module creates a Cloud Armor security policy (google_compute_security_policy.n8n) that allows only these CIDRs and denies every other source, attached to the ingress via BackendConfig.spec.securityPolicy (crds.tf). Every webhook sender must be included in this list, or their requests will be denied. Mutually exclusive with existing_cloud_armor_policy_name. Leave empty (the default) for no source restriction. Ignored when create_ingress = false."
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
+variable "existing_cloud_armor_policy_name" {
+  description = "Name of an existing Cloud Armor security policy to attach to the managed ingress's BackendConfig instead of a module-created CIDR allow-list. Mutually exclusive with ingress_source_cidrs. Leave null (the default) for no existing policy. Ignored when create_ingress = false."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.existing_cloud_armor_policy_name == null || length(var.ingress_source_cidrs) == 0
+    error_message = "ingress_source_cidrs and existing_cloud_armor_policy_name are mutually exclusive: supply source CIDRs for a module-created Cloud Armor policy, or reference an existing policy, not both."
+  }
+}
+
+# ── GKE ownership ──────────────────────────────────────────────────────────────
+
+variable "create_gke" {
+  description = "When true (the default), the module creates and manages the GKE cluster, node pool, node service account, and node IAM bindings. Set to false to deploy onto an existing regional GKE cluster; existing_gke_cluster_name and existing_gke_prerequisites_attestation must then be supplied."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
+variable "existing_gke_cluster_name" {
+  description = "Name of the existing regional GKE cluster (in gcp_region) to deploy n8n onto. Required when create_gke = false. Ignored otherwise."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.create_gke || var.existing_gke_cluster_name != null
+    error_message = "existing_gke_cluster_name is required when create_gke = false."
+  }
+}
+
+# This attestation is only ever consumed by its own validation block below;
+# tflint does not treat a variable's self-referential validation condition as
+# a use.
+# tflint-ignore: terraform_unused_declarations
+variable "existing_gke_prerequisites_attestation" {
+  description = "Explicit attestation that the existing GKE cluster named by existing_gke_cluster_name is reachable by the configured providers, uses VPC-native networking, has Workload Identity enabled, runs GKE's native ingress/metrics/autoscaling/PD CSI controllers, has capacity for the requested n8n workload, and grants this module permission to create namespaced resources. The module cannot safely audit these properties; it trusts this attestation. Required (must be true) when create_gke = false."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.create_gke || var.existing_gke_prerequisites_attestation
+    error_message = "existing_gke_prerequisites_attestation must be true when create_gke = false, confirming the existing cluster meets the documented prerequisites."
+  }
+}
+
+variable "existing_gke_workload_identity_pool" {
+  description = "Workload Identity pool of the existing GKE cluster (normally <project_id>.svc.id.goog). Only needed when the existing cluster's Workload Identity pool belongs to a different Google Cloud project than project_id (a cross-project binding). Ignored when create_gke = true. Leave null to use <project_id>.svc.id.goog."
+  type        = string
+  default     = null
 }
 
 # ── GKE cluster + node pool ───────────────────────────────────────────────────

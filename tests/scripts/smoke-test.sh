@@ -7,6 +7,14 @@
 # multi-main path, main/worker/webhook-processor pod health, queue mode,
 # Redis connectivity, KEDA ScaledObject, HTTPS, API, and end-to-end execution.
 #
+# It also runs a set of customer-managed infrastructure checks that apply
+# the same way regardless of which layers are module-managed vs
+# customer-managed (see docs/customer-managed-infrastructure.md): Redis TLS
+# and AUTH, GCS object-storage access, the well-known referenced Secrets,
+# KEDA ScaledObject/TriggerAuthentication reads, ingress route correctness
+# for every n8n_webhook_route_prefixes entry, and duplicate customer-managed
+# resource detection (namespace, KEDA operator, main Service).
+#
 # Usage:
 #   # Run from the example directory, outputs are read automatically:
 #   cd examples/small
@@ -55,9 +63,29 @@ if command -v terraform &>/dev/null && [[ -f "$TERRAFORM_DIR/terraform.tfstate" 
   tf_n8n_url=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_url 2>/dev/null || true)
   tf_kubectl_cmd=$(terraform -chdir="$TERRAFORM_DIR" output -raw kubectl_config_command 2>/dev/null || true)
 
+  # Ownership-neutral effective coordinates, used by the customer-managed
+  # infrastructure checks below. Each resolves to the real value regardless
+  # of whether the layer is module-managed or customer-managed (or empty on
+  # an older module version / apply that predates these outputs, in which
+  # case the corresponding check is skipped).
+  tf_redis_host=$(terraform -chdir="$TERRAFORM_DIR" output -raw redis_host 2>/dev/null || true)
+  tf_redis_tls_enabled=$(terraform -chdir="$TERRAFORM_DIR" output -raw redis_tls_enabled 2>/dev/null || true)
+  tf_gcs_bucket_name=$(terraform -chdir="$TERRAFORM_DIR" output -raw gcs_bucket_name 2>/dev/null || true)
+  tf_main_service=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_main_service_name 2>/dev/null || true)
+  tf_webhook_service=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_webhook_service_name 2>/dev/null || true)
+  tf_service_port=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_service_port 2>/dev/null || true)
+  tf_webhook_route_prefixes=$(terraform -chdir="$TERRAFORM_DIR" output -json n8n_webhook_route_prefixes 2>/dev/null || true)
+
   # Only apply if not already set via .env / environment
   NAMESPACE="${NAMESPACE:-$tf_namespace}"
   N8N_URL="${N8N_URL:-$tf_n8n_url}"
+  REDIS_HOST="${REDIS_HOST:-$tf_redis_host}"
+  REDIS_TLS_ENABLED="${REDIS_TLS_ENABLED:-$tf_redis_tls_enabled}"
+  GCS_BUCKET_NAME="${GCS_BUCKET_NAME:-$tf_gcs_bucket_name}"
+  N8N_MAIN_SERVICE="${N8N_MAIN_SERVICE:-$tf_main_service}"
+  N8N_WEBHOOK_SERVICE="${N8N_WEBHOOK_SERVICE:-$tf_webhook_service}"
+  N8N_SERVICE_PORT="${N8N_SERVICE_PORT:-$tf_service_port}"
+  N8N_WEBHOOK_ROUTE_PREFIXES_JSON="${N8N_WEBHOOK_ROUTE_PREFIXES_JSON:-$tf_webhook_route_prefixes}"
 
   echo -e "\033[0;36m↳\033[0m  namespace = ${NAMESPACE:-<not found>}"
   echo -e "\033[0;36m↳\033[0m  n8n_url   = ${N8N_URL:-<not found>}"
@@ -79,6 +107,19 @@ NAMESPACE="${NAMESPACE:-${N8N_NAMESPACE:-n8n}}"
 N8N_URL="${N8N_URL:-}"
 N8N_API_KEY="${N8N_API_KEY:-}"
 DEPLOY_MODE="${DEPLOY_MODE:-}"        # set to 'single' or 'multi' to skip auto-detect
+
+# Customer-managed infrastructure checks (below): each of these is populated
+# from the module's ownership-neutral outputs when read from Terraform state
+# (see above), and can be overridden directly via .env / environment for a
+# deployment probed without Terraform state (e.g. a live cluster reached only
+# via kubectl).
+REDIS_HOST="${REDIS_HOST:-}"
+REDIS_TLS_ENABLED="${REDIS_TLS_ENABLED:-}"
+GCS_BUCKET_NAME="${GCS_BUCKET_NAME:-}"
+N8N_MAIN_SERVICE="${N8N_MAIN_SERVICE:-}"
+N8N_WEBHOOK_SERVICE="${N8N_WEBHOOK_SERVICE:-}"
+N8N_SERVICE_PORT="${N8N_SERVICE_PORT:-}"
+N8N_WEBHOOK_ROUTE_PREFIXES_JSON="${N8N_WEBHOOK_ROUTE_PREFIXES_JSON:-}"
 
 # Multi-mode optional load test settings
 LOAD_TEST="${LOAD_TEST:-false}"
@@ -791,6 +832,8 @@ else
     activate_status=$(curl -sk -o /dev/null -w "%{http_code}" \
       --max-time 10 \
       -X POST \
+      -d '{}' \
+      -H "Content-Type: application/json" \
       -H "X-N8N-API-KEY: $N8N_API_KEY" \
       "${N8N_URL%/}/api/v1/workflows/${workflow_id}/activate" 2>/dev/null || echo "000")
 
@@ -872,6 +915,8 @@ else
 
     # Cleanup, deactivate then delete
     curl -sk -o /dev/null --max-time 10 -X POST \
+      -d '{}' \
+      -H "Content-Type: application/json" \
       -H "X-N8N-API-KEY: $N8N_API_KEY" \
       "${N8N_URL%/}/api/v1/workflows/${workflow_id}/deactivate" 2>/dev/null || true
     curl -sk -o /dev/null --max-time 10 -X DELETE \
@@ -984,6 +1029,8 @@ EOF
       load_activate_status=$(curl -sk -o /dev/null -w "%{http_code}" \
         --max-time 10 \
         -X POST \
+        -d '{}' \
+        -H "Content-Type: application/json" \
         -H "X-N8N-API-KEY: $N8N_API_KEY" \
         "${N8N_URL%/}/api/v1/workflows/${load_workflow_id}/activate" 2>/dev/null || echo "000")
 
@@ -1087,6 +1134,8 @@ EOF
 
       if [[ -n "$load_workflow_id" ]]; then
         curl -sk -o /dev/null --max-time 10 -X POST \
+          -d '{}' \
+          -H "Content-Type: application/json" \
           -H "X-N8N-API-KEY: $N8N_API_KEY" \
           "${N8N_URL%/}/api/v1/workflows/${load_workflow_id}/deactivate" 2>/dev/null || true
         curl -sk -o /dev/null --max-time 10 -X DELETE \
@@ -1100,7 +1149,195 @@ fi
 
 fi  # end multi-only load test
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CUSTOMER-MANAGED INFRASTRUCTURE CHECKS
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# These checks verify behaviors that mocked `terraform test` providers cannot
+# prove, and apply the same way whether the underlying layer is
+# module-managed or customer-managed (see
+# docs/customer-managed-infrastructure.md for the ownership contract). Each
+# is best-effort and skips cleanly when its prerequisite value or tooling is
+# unavailable, rather than failing the whole run.
+
+# ── Redis TLS and AUTH ────────────────────────────────────────────────────────
+
+header "Redis TLS and AUTH"
+
+worker_pod=$(kubectl get pods -n "$NAMESPACE" \
+  -l "app.kubernetes.io/component=worker" \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+if [[ -z "$worker_pod" ]]; then
+  skip "Redis TLS/AUTH check (no running worker pod found)"
+else
+  redis_tls_env=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
+    -- printenv QUEUE_BULL_REDIS_TLS 2>/dev/null || true)
+  redis_pass_env=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
+    -- sh -c 'test -n "$QUEUE_BULL_REDIS_PASSWORD" && echo set || echo unset' 2>/dev/null || true)
+
+  if [[ "$REDIS_TLS_ENABLED" == "true" ]]; then
+    if [[ "$redis_tls_env" == "true" ]]; then
+      pass "Worker connects to Redis over TLS (QUEUE_BULL_REDIS_TLS=true), matching the effective redis_tls_enabled output"
+    else
+      fail "redis_tls_enabled output is true but QUEUE_BULL_REDIS_TLS is '${redis_tls_env:-<unset>}' on the worker pod"
+    fi
+  else
+    info "Effective redis_tls_enabled is not true, skipping the TLS assertion (QUEUE_BULL_REDIS_TLS=${redis_tls_env:-<unset>})"
+  fi
+
+  if [[ "$redis_pass_env" == "set" ]]; then
+    pass "Worker has a Redis AUTH/password configured (QUEUE_BULL_REDIS_PASSWORD is set)"
+  else
+    info "No Redis password configured on the worker pod (QUEUE_BULL_REDIS_PASSWORD unset); expected when redis_auth_enabled = false and no external password source is set"
+  fi
+fi
+
+# ── GCS binary/execution-data access ──────────────────────────────────────────
+
+header "GCS Object Storage Access"
+
+if [[ -z "$GCS_BUCKET_NAME" ]]; then
+  skip "GCS access check (gcs_bucket_name output not available)"
+elif [[ -z "$worker_pod" ]]; then
+  skip "GCS access check (no running worker pod found)"
+else
+  s3_host=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
+    -- printenv N8N_EXTERNAL_STORAGE_S3_HOST 2>/dev/null || true)
+  if [[ -n "$s3_host" ]]; then
+    pass "S3-compatible GCS endpoint configured on worker: $s3_host (bucket: $GCS_BUCKET_NAME)"
+  else
+    warn "Could not read N8N_EXTERNAL_STORAGE_S3_HOST from the worker environment"
+    info "Manually verify: kubectl exec -n $NAMESPACE $worker_pod -c n8n-worker -- printenv | grep -i s3"
+  fi
+
+  if command -v gcloud &>/dev/null; then
+    if gcloud storage objects list "gs://${GCS_BUCKET_NAME}" --limit=1 &>/dev/null; then
+      pass "Bucket '$GCS_BUCKET_NAME' is reachable and listable with the active gcloud identity"
+    else
+      info "Could not list gs://${GCS_BUCKET_NAME} with the active gcloud identity (expected if your identity differs from the n8n Workload Identity service account; this does not indicate n8n itself lacks access)"
+    fi
+  else
+    skip "Direct bucket listing (gcloud not installed)"
+  fi
+fi
+
+# ── Referenced Secrets exist ───────────────────────────────────────────────────
+# Best-effort: only checks the well-known Secret names this module wires by
+# convention. A custom name passed via *_secret_ref still needs manual
+# verification; see docs/troubleshooting.md → 'Referenced Secret errors'.
+
+header "Referenced Secrets"
+
+for secret_name in n8n-secret n8n-db-secret n8n-redis-secret n8n-s3-secret; do
+  if kubectl get secret "$secret_name" -n "$NAMESPACE" &>/dev/null; then
+    pass "Secret '$secret_name' exists in namespace '$NAMESPACE'"
+  else
+    info "Secret '$secret_name' not found (expected if that credential family uses an existing-Secret reference under a different name, or a direct value)"
+  fi
+done
+
+# ── KEDA reads (ScaledObject and TriggerAuthentication) ───────────────────────
+
+header "KEDA Reads"
+
+if kubectl get scaledobject n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
+  ready=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
+    -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "?")
+  active=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
+    -o jsonpath='{.status.conditions[?(@.type=="Active")].status}' 2>/dev/null || echo "?")
+  if [[ "$ready" == "True" ]]; then
+    pass "KEDA ScaledObject 'n8n-worker' is Ready (Active=$active), reading the Redis queue depth trigger"
+  else
+    fail "KEDA ScaledObject 'n8n-worker' is not Ready (Ready=$ready, Active=$active)"
+    info "Diagnose: kubectl describe scaledobject n8n-worker -n $NAMESPACE"
+  fi
+
+  if kubectl get triggerauthentication -n "$NAMESPACE" &>/dev/null 2>&1; then
+    ta_count=$(kubectl get triggerauthentication -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$ta_count" -gt 0 ]]; then
+      pass "TriggerAuthentication present ($ta_count), a Redis password source is configured"
+    else
+      info "No TriggerAuthentication found, expected when no Redis password source is configured"
+    fi
+  fi
+else
+  skip "KEDA reads check (no n8n-worker ScaledObject found, worker autoscaling may use a fixed replica count or a customer-owned scaler)"
+fi
+
+# ── Ingress routes ─────────────────────────────────────────────────────────────
+
+header "Ingress Routes"
+
+if [[ -z "$N8N_URL" ]]; then
+  skip "Ingress route checks (N8N_URL not set)"
+else
+  # Main route: anything not in the webhook prefix list, verified via the root path.
+  main_status=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "${N8N_URL%/}/" || echo "000")
+  if [[ "$main_status" =~ ^(200|301|302)$ ]]; then
+    pass "Main route '/' responded HTTP $main_status"
+  else
+    warn "Main route '/' responded HTTP $main_status (expected 200/301/302)"
+  fi
+
+  if [[ -n "$N8N_WEBHOOK_ROUTE_PREFIXES_JSON" ]] && command -v python3 &>/dev/null; then
+    webhook_prefixes=$(echo "$N8N_WEBHOOK_ROUTE_PREFIXES_JSON" \
+      | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)))" 2>/dev/null || true)
+    if [[ -n "$webhook_prefixes" ]]; then
+      while IFS= read -r prefix; do
+        [[ -z "$prefix" ]] && continue
+        route_status=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "${N8N_URL%/}${prefix}" || echo "000")
+        # A bare prefix with no matching webhook/form path 404s at the n8n
+        # application layer, which still proves the ingress routed the
+        # request to the webhook service; only a 000 (unreachable) or 5xx
+        # (misrouted/misconfigured backend) indicates an ingress problem.
+        if [[ "$route_status" == "000" ]]; then
+          fail "Webhook route '$prefix' unreachable (connection failed)"
+        elif [[ "$route_status" =~ ^5 ]]; then
+          fail "Webhook route '$prefix' returned HTTP $route_status (backend error, check it routes to $N8N_WEBHOOK_SERVICE, not $N8N_MAIN_SERVICE)"
+        else
+          pass "Webhook route '$prefix' reachable (HTTP $route_status)"
+        fi
+      done <<< "$webhook_prefixes"
+    fi
+  else
+    skip "Webhook route prefix checks (n8n_webhook_route_prefixes output or python3 not available)"
+  fi
+fi
+
+# ── Duplicate customer-managed resource detection ─────────────────────────────
+# On a mixed-ownership deployment, the module must never create a second copy
+# of a resource you already own (a second namespace, a second KEDA install, a
+# second Service backing the same route). This is primarily a `terraform
+# plan` concern (see docs/destroy-cleanup.md → 'Customer-managed layers'), but
+# a live cluster can also surface it as duplicate objects.
+
+header "Duplicate Customer-Managed Resource Detection"
+
+namespace_count=$(kubectl get namespace "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$namespace_count" -le 1 ]]; then
+  pass "Exactly one namespace named '$NAMESPACE' exists"
+else
+  fail "Found $namespace_count namespaces named '$NAMESPACE' (expected exactly one)"
+fi
+
+keda_operator_count=$(kubectl get deployment -A -l app.kubernetes.io/name=keda-operator \
+  --no-headers 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$keda_operator_count" -le 1 ]]; then
+  pass "At most one KEDA operator deployment found cluster-wide ($keda_operator_count)"
+else
+  fail "Found $keda_operator_count KEDA operator deployments cluster-wide (expected at most one; a module-installed KEDA alongside an existing one is a sign install_keda should be false)"
+fi
+
+if [[ -n "$N8N_MAIN_SERVICE" ]]; then
+  main_svc_count=$(kubectl get service "$N8N_MAIN_SERVICE" -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
+  if [[ "$main_svc_count" -eq 1 ]]; then
+    pass "Exactly one Service named '$N8N_MAIN_SERVICE' exists in '$NAMESPACE'"
+  else
+    warn "Found $main_svc_count Services named '$N8N_MAIN_SERVICE' in '$NAMESPACE' (expected exactly one)"
+  fi
+fi
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════${RESET}"

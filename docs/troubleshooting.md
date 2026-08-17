@@ -100,3 +100,207 @@ Workload Identity binds a Kubernetes ServiceAccount (KSA) to a Google service ac
 ## `terraform destroy` hangs on namespace, finalizers, or PSA peering
 
 See [destroy-cleanup.md](./destroy-cleanup.md).
+
+## Existing GKE cluster: provider fails before the first plan
+
+**Symptom**
+
+With `create_gke = false`, `terraform plan` fails immediately on the
+`kubernetes`/`helm`/`kubectl` provider blocks (connection refused, `no such
+host`, or a 401/403 from the Kubernetes API), before any resource is even
+evaluated.
+
+**Cause**
+
+These providers need a real cluster endpoint and CA certificate at
+configuration time. When the module creates the cluster
+(`create_gke = true`), the standard examples defer that configuration behind
+a `data.google_container_cluster` or the module's own outputs, which only
+resolve after the cluster exists. Against an existing cluster, your root must
+supply working credentials and the correct endpoint from the very first plan,
+typically via `data.google_client_config` and
+`data.google_container_cluster.existing` in your own `providers.tf` (see
+[`examples/customer-managed-cluster/providers.tf`](../examples/customer-managed-cluster/providers.tf)).
+
+**Fix**
+
+1. Confirm your active identity can read the cluster:
+   `gcloud container clusters describe <existing_gke_cluster_name> --region <gcp_region>`.
+2. Confirm the provider blocks reference `data.google_container_cluster.existing`
+   (or the module's `gke_cluster_endpoint`/`gke_cluster_ca_certificate` outputs
+   from a separate, already-applied root), not a hard-coded or stale endpoint.
+3. Re-run `gcloud auth application-default login` if credentials expired.
+
+## Existing GKE cluster: Workload Identity propagation lag
+
+**Symptom**
+
+n8n pods on an existing cluster crash-loop with Google API permission errors
+immediately after the first apply, but the same configuration works fine on a
+subsequent `apply` with no changes.
+
+**Cause**
+
+The IAM policy binding
+(`google_service_account_iam_member.n8n_workload_identity`) that lets the
+Kubernetes ServiceAccount impersonate the Google service account can take up
+to a couple of minutes to propagate through Google's IAM backend, longer than
+a module-managed cluster's own node-pool provisioning time usually leaves to
+absorb. On a pre-existing cluster the n8n pods can schedule and start well
+before that binding is visible.
+
+**Fix**
+
+Restart the affected pods once the binding has had time to propagate:
+
+```bash
+kubectl -n <n8n_kube_namespace> rollout restart deployment
+```
+
+See also
+[Workload Identity: pods can't reach Cloud SQL or GCS](#workload-identity-pods-cant-reach-cloud-sql-or-gcs)
+above for the general annotation/ServiceAccount-mismatch case.
+
+## Referenced Secret errors (PostgreSQL, Redis, GCS HMAC, license, core)
+
+**Symptom**
+
+The n8n Helm release fails at install/upgrade with a Kubernetes error like
+`secret "<name>" not found`, or n8n pods start but immediately fail to
+authenticate to the database, Redis, or GCS.
+
+**Cause**
+
+A `*_secret_ref` input (`n8n_database_password_secret_ref`,
+`redis_password_secret_ref`, `n8n_license_key_secret_ref`,
+`existing_n8n_core_secret_name`, `gcs_hmac_secret_name`) only passes a
+*reference* through to the chart; the module never creates, reads, or
+validates the referenced Secret's existence or contents. A typo in the name,
+a wrong key inside the Secret, or a Secret created in the wrong namespace all
+surface only once the chart tries to mount it.
+
+**Fix**
+
+1. Confirm the Secret exists in the effective namespace:
+   `kubectl get secret <name> -n <n8n_kube_namespace>`.
+2. Confirm the key matches what you referenced (default `password` for
+   database/Redis, `license-key` for the license, `accessSecret` for GCS
+   HMAC): `kubectl get secret <name> -n <n8n_kube_namespace> -o jsonpath='{.data}'`.
+3. Re-create the Secret with the correct name/key, then re-run
+   `terraform apply` (Helm re-reconciles the release; Terraform itself holds
+   no state for a Secret it never created).
+
+## Disruptive Redis transitions (prefix change, ownership switch)
+
+See
+[Disruptive Redis transitions](./customer-managed-infrastructure.md#disruptive-redis-transitions)
+in the customer-managed infrastructure guide: changing `redis_key_prefix`, or
+flipping `create_redis_instance`, on a deployment with in-flight or queued
+jobs strands them under the old prefix or endpoint. Drain the queue first.
+
+## KEDA finalizers block namespace or ScaledObject teardown
+
+**Symptom**
+
+`terraform destroy` (or a plain `kubectl delete namespace`) hangs with
+`ScaledObject`/`TriggerAuthentication` custom resources stuck `Terminating`.
+
+**Cause**
+
+KEDA's admission webhook and operator attach finalizers to these custom
+resources. If the KEDA operator (module-installed or
+`existing_keda_prerequisites_attestation`-supplied) is already uninstalled,
+or its webhook is unreachable, the finalizer never clears on its own.
+
+**Fix**
+
+See
+[Namespace stuck in Terminating](./destroy-cleanup.md#namespace-stuck-in-terminating)
+for the finalizer-stripping loop; run it before KEDA itself is removed
+whenever possible, stripping finalizers after KEDA is already gone is the
+fallback, not the first choice.
+
+## Cloud KMS: managed resource fails to create with a permission error
+
+**Symptom**
+
+`google_sql_database_instance.n8n`, `google_redis_instance.n8n`, or
+`google_storage_bucket.n8n` fails to create/update with a permission-denied
+error referencing the Cloud KMS key.
+
+**Cause**
+
+A module-created CMEK key (`create_postgres_kms_key`/`create_redis_kms_key`/
+`create_gcs_kms_key`) automatically grants the correct service agent
+`roles/cloudkms.cryptoKeyEncrypterDecrypter`. A supplied *existing* key
+(`existing_postgres_kms_key_id`/`existing_redis_kms_key_id`/
+`existing_gcs_kms_key_id`) gets no IAM from the module by design, see
+[Cloud KMS permissions](./customer-managed-infrastructure.md#cloud-kms-permissions).
+
+**Fix**
+
+Grant the relevant service agent the encrypter/decrypter role on the
+existing key out of band, then re-run `terraform apply`:
+
+```bash
+# Cloud SQL
+gcloud kms keys add-iam-policy-binding <key> --keyring <ring> --location <loc> \
+  --member="serviceAccount:service-<project_number>@gcp-sa-cloud-sql.iam.gserviceaccount.com" \
+  --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
+
+# Memorystore
+gcloud kms keys add-iam-policy-binding <key> --keyring <ring> --location <loc> \
+  --member="serviceAccount:service-<project_number>@cloud-redis.iam.gserviceaccount.com" \
+  --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
+
+# GCS
+gcloud kms keys add-iam-policy-binding <key> --keyring <ring> --location <loc> \
+  --member="serviceAccount:service-<project_number>@gs-project-accounts.iam.gserviceaccount.com" \
+  --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
+```
+
+## Customer-managed ingress: webhook traffic hits the wrong service
+
+**Symptom**
+
+Webhook or MCP calls are slow, get rate-limited, or interfere with UI/API
+traffic, even though the deployment otherwise works.
+
+**Cause**
+
+A hand-built ingress (`create_ingress = false`) routed one or more of
+`n8n_webhook_route_prefixes` (`/webhook`, `/webhook-waiting`, `/form`,
+`/form-waiting`, `/mcp`) to `n8n_main_service_name` instead of
+`n8n_webhook_service_name`, defeating the point of dedicated webhook
+processor pods, see
+[Ingress route ownership](./customer-managed-infrastructure.md#ingress-route-ownership).
+
+**Fix**
+
+Update the ingress rules so every prefix in `n8n_webhook_route_prefixes`
+targets `n8n_webhook_service_name`, and every other path targets
+`n8n_main_service_name`, both on `n8n_service_port`.
+
+## Customer-managed resource teardown: destroy touches something you own
+
+**Symptom**
+
+A `terraform plan -destroy` (or an actual `destroy`) on a mixed-ownership
+deployment shows a change to a resource you expected to be entirely
+customer-managed (an existing network, cluster, database, Redis instance,
+bucket, namespace, or KMS key).
+
+**Cause**
+
+This should never happen: every customer-managed layer uses `count = 0` /
+`for_each = {}` for the resources it would otherwise create. A change here
+usually means a variable was left at its module-managed default (e.g.
+`create_gke` accidentally left `true`) rather than explicitly set to `false`.
+
+**Fix**
+
+Re-check every ownership switch in your `terraform.tfvars` against the
+[ownership matrix](./customer-managed-infrastructure.md#ownership-matrix), and
+run `terraform plan -destroy` again before confirming a real destroy. Do not
+proceed with a destroy that would touch a resource you did not expect
+Terraform to manage.
