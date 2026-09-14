@@ -184,6 +184,17 @@ a manual restart, corrected canonical URLs, Redis prefix/persistence
 transitions, and any resource-address changes needing a manual
 `terraform state mv`.
 
+For a full account of which AWS module (`terraform-aws-n8n`) capabilities
+through its `0.4.0` release were ported, adapted for Google, already covered,
+or deliberately excluded, see
+[`openspec/changes/add-google-parity-through-aws-0-4-0/parity-matrix.md`](./openspec/changes/add-google-parity-through-aws-0-4-0/parity-matrix.md).
+Before relying on a feature this guide covers only automated tests for (for
+example single-main rollout behavior, the Redis exporter's TLS trust, or
+alias certificate coverage), also work through
+[`docs/manual-verification-checklist.md`](./docs/manual-verification-checklist.md)
+against a disposable environment; those items require a live Google Cloud
+apply and are not proven by any automated suite in this repository.
+
 Learnings from the first live deploy:
 
 - **After apply, TLS lags.** The Google L7 LB's HTTPS frontend and cert take a few

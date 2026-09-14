@@ -146,9 +146,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 ## 26. Deliver upgrade and manual verification guidance
 
 - [x] 26.1 Write `docs/upgrading-n8n.md` and update README/ownership/troubleshooting/destroy guidance; verify coverage of license/topology boundaries, new environment migrations, reference restarts, exact-key recovery, URL changes, Redis transitions, replica-floor resets, and any actual address changes.
-- [ ] 26.2 Extend `tests/scripts/README.md` and the safe inspection portions of `smoke-test.sh` for the new contracts; verify shell syntax and ensure drains, restarts, recovery, and cloud applies are never run automatically by CI or the default inspection command.
-- [ ] 26.3 Deliver the manual Google checklist with expected results and safety prerequisites for every runtime-only scenario; verify all unperformed checks are marked not run and include exporter CA/metrics, licensing, restore decryption, aliases, and private/public route isolation.
-- [ ] 26.4 Finish the changelog and retain or link the applicability matrix from operator documentation; verify every port/adaptation maps to an implemented input/fix/test and every exclusion remains explicit.
+- [x] 26.2 Extend `tests/scripts/README.md` and the safe inspection portions of `smoke-test.sh` for the new contracts; verify shell syntax and ensure drains, restarts, recovery, and cloud applies are never run automatically by CI or the default inspection command.
+- [x] 26.3 Deliver the manual Google checklist with expected results and safety prerequisites for every runtime-only scenario; verify all unperformed checks are marked not run and include exporter CA/metrics, licensing, restore decryption, aliases, and private/public route isolation.
+- [x] 26.4 Finish the changelog and retain or link the applicability matrix from operator documentation; verify every port/adaptation maps to an implemented input/fix/test and every exclusion remains explicit.
 
 ## 27. Run final automated acceptance
 

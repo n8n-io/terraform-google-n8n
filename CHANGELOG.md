@@ -561,6 +561,59 @@ this project adheres to the stability contract in
   persistence (`redis_persistence_enabled`) trades memory/latency overhead for
   last-snapshot (not point-in-time) recovery. No numeric table or default
   changed; the not-scale-validated warning is retained.
+- Added `docs/upgrading-n8n.md` (`add-google-parity-through-aws-0-4-0`,
+  section 26.1) covering every behavior change in this release: the
+  `google_dns_record_set.n8n` resource-address change needing a manual
+  `terraform state mv`, single-main/multi-main topology transitions, the
+  chart's pre-existing replica-floor reset on every Helm upgrade, license
+  Secret delivery, `n8n_encryption_key` restore/clone continuity, the full
+  `n8n_extra_env`-to-dedicated-input reservation table, reference-only
+  Secret/ConfigMap restart requirements, corrected canonical URLs (including
+  the OAuth callback host for split-host deployments), Redis command/Bull
+  prefix isolation, opt-in Memorystore RDB persistence, the Redis exporter
+  and Cloud SQL backup/log additions, and caller-owned ingress continuity.
+  Cross-linked from `README.md`'s day-2 operations section and referenced by
+  `docs/customer-managed-infrastructure.md`, `docs/troubleshooting.md`, and
+  `docs/destroy-cleanup.md` where each topic already lived.
+- Extended `tests/scripts/README.md` and the read-only inspection portion of
+  `tests/scripts/smoke-test.sh` for this release's new runtime contracts
+  (`add-google-parity-through-aws-0-4-0`, section 26.2): main-topology
+  classification (single-main `Recreate`/`minAvailable=0` vs multi-main),
+  Redis command-channel/Bull prefix isolation (`QUEUE_BULL_PREFIX` vs
+  `N8N_REDIS_KEY_PREFIX`), the opt-in Redis exporter's Deployment/Service
+  health, the credentials-overwrite and task-runner custom-config
+  reference-only mounts (existence/readability only, contents never read),
+  the `NODE_OPTIONS` heap ceiling and pod `dnsConfig`, the managed license
+  Secret's existence, and every `n8n_ingress_hosts` alias's `/healthz`
+  reachability. Every added check is read-only: none of them drain a queue,
+  restart a Deployment, rotate or read a Secret's contents, or apply
+  infrastructure, and the script documents that boundary explicitly. The
+  opt-in `LOAD_TEST=true` load-generation path is unchanged and still never
+  runs automatically.
+- Delivered `docs/manual-verification-checklist.md`
+  (`add-google-parity-through-aws-0-4-0`, section 26.3): a 12-item checklist
+  for every runtime-only scenario this release cannot prove without a live
+  Google Cloud apply, single-main rollout/drain and return to multi-main,
+  credentials-overwrite and task-runner ConfigMap rotation restarts, restored/
+  cloned-database encryption-key continuity, separate-host OAuth callback
+  registration, alias hostname TLS coverage across every `tls_mode`,
+  split-ingress public/private route isolation, the Redis command/Bull prefix
+  transition, the Redis exporter's TLS trust and metrics, Memorystore RDB
+  persistence recovery, and n8n Enterprise license activation/entitlement
+  boundaries. Every item states its safety prerequisites (disposable
+  environment, drain-before-transition, destructive-item warnings) and its
+  expected result, and every item is recorded as "Not run" by default;
+  delivering the checklist, not running it, is what this section requires.
+  Linked from `README.md`'s day-2 operations section and from
+  `tests/scripts/README.md`.
+- Linked `openspec/changes/add-google-parity-through-aws-0-4-0/parity-matrix.md`
+  (`add-google-parity-through-aws-0-4-0`, section 26.4) from `README.md`'s
+  day-2 operations section as the durable record of every AWS `0.4.0`
+  feature group's disposition (ported, Google-adapted, already covered, or
+  excluded with a stated reason); every port/adaptation entry in that matrix
+  maps to an input, fix, or test landed in one of this change's numbered
+  sections, and every exclusion remains explicit rather than silently
+  dropped.
 
 ### Fixed
 
