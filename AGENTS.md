@@ -292,6 +292,10 @@ file. Use `command = plan` unless you specifically need apply semantics.
   path before assuming a shared top-level key changes every role's rollout
   behavior.
 
+- **A test fixture value for a variable validated with `regex("^[0-9a-fA-F]{64}$", ...)` (e.g.
+  `n8n_encryption_key`) is easy to miscount by hand into 63 or 65 characters.**
+  Generate it instead: `python3 -c "import secrets; print(secrets.token_hex(32))"`.
+
 **Recommended pattern** when end-to-end wiring cannot be tested under mocks:
 
 1. Write `command = plan` assertions at the variable contract level (default

@@ -321,6 +321,33 @@ run "existing_core_secret_preserves_restore_encryption_key_continuity" {
   }
 }
 
+run "direct_encryption_key_preserves_restore_continuity" {
+  command = plan
+
+  variables {
+    postgres_clone_source_instance_name = "source-instance"
+    n8n_encryption_key                  = "620f6e8fefc19a18f8c87ee7766d7d448f8fbc1648a740ac6192d1c5dc475a04"
+  }
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 0
+    error_message = "A restore/clone with a caller-supplied direct n8n_encryption_key must not generate a replacement encryption key."
+  }
+}
+
+run "direct_encryption_key_does_not_bypass_restore_source_validation" {
+  command = plan
+
+  variables {
+    postgres_clone_source_instance_name   = "source-instance"
+    postgres_restore_source_instance_name = "other-source-instance"
+    postgres_restore_backup_run_id        = 12345
+    n8n_encryption_key                    = "620f6e8fefc19a18f8c87ee7766d7d448f8fbc1648a740ac6192d1c5dc475a04"
+  }
+
+  expect_failures = [var.postgres_clone_source_instance_name]
+}
+
 # ── Cloud KMS create-or-reference ─────────────────────────────────────────────
 
 run "module_created_postgres_key_wires_key_ring_and_iam" {

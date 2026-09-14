@@ -120,13 +120,20 @@ check "postgres_kms_ignored_when_external" {
 }
 
 # Not a hard failure (D4's restore requirement only warns): when the module
-# manages the core Secret it generates a brand-new n8n encryption key, so any
-# restored/cloned credentials need the original key restored out of band. An
-# existing core Secret already provides that continuity and needs no warning.
+# manages the core Secret without a caller-supplied direct key, it generates a
+# brand-new n8n encryption key, so any restored/cloned credentials need the
+# original key restored out of band. A caller-supplied direct n8n_encryption_key
+# or an existing (customer-managed) core Secret already provides that
+# continuity and needs no warning; this only proves a continuity path was
+# supplied, not that the key actually matches the restored/cloned database.
 check "postgres_restore_without_encryption_key_continuity" {
   assert {
-    condition     = !local.manage_core_secret || (var.postgres_clone_source_instance_name == null && var.postgres_restore_backup_run_id == null)
-    error_message = "A restore or clone source is set for the module-managed Cloud SQL instance, but this module always generates a new random n8n encryption key rather than accepting an existing one. Any n8n credentials already encrypted in the restored/cloned database will be unreadable with the new key unless you manually restore the original deployment's n8n_encryption_key output into the new instance's encryptionKey Secret before starting n8n."
+    condition = (
+      !local.manage_core_secret ||
+      var.n8n_encryption_key != null ||
+      (var.postgres_clone_source_instance_name == null && var.postgres_restore_backup_run_id == null)
+    )
+    error_message = "A restore or clone source is set for the module-managed Cloud SQL instance, but this module would generate a new random n8n encryption key rather than accepting an existing one. Any n8n credentials already encrypted in the restored/cloned database will be unreadable with the new key unless you supply the original deployment's key via n8n_encryption_key or existing_n8n_core_secret_name before starting n8n."
   }
 }
 
