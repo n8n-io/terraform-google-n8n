@@ -65,9 +65,14 @@ variable "n8n_fqdn" {
 }
 
 variable "n8n_webhook_url" {
-  description = "Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com). Defaults to https://<n8n_fqdn> when not set. Override when webhooks are served from a different host than the n8n UI."
+  description = "Public HTTPS base URL used for webhook callbacks (e.g. https://webhooks.example.com), mapped to both the legacy WEBHOOK_URL and current N8N_WEBHOOK_URL environment names on every n8n role. Defaults to https://<n8n_fqdn> when not set. Override when webhooks are served from a different host than the n8n UI; the editor/OAuth base URL (N8N_EDITOR_BASE_URL) always stays https://<n8n_fqdn> regardless of this setting. Must be an https:// base URL with no embedded userinfo credentials, query string, or fragment."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.n8n_webhook_url == null ? true : can(regex("^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?(/[^?#[:space:]]*)?$", var.n8n_webhook_url))
+    error_message = "n8n_webhook_url must be null or an https:// base URL (e.g. https://webhooks.example.com) with no embedded userinfo credentials (no user:pass@), query string (?), or fragment (#)."
+  }
 }
 
 variable "n8n_license_key" {
@@ -1575,7 +1580,7 @@ variable "n8n_log_streaming_destinations" {
 }
 
 variable "n8n_extra_env" {
-  description = "Additional environment variables to inject into all n8n pods (main, worker, and webhook-processor) via the Helm chart's config.extraEnv list. Each entry is an object with name and value string attributes. config.extraEnv is appended last in every container's env list, so by Kubernetes' last-wins rule any name here overrides the chart's value for that name. To prevent silently breaking the deployment, an entry is rejected at plan time when its name collides with a connection, identity, storage, license, or topology variable the module manages: any name starting with DB_, QUEUE_, N8N_RUNNERS_, N8N_EXTERNAL_STORAGE_S3_, N8N_MULTI_MAIN_, or AWS_, plus names like N8N_ENCRYPTION_KEY, N8N_LICENSE_ACTIVATION_KEY, N8N_HOST, WEBHOOK_URL, and EXECUTIONS_MODE. Use the dedicated module inputs for those. Do not put secret values here, because they render into the Helm release and are stored in plaintext in Terraform state; instead pass a *_FILE companion (e.g. a name ending in _FILE) pointing at a mounted Kubernetes secret, or use n8n credentials. Example: [{name = \"N8N_DEFAULT_LOCALE\", value = \"de\"}]."
+  description = "Additional environment variables to inject into all n8n pods (main, worker, and webhook-processor) via the Helm chart's config.extraEnv list. Each entry is an object with name and value string attributes. config.extraEnv is appended last in every container's env list, so by Kubernetes' last-wins rule any name here overrides the chart's value for that name. To prevent silently breaking the deployment, an entry is rejected at plan time when its name collides with a connection, identity, storage, license, or topology variable the module manages: any name starting with DB_, QUEUE_, N8N_RUNNERS_, N8N_EXTERNAL_STORAGE_S3_, N8N_MULTI_MAIN_, or AWS_, plus names like N8N_ENCRYPTION_KEY, N8N_LICENSE_ACTIVATION_KEY, N8N_HOST, WEBHOOK_URL, N8N_WEBHOOK_URL, N8N_EDITOR_BASE_URL, and EXECUTIONS_MODE. Use the dedicated module inputs for those. Do not put secret values here, because they render into the Helm release and are stored in plaintext in Terraform state; instead pass a *_FILE companion (e.g. a name ending in _FILE) pointing at a mounted Kubernetes secret, or use n8n credentials. Example: [{name = \"N8N_DEFAULT_LOCALE\", value = \"de\"}]."
   type = list(object({
     name  = string
     value = string

@@ -395,3 +395,92 @@ run "workload_identity_uses_effective_pool_for_existing_gke" {
     error_message = "The Workload Identity binding must use the existing cluster's cross-project pool."
   }
 }
+
+# ── Canonical editor and webhook URLs (section 19) ──────────────────────────
+# The rendered config.extraEnv WEBHOOK_URL/N8N_WEBHOOK_URL/N8N_EDITOR_BASE_URL
+# entries live inside helm_release.n8n.values (unknown at plan time under the
+# mock provider - see AGENTS.md's known mock-provider limitations), so these
+# assert directly on local.effective_webhook_url (which n8n.tf's extraEnv
+# block sources both webhook names from) and on n8n_fqdn/n8n_webhook_url
+# themselves. End-to-end wiring is covered by tests/scripts/check-n8n-chart.sh.
+
+run "webhook_url_defaults_to_canonical_fqdn" {
+  command = plan
+
+  assert {
+    condition     = local.effective_webhook_url == "https://n8n.test.example.com"
+    error_message = "The default effective webhook URL must be https://<n8n_fqdn> when n8n_webhook_url is not set."
+  }
+}
+
+run "webhook_url_split_from_editor_host" {
+  command = plan
+
+  variables {
+    n8n_fqdn        = "editor.example.com"
+    n8n_webhook_url = "https://hooks.example.com"
+  }
+
+  assert {
+    condition     = local.effective_webhook_url == "https://hooks.example.com"
+    error_message = "An explicit n8n_webhook_url must be used as the effective webhook URL."
+  }
+
+  assert {
+    condition     = local.n8n_fqdn == "editor.example.com"
+    error_message = "The editor base URL host (N8N_EDITOR_BASE_URL) is always derived from n8n_fqdn, independent of n8n_webhook_url."
+  }
+}
+
+run "webhook_url_rejects_embedded_credentials" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://user:pass@hooks.example.com"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_rejects_query_string" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://hooks.example.com/?foo=bar"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_rejects_fragment" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://hooks.example.com/#section"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_rejects_non_https_scheme" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "http://hooks.example.com"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_accepts_path" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://hooks.example.com/n8n"
+  }
+
+  assert {
+    condition     = local.effective_webhook_url == "https://hooks.example.com/n8n"
+    error_message = "A valid https base URL with a path and no query/fragment/credentials must be accepted."
+  }
+}

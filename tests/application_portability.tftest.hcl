@@ -1094,3 +1094,41 @@ run "extra_env_rejects_compression_max_zip_entries_name" {
 
   expect_failures = [var.n8n_extra_env]
 }
+
+# ── Canonical URL reserved names (section 19) ──────────────────────────
+
+run "extra_env_rejects_webhook_url_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "WEBHOOK_URL", value = "https://evil.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_n8n_webhook_url_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_WEBHOOK_URL", value = "https://evil.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_editor_base_url_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_EDITOR_BASE_URL", value = "https://evil.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}

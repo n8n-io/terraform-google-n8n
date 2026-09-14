@@ -18,6 +18,18 @@ this project adheres to the stability contract in
 
 ### Added
 
+- **Breaking:** every n8n role now emits `N8N_EDITOR_BASE_URL=https://<n8n_fqdn>`
+  (`add-google-parity-through-aws-0-4-0`, section 19): this environment name
+  was previously reserved (see `n8n_extra_env`'s collision guard) but never
+  actually set, leaving n8n to compute its own editor/OAuth base URL
+  internally. If any OAuth2 credential's redirect URI was registered against
+  that computed URL rather than `https://<n8n_fqdn>/rest/oauth2-credential/callback`,
+  re-register it with the provider using the callback host `n8n_fqdn` resolves
+  to. `n8n_webhook_url` (default `https://<n8n_fqdn>`) is now also emitted
+  under n8n's current `N8N_WEBHOOK_URL` name in addition to the legacy
+  `WEBHOOK_URL` name, both sourced from one effective value so the two can no
+  longer drift apart; `n8n_webhook_url` now validates as an `https://` base
+  URL with no embedded userinfo credentials, query string, or fragment.
 - Added `redis_persistence_enabled`, `redis_rdb_snapshot_period`, and
   `redis_rdb_snapshot_start_time` (`add-google-parity-through-aws-0-4-0`,
   section 18): opt-in Memorystore RDB persistence

@@ -104,8 +104,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 19. Correct canonical application URLs
 
-- [ ] 19.1 Define one effective webhook URL, emit both webhook environment names, and set the editor URL from `n8n_fqdn`; verify default and distinct-host values on every n8n role.
-- [ ] 19.2 Validate webhook base URLs and reserve `N8N_WEBHOOK_URL`; verify malformed/credential/query/fragment cases fail and the migration note identifies the editor OAuth callback host.
+- [x] 19.1 Define one effective webhook URL, emit both webhook environment names, and set the editor URL from `n8n_fqdn`; verify default and distinct-host values on every n8n role.
+- [x] 19.2 Validate webhook base URLs and reserve `N8N_WEBHOOK_URL`; verify malformed/credential/query/fragment cases fail and the migration note identifies the editor OAuth callback host.
 
 ## 20. Add aliases and guarded ingress annotations
 

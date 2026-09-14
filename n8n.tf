@@ -57,7 +57,6 @@ resource "kubernetes_secret" "n8n" {
     N8N_HOST           = local.n8n_fqdn
     N8N_PORT           = "5678"
     N8N_PROTOCOL       = "http"
-    WEBHOOK_URL        = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
   }
 
   depends_on = [kubernetes_namespace.n8n]
@@ -541,8 +540,20 @@ resource "helm_release" "n8n" {
           # the actual logs are silently dropped. See variable description.
           { name = "N8N_LOG_OUTPUT", value = var.n8n_log_output },
           { name = "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS", value = "true" },
-          # Override the internally computed http://host:5678 URL so webhooks show the correct HTTPS address.
-          { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}") },
+          # One effective webhook base URL (local.effective_webhook_url:
+          # explicit n8n_webhook_url, otherwise https://<n8n_fqdn>), emitted
+          # under both the legacy WEBHOOK_URL name (overriding the internally
+          # computed http://host:5678 URL so webhooks show the correct HTTPS
+          # address) and n8n's current N8N_WEBHOOK_URL name, so callers on
+          # either n8n release see the corrected value.
+          { name = "WEBHOOK_URL", value = local.effective_webhook_url },
+          { name = "N8N_WEBHOOK_URL", value = local.effective_webhook_url },
+          # Editor/OAuth base URL, always the canonical n8n_fqdn host (not the
+          # effective webhook URL): the editor and its OAuth callback are
+          # served from the ingress host, even when webhooks are split to a
+          # separate n8n_webhook_url host. Previously reserved (see
+          # n8n_managed_env_names) but never emitted; this is the fix.
+          { name = "N8N_EDITOR_BASE_URL", value = "https://${local.n8n_fqdn}" },
           { name = "N8N_RUNNERS_TASK_REQUEST_TIMEOUT", value = tostring(var.n8n_task_runner_request_timeout) },
           { name = "N8N_RUNNERS_TASK_TIMEOUT", value = tostring(var.n8n_task_runner_timeout) },
           # Keeps Memorystore from dropping idle Redis subscriber connections under sustained load.

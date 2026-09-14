@@ -583,6 +583,114 @@ else
   fi
 fi
 
+# ── Canonical editor/webhook URLs (task 19.1) ───────────────────────────────
+# A fourth render with config.extraEnv carrying WEBHOOK_URL, N8N_WEBHOOK_URL,
+# and N8N_EDITOR_BASE_URL (n8n.tf's extraEnv block, sourced from
+# local.effective_webhook_url and https://<n8n_fqdn> respectively), using
+# distinct editor and webhook hosts so a passing render proves the chart
+# keeps the two independent rather than collapsing to one host, on every
+# container that reads config.extraEnv (main, worker, webhook-processor).
+cat >"$WORKDIR/fixture-canonical-urls.yaml" <<'EOF'
+multiMain:
+  enabled: true
+  replicas: 2
+queueMode:
+  enabled: true
+  workerReplicaCount: 3
+  workerConcurrency: 5
+webhookProcessor:
+  enabled: true
+  replicaCount: 1
+  disableProductionWebhooksOnMainProcess: true
+database:
+  type: postgresdb
+  useExternal: true
+  host: synthetic-postgres.internal
+  port: 5432
+  database: n8n
+  schema: public
+  user: n8n
+  passwordSecret:
+    name: synthetic-db-secret
+    key: password
+redis:
+  enabled: true
+  useExternal: true
+  host: synthetic-redis.internal
+  port: 6379
+  tls: false
+  username: ""
+  prefix: ""
+config:
+  extraEnv:
+    - name: WEBHOOK_URL
+      value: https://hooks.example.test
+    - name: N8N_WEBHOOK_URL
+      value: https://hooks.example.test
+    - name: N8N_EDITOR_BASE_URL
+      value: https://editor.example.test
+service:
+  type: ClusterIP
+  port: 5678
+secretRefs:
+  existingSecret: synthetic-core-secret
+license:
+  enabled: true
+  activationKey: ""
+  existingSecret:
+    name: ""
+    key: license-key
+s3:
+  enabled: true
+  bucket:
+    name: synthetic-bucket
+    region: auto
+    host: storage.googleapis.com
+  auth:
+    autoDetect: false
+    accessKeyId: synthetic-access-id
+    secretAccessKeySecret:
+      name: synthetic-s3-secret
+      key: accessSecret
+  storage:
+    mode: s3
+    availableModes: "filesystem,s3"
+    forcePathStyle: true
+EOF
+
+echo "==> helm template (canonical-urls fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-canonical-urls.yaml" \
+  >"$WORKDIR/rendered-canonical-urls.yaml" 2>"$WORKDIR/helm-stderr-canonical-urls.log"; then
+  cat "$WORKDIR/helm-stderr-canonical-urls.log" >&2
+  fail "helm template (canonical-urls fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the canonical-urls fixture with no credentials"
+
+  CU_RENDERED="$WORKDIR/rendered-canonical-urls.yaml"
+
+  # config.extraEnv passes through the chart's raw with/toYaml block (see the
+  # N8N_REDIS_KEY_PREFIX check above), so these scalars round-trip unquoted.
+  assert_extraenv_count() {
+    local env_name="$1" expected_count="$2" expected_value="$3" actual_count
+    actual_count="$(awk -v name="$env_name" -v expected="value: ${expected_value}" '
+      $0 ~ "- name: " name "$" { getline v; if (v == "              " expected || v == "            " expected) count++ }
+      END { print count+0 }
+    ' "$CU_RENDERED")"
+    if [ "$actual_count" = "$expected_count" ]; then
+      pass "${env_name} == ${expected_value} on all ${expected_count} rendered container(s)"
+    else
+      fail "${env_name}: expected ${expected_count} occurrence(s) with value ${expected_value}, found ${actual_count}"
+    fi
+  }
+
+  assert_extraenv_count "WEBHOOK_URL" "3" "https://hooks.example.test"
+  assert_extraenv_count "N8N_WEBHOOK_URL" "3" "https://hooks.example.test"
+  assert_extraenv_count "N8N_EDITOR_BASE_URL" "3" "https://editor.example.test"
+fi
+
 # ── Caller-managed volumes coexist with the managed Redis CA (task 10.2) ────
 # A render combining the module's own Redis CA secret volume/mount with
 # caller-declared ConfigMap, Secret, and PVC volumes (local.

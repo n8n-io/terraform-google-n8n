@@ -8,6 +8,12 @@ locals {
   name_prefix = "${var.friendly_name_prefix}-n8n"
   n8n_fqdn    = var.n8n_fqdn
 
+  # One effective webhook base URL (task 19.1): explicit n8n_webhook_url,
+  # otherwise https://<n8n_fqdn>. Shared by both the legacy WEBHOOK_URL and
+  # current N8N_WEBHOOK_URL environment names in n8n.tf's config.extraEnv, so
+  # the two never drift apart.
+  effective_webhook_url = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
+
   # (GCP labels live in local.gcp_labels, network.tf.)
 
   # ── n8n_extra_env collision guard ──────────────────────────────────────────
@@ -33,6 +39,7 @@ locals {
     "N8N_REINSTALL_MISSING_PACKAGES",
     "N8N_COMMUNITY_PACKAGES_PREVENT_LOADING",
     "WEBHOOK_URL",
+    "N8N_WEBHOOK_URL",
     "N8N_TEMPLATES_ENABLED",
     "N8N_PERSONALIZATION_ENABLED",
     "N8N_OTEL_ENABLED",
