@@ -332,6 +332,163 @@ variable "n8n_custom_extensions_path" {
   }
 }
 
+# ── Caller-managed volumes ────────────────────────────────────────────────────
+# Lets a caller mount an existing ConfigMap, Secret, or PVC into every n8n role
+# (main, worker, webhook processor) through the chart's extraVolumes /
+# extraVolumeMounts, without the module creating or reading the referenced
+# object. Merged with the module's own Redis CA mount (local.manage_redis_tls_ca)
+# in local.n8n_caller_extra_volumes / local.n8n_caller_extra_volume_mounts
+# (locals.tf) and wired into helm_release.n8n (n8n.tf).
+
+variable "n8n_extra_volumes" {
+  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, and redis-ca belong to the chart/module and cannot be reused."
+  type = list(object({
+    name = string
+    config_map = optional(object({
+      name = string
+      items = optional(list(object({
+        key  = string
+        path = string
+      })), null)
+      default_mode = optional(string, null)
+    }), null)
+    secret = optional(object({
+      name = string
+      items = optional(list(object({
+        key  = string
+        path = string
+      })), null)
+      default_mode = optional(string, null)
+    }), null)
+    persistent_volume_claim = optional(object({
+      claim_name = string
+    }), null)
+  }))
+  default  = []
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for v in var.n8n_extra_volumes :
+      length(compact([v.config_map != null ? "x" : "", v.secret != null ? "x" : "", v.persistent_volume_claim != null ? "x" : ""])) == 1
+    ])
+    error_message = "Each n8n_extra_volumes entry must set exactly one of config_map, secret, or persistent_volume_claim."
+  }
+
+  validation {
+    condition = alltrue([
+      for v in var.n8n_extra_volumes : can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", v.name))
+    ])
+    error_message = "Each n8n_extra_volumes entry's name must be a valid Kubernetes volume name: lowercase alphanumerics and hyphens, starting and ending with an alphanumeric, 63 characters or fewer."
+  }
+
+  validation {
+    condition     = length(distinct([for v in var.n8n_extra_volumes : v.name])) == length(var.n8n_extra_volumes)
+    error_message = "n8n_extra_volumes must not repeat a volume name."
+  }
+
+  validation {
+    condition = alltrue([
+      for v in var.n8n_extra_volumes : !contains(["data", "task-runner-config", "redis-ca"], v.name)
+    ])
+    error_message = "n8n_extra_volumes must not use a reserved volume name (data, task-runner-config, redis-ca), which the module/chart already owns."
+  }
+
+  validation {
+    condition = alltrue([
+      for v in var.n8n_extra_volumes :
+      v.config_map == null || v.config_map.default_mode == null || can(regex("^[0-7]{1,4}$", v.config_map.default_mode))
+    ])
+    error_message = "n8n_extra_volumes[].config_map.default_mode must be an octal permission string using only digits 0-7 (e.g. \"0440\"), or null to use the chart/Kubernetes default."
+  }
+
+  validation {
+    condition = alltrue([
+      for v in var.n8n_extra_volumes :
+      v.secret == null || v.secret.default_mode == null || can(regex("^[0-7]{1,4}$", v.secret.default_mode))
+    ])
+    error_message = "n8n_extra_volumes[].secret.default_mode must be an octal permission string using only digits 0-7 (e.g. \"0440\"), or null to use the chart/Kubernetes default."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for v in var.n8n_extra_volumes : v.config_map == null || v.config_map.items == null ? [] : [
+        for i in v.config_map.items : i.path != "" && !startswith(i.path, "/") && !can(regex("(^|/)\\.\\.?(/|$)", i.path))
+      ]
+    ]))
+    error_message = "n8n_extra_volumes[].config_map.items[].path must be a non-empty relative path with no leading slash and no \".\" or \"..\" components."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for v in var.n8n_extra_volumes : v.secret == null || v.secret.items == null ? [] : [
+        for i in v.secret.items : i.path != "" && !startswith(i.path, "/") && !can(regex("(^|/)\\.\\.?(/|$)", i.path))
+      ]
+    ]))
+    error_message = "n8n_extra_volumes[].secret.items[].path must be a non-empty relative path with no leading slash and no \".\" or \"..\" components."
+  }
+}
+
+variable "n8n_extra_volume_mounts" {
+  description = "Mounts of n8n_extra_volumes entries into every n8n pod (main, worker, webhook processor) via the chart's extraVolumeMounts. Each entry's name must match a declared n8n_extra_volumes entry. mount_path must be an absolute, canonical container path outside the module's own protected mounts (/home/node/.n8n, the main pod's data directory; /etc/n8n-certs, the managed Redis CA mount). read_only defaults to true; set false only for a PVC the caller's workload actually needs to write to."
+  type = list(object({
+    name       = string
+    mount_path = string
+    sub_path   = optional(string, null)
+    read_only  = optional(bool, true)
+  }))
+  default  = []
+  nullable = false
+
+  validation {
+    condition = alltrue([
+      for m in var.n8n_extra_volume_mounts : contains([for v in var.n8n_extra_volumes : v.name], m.name)
+    ])
+    error_message = "Each n8n_extra_volume_mounts entry's name must match a volume declared in n8n_extra_volumes."
+  }
+
+  validation {
+    condition     = length(distinct([for m in var.n8n_extra_volume_mounts : m.name])) == length(var.n8n_extra_volume_mounts)
+    error_message = "n8n_extra_volume_mounts must not mount the same volume name more than once."
+  }
+
+  validation {
+    condition     = length(distinct([for m in var.n8n_extra_volume_mounts : m.mount_path])) == length(var.n8n_extra_volume_mounts)
+    error_message = "n8n_extra_volume_mounts must not repeat a mount_path; Kubernetes rejects two volumes mounted at the same container path."
+  }
+
+  validation {
+    condition = alltrue([
+      for m in var.n8n_extra_volume_mounts : can(regex("^/[^[:space:];]*$", m.mount_path))
+    ])
+    error_message = "n8n_extra_volume_mounts[].mount_path must be an absolute container path with no whitespace or semicolon (e.g. \"/opt/n8n-nodes\")."
+  }
+
+  validation {
+    condition = alltrue([
+      for m in var.n8n_extra_volume_mounts : !can(regex("//|/\\.\\.?(/|$)", m.mount_path))
+    ])
+    error_message = "n8n_extra_volume_mounts[].mount_path must be a canonical path: no repeated slashes and no \".\" or \"..\" components."
+  }
+
+  validation {
+    condition = alltrue([
+      for m in var.n8n_extra_volume_mounts : m.mount_path == "/" || !endswith(m.mount_path, "/")
+    ])
+    error_message = "n8n_extra_volume_mounts[].mount_path must not end in a trailing slash."
+  }
+
+  validation {
+    condition = alltrue([
+      for m in var.n8n_extra_volume_mounts : !(
+        m.mount_path == "/home/node/.n8n" || startswith(m.mount_path, "/home/node/.n8n/") ||
+        m.mount_path == "/etc/n8n-certs" || startswith(m.mount_path, "/etc/n8n-certs/")
+      )
+    ])
+    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis CA mount)."
+  }
+}
+
 variable "n8n_helm_timeout" {
   description = "Seconds Terraform waits for the n8n Helm release to converge. Increase for large deployments where rolling out 50+ pods (workers + webhook processors + main) exceeds the default. 600s is fine for the default/medium examples; large deployments at 250+ pods need ~1800s."
   type        = number

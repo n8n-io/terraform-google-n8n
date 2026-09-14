@@ -18,6 +18,20 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `n8n_extra_volumes` and `n8n_extra_volume_mounts`
+  (`add-google-parity-through-aws-0-4-0`, section 10): mount an existing
+  ConfigMap, Secret, or PVC into every n8n role (main, worker, webhook
+  processor) via the chart's `extraVolumes`/`extraVolumeMounts`, without the
+  module creating or reading the referenced object. Each volume declares
+  exactly one typed source; a Secret/ConfigMap `default_mode` is an octal
+  permission string (e.g. `"0440"`), converted to the decimal value
+  Kubernetes expects (288). Mounts are validated for a declared volume
+  reference, name/path uniqueness, a canonical absolute `mount_path`, and no
+  overlap with the module's own protected mounts (`/home/node/.n8n`,
+  `/etc/n8n-certs`). Caller mounts coexist with the module's managed Redis CA
+  mount rather than replacing it. `n8n_custom_extensions_path` no longer
+  warns about a stock image when a caller-managed mount covers that exact
+  path.
 - Delivered direct `n8n_license_key` values through a dedicated
   module-managed `kubernetes_secret.n8n_license` Secret instead of a literal
   `license.activationKey` Helm value (`add-google-parity-through-aws-0-4-0`,

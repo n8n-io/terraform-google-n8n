@@ -55,9 +55,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 10. Add caller-managed volume contracts
 
-- [ ] 10.1 Add typed `n8n_extra_volumes` and `n8n_extra_volume_mounts`, including item mappings and octal permission conversion; verify single-source, name/path uniqueness, mount-reference, canonical-path, protected-path, and `0440` conversion tests.
-- [ ] 10.2 Merge caller mounts with managed Redis CA mounts on every n8n role; verify the combined TLS-plus-ConfigMap/Secret/PVC rendering matrix does not create or read caller objects.
-- [ ] 10.3 Extend custom-extension diagnostics to recognize a covering mount; verify stock-image plus covering mount succeeds without the current missing-image warning, while an uncovered path still warns.
+- [x] 10.1 Add typed `n8n_extra_volumes` and `n8n_extra_volume_mounts`, including item mappings and octal permission conversion; verify single-source, name/path uniqueness, mount-reference, canonical-path, protected-path, and `0440` conversion tests.
+- [x] 10.2 Merge caller mounts with managed Redis CA mounts on every n8n role; verify the combined TLS-plus-ConfigMap/Secret/PVC rendering matrix does not create or read caller objects.
+- [x] 10.3 Extend custom-extension diagnostics to recognize a covering mount; verify stock-image plus covering mount succeeds without the current missing-image warning, while an uncovered path still warns.
 
 ## 11. Add credential-overwrite Secret references
 

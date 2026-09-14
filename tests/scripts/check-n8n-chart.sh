@@ -583,6 +583,159 @@ else
   fi
 fi
 
+# ── Caller-managed volumes coexist with the managed Redis CA (task 10.2) ────
+# A render combining the module's own Redis CA secret volume/mount with
+# caller-declared ConfigMap, Secret, and PVC volumes (local.
+# n8n_caller_extra_volumes/n8n_caller_extra_volume_mounts in locals.tf,
+# concatenated after the Redis CA entry in n8n.tf), exactly as multiple
+# n8n_extra_volumes sources would render together. `helm template` needs no
+# cluster and never looks up the named ConfigMap/Secret/PVC, so a passing
+# render here proves the module creates and reads none of the caller's
+# referenced objects; it only emits references to them.
+cat >"$WORKDIR/fixture-caller-volumes.yaml" <<'EOF'
+multiMain:
+  enabled: true
+  replicas: 2
+queueMode:
+  enabled: true
+  workerReplicaCount: 3
+  workerConcurrency: 5
+webhookProcessor:
+  enabled: true
+  replicaCount: 1
+  disableProductionWebhooksOnMainProcess: true
+database:
+  type: postgresdb
+  useExternal: true
+  host: synthetic-postgres.internal
+  port: 5432
+  database: n8n
+  schema: public
+  user: n8n
+  passwordSecret:
+    name: synthetic-db-secret
+    key: password
+redis:
+  enabled: true
+  useExternal: true
+  host: synthetic-redis.internal
+  port: 6379
+  tls: false
+  username: ""
+  prefix: ""
+extraVolumes:
+  - name: redis-ca
+    secret:
+      secretName: synthetic-redis-ca
+      items:
+        - key: ca.crt
+          path: ca.crt
+  - name: custom-nodes
+    configMap:
+      name: synthetic-caller-configmap
+  - name: caller-secret-vol
+    secret:
+      secretName: synthetic-caller-secret
+      defaultMode: 288
+  - name: caller-pvc-vol
+    persistentVolumeClaim:
+      claimName: synthetic-caller-pvc
+extraVolumeMounts:
+  - name: redis-ca
+    mountPath: /etc/n8n-certs/redis-ca.crt
+    subPath: ca.crt
+    readOnly: true
+  - name: custom-nodes
+    mountPath: /opt/n8n-nodes
+    readOnly: true
+  - name: caller-secret-vol
+    mountPath: /etc/n8n/caller-secret
+    readOnly: true
+  - name: caller-pvc-vol
+    mountPath: /data/caller-pvc
+    readOnly: false
+service:
+  type: ClusterIP
+  port: 5678
+secretRefs:
+  existingSecret: synthetic-core-secret
+license:
+  enabled: true
+  activationKey: ""
+  existingSecret:
+    name: ""
+    key: license-key
+s3:
+  enabled: true
+  bucket:
+    name: synthetic-bucket
+    region: auto
+    host: storage.googleapis.com
+  auth:
+    autoDetect: false
+    accessKeyId: synthetic-access-id
+    secretAccessKeySecret:
+      name: synthetic-s3-secret
+      key: accessSecret
+  storage:
+    mode: s3
+    availableModes: "filesystem,s3"
+    forcePathStyle: true
+EOF
+
+echo "==> helm template (caller-volumes fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-caller-volumes.yaml" \
+  >"$WORKDIR/rendered-caller-volumes.yaml" 2>"$WORKDIR/helm-stderr-caller-volumes.log"; then
+  cat "$WORKDIR/helm-stderr-caller-volumes.log" >&2
+  fail "helm template (caller-volumes fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the caller-volumes fixture with no credentials (no cluster contacted, no caller object created or read)"
+
+  CV_RENDERED="$WORKDIR/rendered-caller-volumes.yaml"
+
+  # assert_name_count_in <volume-or-mount-name> <expected-occurrences>
+  # Each of the 4 declared volume names should appear once per Deployment
+  # (main, worker, webhook-processor) in both the pod's volumes list and its
+  # container's volumeMounts list, since extraVolumes/extraVolumeMounts are
+  # top-level chart values applied to all three (verified against
+  # templates/deployment-*.yaml). toYaml renders map keys alphabetically, so
+  # "name:" is not always the first ("- "-prefixed) key of its list item
+  # (e.g. configMap/mountPath sort before name); match the bare "name: X"
+  # line regardless of leading "- ".
+  assert_name_count_in() {
+    local file="$1" needle="$2" expected="$3" actual
+    actual="$(grep -c -- "name: ${needle}$" "$file" || true)"
+    if [ "$actual" = "$expected" ]; then
+      pass "\"name: ${needle}\" occurs ${expected} time(s) (volumes + volumeMounts across main/worker/webhook-processor)"
+    else
+      fail "\"name: ${needle}\": expected ${expected} occurrence(s), found ${actual}"
+    fi
+  }
+
+  # 3 roles x 2 (one volumes entry + one volumeMounts entry) = 6 for each name.
+  assert_name_count_in "$CV_RENDERED" "redis-ca" "6"
+  assert_name_count_in "$CV_RENDERED" "custom-nodes" "6"
+  assert_name_count_in "$CV_RENDERED" "caller-secret-vol" "6"
+  assert_name_count_in "$CV_RENDERED" "caller-pvc-vol" "6"
+
+  CV_PVC_CLAIM_COUNT="$(grep -c 'claimName: synthetic-caller-pvc' "$CV_RENDERED" || true)"
+  if [ "$CV_PVC_CLAIM_COUNT" = "3" ]; then
+    pass "caller PVC claimName referenced on all 3 rendered pod specs"
+  else
+    fail "caller PVC claimName: expected 3 occurrences, found ${CV_PVC_CLAIM_COUNT}"
+  fi
+
+  CV_SECRET_DEFAULT_MODE_COUNT="$(grep -c 'defaultMode: 288' "$CV_RENDERED" || true)"
+  if [ "$CV_SECRET_DEFAULT_MODE_COUNT" = "3" ]; then
+    pass "caller Secret volume's decimal defaultMode (288, converted from octal 0440) reaches all 3 rendered pod specs"
+  else
+    fail "caller Secret volume defaultMode: expected 3 occurrences of 288, found ${CV_SECRET_DEFAULT_MODE_COUNT}"
+  fi
+fi
+
 # ── Self-check: prove a wrong expected value is actually caught ─────────────
 # Runs one assertion with a deliberately wrong expected replica count in a
 # subshell (so its FAILURES increment does not pollute the real run) and

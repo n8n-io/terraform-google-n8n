@@ -337,4 +337,45 @@ locals {
     saveOnProgress       = var.n8n_executions_data_save_on_progress
     saveManualExecutions = var.n8n_executions_data_save_manual_executions
   }
+
+  # ── Caller-managed volumes (task 10) ───────────────────────────────────────
+  # Transforms var.n8n_extra_volumes/n8n_extra_volume_mounts into the chart's
+  # raw Kubernetes extraVolumes/extraVolumeMounts shape (toYaml-passthrough,
+  # see templates/deployment-*.yaml), converting each octal default_mode
+  # string (e.g. "0440") to the decimal representation Kubernetes' defaultMode
+  # field expects (288). n8n.tf concats these after the module's own Redis CA
+  # volume/mount so caller mounts coexist with it rather than replacing it.
+  n8n_caller_extra_volumes = [
+    for v in var.n8n_extra_volumes : merge(
+      { name = v.name },
+      v.config_map != null ? {
+        configMap = merge(
+          { name = v.config_map.name },
+          v.config_map.items != null ? {
+            items = [for i in v.config_map.items : { key = i.key, path = i.path }]
+          } : {},
+          v.config_map.default_mode != null ? { defaultMode = parseint(v.config_map.default_mode, 8) } : {},
+        )
+      } : {},
+      v.secret != null ? {
+        secret = merge(
+          { secretName = v.secret.name },
+          v.secret.items != null ? {
+            items = [for i in v.secret.items : { key = i.key, path = i.path }]
+          } : {},
+          v.secret.default_mode != null ? { defaultMode = parseint(v.secret.default_mode, 8) } : {},
+        )
+      } : {},
+      v.persistent_volume_claim != null ? {
+        persistentVolumeClaim = { claimName = v.persistent_volume_claim.claim_name }
+      } : {},
+    )
+  ]
+
+  n8n_caller_extra_volume_mounts = [
+    for m in var.n8n_extra_volume_mounts : merge(
+      { name = m.name, mountPath = m.mount_path, readOnly = m.read_only },
+      m.sub_path != null ? { subPath = m.sub_path } : {},
+    )
+  ]
 }

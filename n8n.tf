@@ -327,25 +327,36 @@ resource "helm_release" "n8n" {
     } : {})
 
     # Trust the private service CA exposed by module-managed Memorystore when
-    # transit encryption is enabled. These top-level chart values apply to the
-    # main, worker, and webhook-processor pods.
-    extraVolumes = local.manage_redis_tls_ca ? [{
-      name = "redis-ca"
-      secret = {
-        secretName = kubernetes_secret.n8n_redis_tls[0].metadata[0].name
-        items = [{
-          key  = "ca.crt"
-          path = "ca.crt"
-        }]
-      }
-    }] : []
+    # transit encryption is enabled, plus any caller-managed ConfigMap/Secret/PVC
+    # mounts (n8n_extra_volumes/n8n_extra_volume_mounts, task 10). These
+    # top-level chart values apply to the main, worker, and webhook-processor
+    # pods. The Redis CA entry comes first so it always exists regardless of
+    # what the caller declares; local.n8n_caller_extra_volumes/
+    # n8n_caller_extra_volume_mounts (locals.tf) already reject the reserved
+    # "redis-ca" volume name, so the two lists cannot collide.
+    extraVolumes = concat(
+      local.manage_redis_tls_ca ? [{
+        name = "redis-ca"
+        secret = {
+          secretName = kubernetes_secret.n8n_redis_tls[0].metadata[0].name
+          items = [{
+            key  = "ca.crt"
+            path = "ca.crt"
+          }]
+        }
+      }] : [],
+      local.n8n_caller_extra_volumes,
+    )
 
-    extraVolumeMounts = local.manage_redis_tls_ca ? [{
-      name      = "redis-ca"
-      mountPath = "/etc/n8n-certs/redis-ca.crt"
-      subPath   = "ca.crt"
-      readOnly  = true
-    }] : []
+    extraVolumeMounts = concat(
+      local.manage_redis_tls_ca ? [{
+        name      = "redis-ca"
+        mountPath = "/etc/n8n-certs/redis-ca.crt"
+        subPath   = "ca.crt"
+        readOnly  = true
+      }] : [],
+      local.n8n_caller_extra_volume_mounts,
+    )
 
     # GCS via the S3-compatible endpoint. n8n's binary-data driver is
     # S3-compatible; point it at storage.googleapis.com (s3.bucket.host) with the
@@ -1038,10 +1049,15 @@ check "task_runner_image_repository_requires_task_runners" {
 }
 
 # Nothing in this module puts files at n8n_custom_extensions_path unless a
-# custom image bakes them in.
+# custom image bakes them in, OR a caller-managed volume (n8n_extra_volumes/
+# n8n_extra_volume_mounts, task 10) is mounted exactly there, covering the
+# path with files from a ConfigMap, Secret, or PVC instead of the image.
 check "custom_extensions_path_requires_a_custom_image" {
   assert {
-    condition     = var.n8n_custom_extensions_path != null ? var.n8n_image_repository != null : true
-    error_message = "n8n_custom_extensions_path is set, but n8n_image_repository is null, so the pods run the chart's stock image. n8n will scan an empty or missing directory and load no nodes, silently. Point n8n_image_repository at an image with the compiled nodes baked in at this path, or clear the path to silence this warning."
+    condition = var.n8n_custom_extensions_path != null ? (
+      var.n8n_image_repository != null ||
+      contains([for m in var.n8n_extra_volume_mounts : m.mount_path], var.n8n_custom_extensions_path)
+    ) : true
+    error_message = "n8n_custom_extensions_path is set, but n8n_image_repository is null and no n8n_extra_volume_mounts entry covers that exact path, so the pods run the chart's stock image with nothing providing files there. n8n will scan an empty or missing directory and load no nodes, silently. Point n8n_image_repository at an image with the compiled nodes baked in at this path, mount a caller-managed volume at that exact path via n8n_extra_volumes/n8n_extra_volume_mounts, or clear the path to silence this warning."
   }
 }
