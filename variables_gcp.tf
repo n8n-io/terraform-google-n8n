@@ -496,6 +496,31 @@ variable "redis_transit_encryption_enabled" {
   nullable    = false
 }
 
+# ── Opt-in Redis exporter (observability.tf) ───────────────────────────────────
+# Independent of n8n_metrics_enabled, KEDA installation, and scaler ownership;
+# see locals.tf's effective_redis_* / effective_redis_queue_keys, which the
+# exporter shares with n8n and KEDA so all three consumers watch the same
+# connection and queue keys.
+
+variable "redis_exporter_enabled" {
+  description = "When true, creates a single-replica Redis exporter Deployment and a ClusterIP metrics Service (port 9121) that reads Bull queue depth and other metrics from the effective Redis connection (module-managed Memorystore or external). Independent of n8n_metrics_enabled and worker KEDA. Installs no Prometheus or Grafana resources; pair with a cluster Prometheus that discovers pods by the scrape annotations this module sets, or a ServiceMonitor pointed at redis_exporter_service_name. Defaults to false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "redis_exporter_image" {
+  description = "Container image (repository:tag) for the Redis exporter. Defaults to the pinned, verified \"oliver006/redis_exporter:v1.90.0\". Must include an explicit tag; an unpinned floating tag is not accepted. Ignored when redis_exporter_enabled = false. A custom image runs as the module-set UID 59000, matching the default image's own non-root user."
+  type        = string
+  default     = "oliver006/redis_exporter:v1.90.0"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*(/[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9._-]*$", var.redis_exporter_image))
+    error_message = "redis_exporter_image must be a bare image reference including an explicit tag (e.g. \"oliver006/redis_exporter:v1.90.0\"): lowercase path components, no scheme, no whitespace, and a tag after the final colon."
+  }
+}
+
 # ── Memorystore customer-managed encryption (Cloud KMS) ───────────────────────
 # Same explicit create-or-reference contract as Cloud SQL (D4): create_redis_kms_key
 # creates a key in the shared ring (create_kms_key_ring/existing_kms_key_ring_id),

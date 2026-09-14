@@ -88,9 +88,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 16. Add a private Redis exporter
 
-- [ ] 16.1 Add the opt-in image/switch inputs, hardened Deployment, ClusterIP Service, and nullable Service-name output in `observability.tf`/`outputs.tf`; verify default resource absence, one-replica Recreate behavior, independent metrics/KEDA toggles, and every pod security field through plan assertions.
-- [ ] 16.2 Reuse effective Redis endpoint, ACL, password Secret, exact queue keys, and managed Memorystore CA; verify managed TLS/AUTH, external Secret/ACL/TLS, unauthenticated plaintext, and custom-prefix cases without inline passwords or verification bypasses.
-- [ ] 16.3 Add explicit namespace/node dependencies and exporter requests to managed capacity estimates; verify ownership combinations and updated capacity totals, with no estimate for customer-managed GKE.
+- [x] 16.1 Add the opt-in image/switch inputs, hardened Deployment, ClusterIP Service, and nullable Service-name output in `observability.tf`/`outputs.tf`; verify default resource absence, one-replica Recreate behavior, independent metrics/KEDA toggles, and every pod security field through plan assertions.
+- [x] 16.2 Reuse effective Redis endpoint, ACL, password Secret, exact queue keys, and managed Memorystore CA; verify managed TLS/AUTH, external Secret/ACL/TLS, unauthenticated plaintext, and custom-prefix cases without inline passwords or verification bypasses.
+- [x] 16.3 Add explicit namespace/node dependencies and exporter requests to managed capacity estimates; verify ownership combinations and updated capacity totals, with no estimate for customer-managed GKE.
 
 ## 17. Add Cloud SQL operational controls
 

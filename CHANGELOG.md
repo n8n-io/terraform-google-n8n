@@ -18,6 +18,22 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `redis_exporter_enabled` and `redis_exporter_image`
+  (`add-google-parity-through-aws-0-4-0`, section 16): an opt-in, private
+  Redis exporter (`oliver006/redis_exporter`, pinned to `v1.90.0` by default)
+  exposing Bull queue depth and other Redis metrics on a `ClusterIP` Service
+  (port 9121), independent of `n8n_metrics_enabled` and worker KEDA. Off by
+  default. The exporter reuses the same effective Redis host/port/TLS/ACL
+  username/password Secret and exact waiting/active queue keys n8n and KEDA
+  already use (`redis_key_prefix`-aware), trusts the module-managed
+  Memorystore service CA when transit encryption is enabled, and never
+  disables TLS verification. Runs as a single hardened, non-root Deployment
+  (dropped capabilities, read-only root filesystem, no privilege escalation,
+  no API token mount, resource requests/limits, liveness/readiness probes).
+  Adds a new `redis_exporter_service_name` output (`null` when disabled) and
+  folds the exporter's fixed CPU/memory requests into the managed GKE
+  capacity guardrail (`capacity.tf`). Installs no Prometheus/Grafana
+  resources.
 - Added `n8n_community_packages_registry`, `n8n_unverified_packages_enabled`,
   `n8n_compression_max_decompressed_size_bytes`, and
   `n8n_compression_max_zip_entries` (`add-google-parity-through-aws-0-4-0`,

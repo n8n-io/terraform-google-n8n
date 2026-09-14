@@ -94,6 +94,11 @@ output "redis_kms_key_id" {
   value       = var.create_redis_instance ? local.effective_redis_kms_key_id : null
 }
 
+output "redis_exporter_service_name" {
+  description = "Kubernetes Service name exposing the opt-in Redis exporter's metrics port (9121), for a caller-managed ServiceMonitor or scrape config. Null when redis_exporter_enabled = false."
+  value       = var.redis_exporter_enabled ? kubernetes_service_v1.redis_exporter[0].metadata[0].name : null
+}
+
 output "gcs_bucket_name" {
   description = "Effective GCS bucket used for n8n binary storage: module-created or the supplied existing_gcs_bucket_name."
   value       = local.effective_gcs_bucket_name
