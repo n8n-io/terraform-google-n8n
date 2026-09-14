@@ -1,0 +1,145 @@
+# Plan-time tests for the split-ingress example using mocked providers.
+#
+# Exercises the module + this example's split-ingress infrastructure (task
+# 21) without contacting Google Cloud. The google/kubernetes/helm/kubectl
+# providers are mocked, so nothing here proves a real GKE internal ALB
+# reconciles, a TLS handshake succeeds, or DNS resolves; those are manual,
+# post-apply checks (see README.md and docs/upgrading-n8n.md once written).
+#
+# Run: terraform test
+#   (from examples/split-ingress/ - requires terraform >= 1.9)
+
+mock_provider "google" {}
+mock_provider "google-beta" {}
+mock_provider "kubernetes" {}
+mock_provider "kubectl" {}
+mock_provider "helm" {}
+
+variables {
+  project_id            = "test-project"
+  n8n_fqdn              = "n8n-internal.test.example.com"
+  public_webhook_fqdn   = "hooks.test.example.com"
+  n8n_license_key       = "test-license-key-not-real"
+  internal_tls_cert_pem = "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n"
+  internal_tls_key_pem  = "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
+}
+
+run "split_ingress_produces_valid_plan" {
+  command = plan
+
+  # The module's own managed ingress must stay off; this example owns
+  # ingress, DNS, and TLS instead (network.tf, services.tf, tls.tf).
+  assert {
+    condition     = module.n8n.static_ip == null
+    error_message = "create_ingress = false must leave the module's own static_ip null; this example provides its own addresses."
+  }
+
+  # Public/private hostnames split correctly (task 19's webhook/editor URL
+  # contract, reused here rather than duplicated).
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n-internal.test.example.com"
+    error_message = "the module must serve the editor at https://<n8n_fqdn> (the private host)."
+  }
+
+  # ── Addresses, proxy-only subnet, firewall (task 21.2) ───────────────────
+  assert {
+    condition     = google_compute_global_address.public.name == "split-n8n-public"
+    error_message = "the public address must be named from friendly_name_prefix."
+  }
+
+  assert {
+    condition     = google_compute_address.private.address_type == "INTERNAL"
+    error_message = "the private ingress address must be an internal address."
+  }
+
+  assert {
+    condition     = google_compute_subnetwork.proxy_only.purpose == "REGIONAL_MANAGED_PROXY"
+    error_message = "the proxy-only subnet must use purpose REGIONAL_MANAGED_PROXY, required by GKE's internal Application Load Balancer."
+  }
+
+  assert {
+    condition     = google_compute_subnetwork.proxy_only.role == "ACTIVE"
+    error_message = "the proxy-only subnet must use role ACTIVE."
+  }
+
+  assert {
+    condition     = contains(google_compute_firewall.allow_proxy_connection.source_ranges, var.proxy_only_subnet_cidr)
+    error_message = "the proxy-connection firewall rule must allow traffic sourced from the proxy-only subnet."
+  }
+
+  assert {
+    condition = anytrue([
+      for rule in google_compute_firewall.allow_proxy_connection.allow :
+      rule.protocol == "tcp" && contains(rule.ports, tostring(module.n8n.n8n_service_port))
+    ])
+    error_message = "the proxy-connection firewall rule must allow n8n's actual Service port, not a hardcoded one."
+  }
+
+  # ── Exposure-specific Services select the pinned chart's own pod labels,
+  # not a customer-invented label scheme (task 21.2's chart-selector
+  # assertion) ──────────────────────────────────────────────────────────────
+  assert {
+    condition = (
+      kubernetes_service_v1.webhook_public.spec[0].selector["app.kubernetes.io/name"] == "n8n" &&
+      kubernetes_service_v1.webhook_public.spec[0].selector["app.kubernetes.io/instance"] == "n8n" &&
+      kubernetes_service_v1.webhook_public.spec[0].selector["app.kubernetes.io/component"] == "webhook-processor"
+    )
+    error_message = "the public webhook Service must select the chart's webhook-processor pods by the chart's own selector labels."
+  }
+
+  assert {
+    condition = (
+      kubernetes_service_v1.main_private.spec[0].selector["app.kubernetes.io/name"] == "n8n" &&
+      kubernetes_service_v1.main_private.spec[0].selector["app.kubernetes.io/instance"] == "n8n" &&
+      kubernetes_service_v1.main_private.spec[0].selector["app.kubernetes.io/component"] == "main"
+    )
+    error_message = "the private main Service must select the chart's main pods by the chart's own selector labels."
+  }
+
+  assert {
+    condition = (
+      kubernetes_service_v1.webhook_private.spec[0].selector["app.kubernetes.io/name"] == "n8n" &&
+      kubernetes_service_v1.webhook_private.spec[0].selector["app.kubernetes.io/instance"] == "n8n" &&
+      kubernetes_service_v1.webhook_private.spec[0].selector["app.kubernetes.io/component"] == "webhook-processor"
+    )
+    error_message = "the private webhook Service must select the chart's webhook-processor pods by the chart's own selector labels."
+  }
+
+  # This example's Services must not take over the chart-owned Service names
+  # (n8n-main / n8n-webhook-processor), only add new, separate Services.
+  assert {
+    condition = (
+      kubernetes_service_v1.webhook_public.metadata[0].name != module.n8n.n8n_main_service_name &&
+      kubernetes_service_v1.webhook_public.metadata[0].name != module.n8n.n8n_webhook_service_name &&
+      kubernetes_service_v1.main_private.metadata[0].name != module.n8n.n8n_main_service_name &&
+      kubernetes_service_v1.main_private.metadata[0].name != module.n8n.n8n_webhook_service_name &&
+      kubernetes_service_v1.webhook_private.metadata[0].name != module.n8n.n8n_main_service_name &&
+      kubernetes_service_v1.webhook_private.metadata[0].name != module.n8n.n8n_webhook_service_name
+    )
+    error_message = "this example's Services must be new, separate objects from the chart-owned main/webhook-processor Services, never reusing their names."
+  }
+
+  # ── BackendConfigs (task 21.2): public has no session affinity, private
+  # does, both share the same health check. ─────────────────────────────────
+  assert {
+    condition     = !can(yamldecode(kubectl_manifest.backendconfig_public.yaml_body).spec.sessionAffinity)
+    error_message = "the public BackendConfig must not set session affinity (webhooks are stateless)."
+  }
+
+  assert {
+    condition     = yamldecode(kubectl_manifest.backendconfig_private.yaml_body).spec.sessionAffinity.affinityType == "GENERATED_COOKIE"
+    error_message = "the private BackendConfig must set cookie-based session affinity for the editor's WebSocket/push connections."
+  }
+
+  # ── TLS/DNS prerequisites (task 21.3) ─────────────────────────────────────
+  assert {
+    condition     = kubernetes_secret_v1.private_tls.type == "kubernetes.io/tls"
+    error_message = "the private ingress TLS Secret must be a kubernetes.io/tls Secret."
+  }
+
+  assert {
+    condition     = yamldecode(kubectl_manifest.public_managed_certificate.yaml_body).spec.domains == [var.public_webhook_fqdn]
+    error_message = "the public ManagedCertificate must cover exactly the public webhook host, not the private editor host."
+  }
+
+}

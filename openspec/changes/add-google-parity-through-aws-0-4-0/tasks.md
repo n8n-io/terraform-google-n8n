@@ -115,9 +115,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 21. Build the split-ingress example infrastructure
 
-- [ ] 21.1 Scaffold `examples/split-ingress` with standard files and local `.terraform-docs.yml`, using `create_ingress=false`; verify `terraform init -backend=false` and Terraform 1.9.8 validation without any live apply.
-- [ ] 21.2 Define example-owned public/global and private/regional addresses, proxy-only subnet, scoped proxy firewall, and exposure-specific Services/BackendConfigs; verify resource scopes and no takeover of Helm-owned Services through mocked tests and chart-selector assertions.
-- [ ] 21.3 Define caller TLS Secret and DNS/reachability prerequisites with explicit provider configuration; verify the example does not attach external-only certificate/FrontendConfig wiring to the internal ingress or install a VPN/certificate controller.
+- [x] 21.1 Scaffold `examples/split-ingress` with standard files and local `.terraform-docs.yml`, using `create_ingress=false`; verify `terraform init -backend=false` and Terraform 1.9.8 validation without any live apply.
+- [x] 21.2 Define example-owned public/global and private/regional addresses, proxy-only subnet, scoped proxy firewall, and exposure-specific Services/BackendConfigs; verify resource scopes and no takeover of Helm-owned Services through mocked tests and chart-selector assertions.
+- [x] 21.3 Define caller TLS Secret and DNS/reachability prerequisites with explicit provider configuration; verify the example does not attach external-only certificate/FrontendConfig wiring to the internal ingress or install a VPN/certificate controller.
 
 ## 22. Complete split-ingress routing and verification
 
