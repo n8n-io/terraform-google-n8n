@@ -345,6 +345,7 @@ resource "helm_release" "n8n" {
           }]
         }
       }] : [],
+      local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_volume] : [],
       local.n8n_caller_extra_volumes,
     )
 
@@ -355,6 +356,7 @@ resource "helm_release" "n8n" {
         subPath   = "ca.crt"
         readOnly  = true
       }] : [],
+      local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_mount] : [],
       local.n8n_caller_extra_volume_mounts,
     )
 
@@ -581,6 +583,12 @@ resource "helm_release" "n8n" {
         ] : [],
         var.db_postgresdb_connection_timeout_ms != null ? [
           { name = "DB_POSTGRESDB_CONNECTION_TIMEOUT", value = tostring(var.db_postgresdb_connection_timeout_ms) },
+        ] : [],
+        # Points at the single key mounted read-only from
+        # n8n_credentials_overwrite_secret_ref above; the module never reads
+        # or renders the Secret's own JSON payload, only this file path.
+        local.n8n_credentials_overwrite_enabled ? [
+          { name = "CREDENTIALS_OVERWRITE_DATA_FILE", value = local.n8n_credentials_overwrite_mount.mountPath },
         ] : [],
         local.manage_redis_tls_ca ? [
           { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },

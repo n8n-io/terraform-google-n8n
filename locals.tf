@@ -378,4 +378,31 @@ locals {
       m.sub_path != null ? { subPath = m.sub_path } : {},
     )
   ]
+
+  # ── Credential-overwrite Secret reference (task 11) ────────────────────────
+  # Mirrors the managed Redis CA volume's shape: a single-key Secret volume,
+  # mounted read-only as one file, added to helm_release.n8n's
+  # extraVolumes/extraVolumeMounts (n8n.tf) ahead of any caller-declared
+  # n8n_extra_volumes/n8n_extra_volume_mounts. The module never reads
+  # var.n8n_credentials_overwrite_secret_ref's Secret value, only its
+  # name/key reference.
+  n8n_credentials_overwrite_enabled = var.n8n_credentials_overwrite_secret_ref != null
+
+  n8n_credentials_overwrite_volume = local.n8n_credentials_overwrite_enabled ? {
+    name = "credentials-overwrite"
+    secret = {
+      secretName = var.n8n_credentials_overwrite_secret_ref.name
+      items = [{
+        key  = var.n8n_credentials_overwrite_secret_ref.key
+        path = "overwrites.json"
+      }]
+    }
+  } : null
+
+  n8n_credentials_overwrite_mount = local.n8n_credentials_overwrite_enabled ? {
+    name      = "credentials-overwrite"
+    mountPath = "/etc/n8n/credentials-overwrite/overwrites.json"
+    subPath   = "overwrites.json"
+    readOnly  = true
+  } : null
 }

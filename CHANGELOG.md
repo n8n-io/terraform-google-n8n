@@ -18,6 +18,21 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `n8n_credentials_overwrite_secret_ref`
+  (`add-google-parity-through-aws-0-4-0`, section 11): reference an existing
+  Kubernetes Secret holding a credential-overwrites JSON payload, mounted
+  read-only at `/etc/n8n/credentials-overwrite/overwrites.json` on every n8n
+  role (main, worker, webhook processor) with `CREDENTIALS_OVERWRITE_DATA_FILE`
+  pointed at it. The module never reads, hashes, or copies the referenced
+  Secret's contents; only the selected key is mounted. While set, the
+  `credentials-overwrite` volume name, the mount path, and the
+  `CREDENTIALS_OVERWRITE_DATA`/`CREDENTIALS_OVERWRITE_DATA_FILE` environment
+  names are reserved against `n8n_extra_volumes`/`n8n_extra_volume_mounts`/
+  `n8n_extra_env`; both remain usable as before when this input is left at
+  its default `null`. Changing only the referenced Secret's contents does not
+  trigger an automatic rollout: restart the `n8n-main`, `n8n-worker`, and
+  `n8n-webhook-processor` deployments to load new data, see
+  [`docs/troubleshooting.md`](./docs/troubleshooting.md#credential-overwrite-secret-content-changes-need-a-manual-restart).
 - Added `n8n_extra_volumes` and `n8n_extra_volume_mounts`
   (`add-google-parity-through-aws-0-4-0`, section 10): mount an existing
   ConfigMap, Secret, or PVC into every n8n role (main, worker, webhook

@@ -95,6 +95,52 @@ variable "n8n_license_key_secret_ref" {
   }
 }
 
+# ── Credential overwrites ──────────────────────────────────────────────────
+# Lets a caller pre-populate node credential fields from an existing Secret
+# they own (n8n's Credential overwrites feature), instead of the plaintext
+# escape-hatch documented at https://docs.n8n.io/administer/manage-credentials/credential-overwrites/.
+# The module never reads the referenced Secret's value; it only mounts the
+# selected key read-only and points CREDENTIALS_OVERWRITE_DATA_FILE at it, on
+# every n8n role (main, worker, webhook processor). See
+# local.n8n_credentials_overwrite_enabled (locals.tf) and its wiring in
+# n8n.tf.
+variable "n8n_credentials_overwrite_secret_ref" {
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding a credential-overwrites JSON payload, mounted read-only at /etc/n8n/credentials-overwrite/overwrites.json on every n8n role with CREDENTIALS_OVERWRITE_DATA_FILE pointed at it. The module never reads, hashes, or copies the referenced Secret's contents into Terraform state, Helm values, or another Secret; a missing Secret or key fails at pod-start time, not at plan time. Changing only the Secret's contents does not trigger an automatic rollout: restart n8n-main, n8n-worker, and n8n-webhook-processor deployments to pick up new data. Leave null (the default) to leave credential overwrites unconfigured, in which case CREDENTIALS_OVERWRITE_DATA/CREDENTIALS_OVERWRITE_DATA_FILE remain available through n8n_extra_env as before."
+  type = object({
+    name = string
+    key  = string
+  })
+  default = null
+
+  validation {
+    condition     = var.n8n_credentials_overwrite_secret_ref == null || (trimspace(var.n8n_credentials_overwrite_secret_ref.name) != "" && trimspace(var.n8n_credentials_overwrite_secret_ref.key) != "")
+    error_message = "n8n_credentials_overwrite_secret_ref.name and .key must be non-empty."
+  }
+
+  validation {
+    condition     = var.n8n_credentials_overwrite_secret_ref == null || !contains([for v in var.n8n_extra_volumes : v.name], "credentials-overwrite")
+    error_message = "n8n_credentials_overwrite_secret_ref reserves the \"credentials-overwrite\" volume name for its own read-only mount while set; remove or rename the conflicting n8n_extra_volumes entry."
+  }
+
+  validation {
+    condition = var.n8n_credentials_overwrite_secret_ref == null || !anytrue([
+      for m in var.n8n_extra_volume_mounts : (
+        m.mount_path == "/etc/n8n/credentials-overwrite" ||
+        startswith(m.mount_path, "/etc/n8n/credentials-overwrite/") ||
+        startswith("/etc/n8n/credentials-overwrite/", "${m.mount_path}/")
+      )
+    ])
+    error_message = "n8n_credentials_overwrite_secret_ref reserves /etc/n8n/credentials-overwrite/overwrites.json for its own mount while set; move the conflicting n8n_extra_volume_mounts entry to a non-overlapping path."
+  }
+
+  validation {
+    condition = var.n8n_credentials_overwrite_secret_ref == null || !anytrue([
+      for e in var.n8n_extra_env : contains(["CREDENTIALS_OVERWRITE_DATA", "CREDENTIALS_OVERWRITE_DATA_FILE"], e.name)
+    ])
+    error_message = "n8n_credentials_overwrite_secret_ref reserves CREDENTIALS_OVERWRITE_DATA and CREDENTIALS_OVERWRITE_DATA_FILE while set (the module sets CREDENTIALS_OVERWRITE_DATA_FILE itself from this reference); remove the conflicting n8n_extra_env entry."
+  }
+}
+
 variable "n8n_kube_namespace" {
   description = "Kubernetes namespace to deploy n8n into. Also names the existing namespace when create_namespace = false."
   type        = string

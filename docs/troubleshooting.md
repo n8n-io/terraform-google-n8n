@@ -161,23 +161,31 @@ See also
 [Workload Identity: pods can't reach Cloud SQL or GCS](#workload-identity-pods-cant-reach-cloud-sql-or-gcs)
 above for the general annotation/ServiceAccount-mismatch case.
 
-## Referenced Secret errors (PostgreSQL, Redis, GCS HMAC, license, core)
+## Referenced Secret errors (PostgreSQL, Redis, GCS HMAC, license, core, credential overwrites)
 
 **Symptom**
 
 The n8n Helm release fails at install/upgrade with a Kubernetes error like
 `secret "<name>" not found`, or n8n pods start but immediately fail to
-authenticate to the database, Redis, or GCS.
+authenticate to the database, Redis, or GCS. For
+`n8n_credentials_overwrite_secret_ref` specifically, pods instead fail to
+*schedule* at all: `kubectl describe pod` shows `MountVolume.SetUp failed for
+volume "credentials-overwrite"` with either `secret "<name>" not found` (the
+Secret itself is missing) or `references non-existent secret key` (the
+Secret exists but not the referenced `key`), because mounting a single Secret
+key as a file is a kubelet-level operation that happens before the n8n
+process ever starts.
 
 **Cause**
 
 A `*_secret_ref` input (`n8n_database_password_secret_ref`,
 `redis_password_secret_ref`, `n8n_license_key_secret_ref`,
-`existing_n8n_core_secret_name`, `gcs_hmac_secret_name`) only passes a
-*reference* through to the chart; the module never creates, reads, or
-validates the referenced Secret's existence or contents. A typo in the name,
-a wrong key inside the Secret, or a Secret created in the wrong namespace all
-surface only once the chart tries to mount it.
+`existing_n8n_core_secret_name`, `gcs_hmac_secret_name`,
+`n8n_credentials_overwrite_secret_ref`) only passes a *reference* through to
+the chart; the module never creates, reads, or validates the referenced
+Secret's existence or contents. A typo in the name, a wrong key inside the
+Secret, or a Secret created in the wrong namespace all surface only once the
+chart tries to mount it.
 
 **Fix**
 
@@ -185,10 +193,42 @@ surface only once the chart tries to mount it.
    `kubectl get secret <name> -n <n8n_kube_namespace>`.
 2. Confirm the key matches what you referenced (default `password` for
    database/Redis, `license-key` for the license, `accessSecret` for GCS
-   HMAC): `kubectl get secret <name> -n <n8n_kube_namespace> -o jsonpath='{.data}'`.
+   HMAC; there is no default key for `n8n_credentials_overwrite_secret_ref`,
+   both `name` and `key` are required):
+   `kubectl get secret <name> -n <n8n_kube_namespace> -o jsonpath='{.data}'`.
 3. Re-create the Secret with the correct name/key, then re-run
    `terraform apply` (Helm re-reconciles the release; Terraform itself holds
    no state for a Secret it never created).
+
+## Credential-overwrite Secret content changes need a manual restart
+
+**Symptom**
+
+You updated the contents of the Secret referenced by
+`n8n_credentials_overwrite_secret_ref` (e.g. rotated a prefilled OAuth
+client secret), but n8n keeps using the old overwrite values.
+
+**Cause**
+
+The module mounts the selected key read-only at
+`/etc/n8n/credentials-overwrite/overwrites.json` on every n8n role and sets
+`CREDENTIALS_OVERWRITE_DATA_FILE` to that path; it never reads, hashes, or
+copies the Secret's contents, so there is nothing for Terraform or the chart
+to diff and no automatic Secret-hash-triggered rollout happens when only the
+Secret's data changes (unlike a `terraform apply` that changes the Secret
+*reference* itself, which does trigger a Helm upgrade). n8n also only reads
+`CREDENTIALS_OVERWRITE_DATA_FILE` at process startup, so an already-running
+pod keeps its old in-memory overwrites even after the mounted file's
+contents update via kubelet's periodic Secret sync.
+
+**Fix**
+
+After changing the Secret's data (not its name/key reference), manually
+restart all three n8n deployments so every pod re-reads the file on startup:
+
+```bash
+kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker n8n-webhook-processor
+```
 
 ## Disruptive Redis transitions (prefix change, ownership switch)
 

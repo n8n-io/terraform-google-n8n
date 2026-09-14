@@ -61,9 +61,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 11. Add credential-overwrite Secret references
 
-- [ ] 11.1 Add validated `n8n_credentials_overwrite_secret_ref` and read-only single-key mounts; verify all n8n roles receive the selected file path and no overwrite payload or Secret data lookup appears in the module.
-- [ ] 11.2 Add conditional environment/volume/path collision guards and null-path regression cases; verify enabled collisions fail while the disabled escape hatch remains accepted.
-- [ ] 11.3 Document missing-key failures and manual rotation restarts; verify the runbook names all three deployments and makes no automatic Secret-hash rollout claim.
+- [x] 11.1 Add validated `n8n_credentials_overwrite_secret_ref` and read-only single-key mounts; verify all n8n roles receive the selected file path and no overwrite payload or Secret data lookup appears in the module.
+- [x] 11.2 Add conditional environment/volume/path collision guards and null-path regression cases; verify enabled collisions fail while the disabled escape hatch remains accepted.
+- [x] 11.3 Document missing-key failures and manual rotation restarts; verify the runbook names all three deployments and makes no automatic Secret-hash rollout claim.
 
 ## 12. Add task-runner configuration controls
 
