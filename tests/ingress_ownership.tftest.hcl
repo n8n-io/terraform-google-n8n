@@ -267,3 +267,109 @@ run "webhook_hpa_enabled_by_default" {
     error_message = "n8n_webhook_hpa_enabled defaults to true and must create the webhook processor HPA."
   }
 }
+
+# ── Additional ingress hosts (task 20.1) ──────────────────────────────────────
+
+run "additional_domains_default_to_canonical_host_only" {
+  command = plan
+
+  assert {
+    condition     = output.n8n_ingress_hosts == ["n8n.test.example.com"]
+    error_message = "n8n_ingress_hosts must default to just the canonical n8n_fqdn."
+  }
+}
+
+run "additional_domains_are_normalized_to_lowercase" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["Alt.Example.com", "second.example.com"]
+  }
+
+  assert {
+    condition     = output.n8n_ingress_hosts == ["n8n.test.example.com", "alt.example.com", "second.example.com"]
+    error_message = "n8n_ingress_hosts must be the canonical host followed by every n8n_additional_domains entry, normalized to lowercase."
+  }
+}
+
+run "additional_domains_reject_wildcards" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["*.example.com"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+run "additional_domains_reject_malformed_hostname" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["not a hostname"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+run "additional_domains_reject_case_insensitive_duplicates" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["alt.example.com", "Alt.Example.com"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+run "additional_domains_reject_repeat_of_canonical_hostname" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["N8N.Test.Example.com"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+# ── Guarded ingress annotations (task 20.1) ───────────────────────────────────
+
+run "ingress_annotations_reject_module_owned_key" {
+  command = plan
+
+  variables {
+    ingress_annotations = {
+      "kubernetes.io/ingress.class" = "nginx"
+    }
+  }
+
+  expect_failures = [var.ingress_annotations]
+}
+
+run "ingress_annotations_accept_non_conflicting_key" {
+  command = plan
+
+  variables {
+    ingress_annotations = {
+      "example.com/custom-annotation" = "value"
+    }
+  }
+
+  assert {
+    condition     = length(kubernetes_ingress_v1.n8n) == 1
+    error_message = "A non-conflicting ingress_annotations entry must not block the managed Ingress from being created."
+  }
+}
+
+run "ingress_annotations_ignored_when_existing_triggers_warning" {
+  command = plan
+
+  variables {
+    create_ingress = false
+    ingress_annotations = {
+      "example.com/custom-annotation" = "value"
+    }
+  }
+
+  expect_failures = [check.ingress_annotations_ignored_when_existing]
+}

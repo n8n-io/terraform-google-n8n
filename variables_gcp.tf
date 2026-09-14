@@ -846,6 +846,57 @@ variable "cloud_dns_zone_name" {
   default     = ""
 }
 
+# ── Additional ingress hosts and annotations ───────────────────────────────
+# Both are rendered into the module-managed Ingress (n8n.tf's
+# kubernetes_ingress_v1.n8n) and its supporting DNS/certificate resources
+# (dns.tf/crds.tf) in the following task section (20.2/20.3). This section
+# (20.1) adds the validated inputs and the effective host-list output every
+# later wiring point and a customer-managed ingress can both consume.
+
+variable "n8n_additional_domains" {
+  description = "Additional hostnames to give the full main/webhook route set alongside n8n_fqdn, e.g. for a second public domain pointed at the same deployment. Compared case-insensitively everywhere the module uses them (duplicate detection, Cloud DNS records, ManagedCertificate/self-signed/Secret TLS coverage); see n8n_ingress_hosts for the effective lowercase-normalized list. Wildcards are not accepted. Adds no DNS, certificate, or ingress resource when create_ingress = false, but n8n_ingress_hosts still reports these hostnames for a caller-managed ingress to route."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for d in var.n8n_additional_domains : can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", d))
+    ])
+    error_message = "Every n8n_additional_domains entry must be a valid fully qualified domain name (e.g. alt.example.com); wildcards (e.g. *.example.com) are not accepted."
+  }
+
+  validation {
+    condition     = length(distinct([for d in var.n8n_additional_domains : lower(d)])) == length(var.n8n_additional_domains)
+    error_message = "n8n_additional_domains must not contain duplicate hostnames (comparison is case-insensitive)."
+  }
+
+  validation {
+    condition     = !contains([for d in var.n8n_additional_domains : lower(d)], lower(var.n8n_fqdn))
+    error_message = "n8n_additional_domains must not repeat the canonical n8n_fqdn hostname."
+  }
+}
+
+variable "ingress_annotations" {
+  description = "Additional annotations merged onto the module-managed Ingress (kubernetes_ingress_v1.n8n in n8n.tf), e.g. for a third-party integration compatible with GKE's native gce Ingress controller. Must not set a module-owned key; use the dedicated tls_mode, ingress_ssl_policy_name, cloud_dns_zone_name, or ingress_source_cidrs inputs for TLS, SSL policy, DNS, and source-restriction ownership instead. Ignored (with a warning) when create_ingress = false."
+  type        = map(string)
+  default     = {}
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for k in keys(var.ingress_annotations) : !contains([
+        "kubernetes.io/ingress.class",
+        "kubernetes.io/ingress.global-static-ip-name",
+        "networking.gke.io/v1beta1.FrontendConfig",
+        "networking.gke.io/managed-certificates",
+        "ingress.gcp.kubernetes.io/pre-shared-cert",
+      ], k)
+    ])
+    error_message = "ingress_annotations must not set a module-owned annotation key (kubernetes.io/ingress.class, kubernetes.io/ingress.global-static-ip-name, networking.gke.io/v1beta1.FrontendConfig, networking.gke.io/managed-certificates, or ingress.gcp.kubernetes.io/pre-shared-cert). Use tls_mode, ingress_ssl_policy_name, cloud_dns_zone_name, or ingress_source_cidrs instead."
+  }
+}
+
 # ── Managed-ingress security controls ─────────────────────────────────────
 # All three are ignored when create_ingress = false (checks.tf emits the
 # opposite-path diagnostic); a caller who owns ingress also owns any TLS

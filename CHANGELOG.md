@@ -18,6 +18,21 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `n8n_additional_domains` and `ingress_annotations`
+  (`add-google-parity-through-aws-0-4-0`, section 20.1): `n8n_additional_domains`
+  (default `[]`) declares extra hostnames that will get the full main/webhook
+  route set alongside `n8n_fqdn`; entries are validated as non-wildcard FQDNs,
+  rejected on a case-insensitive duplicate or a repeat of `n8n_fqdn`, and
+  exposed (lowercase-normalized, canonical host first) through the new
+  `n8n_ingress_hosts` output regardless of `create_ingress`, so a
+  customer-managed ingress can consume the same list. Wiring these hostnames
+  into the module-managed Ingress, Cloud DNS records, and TLS certificate
+  coverage lands in a following section; today the input only validates and
+  reports the effective list. `ingress_annotations` (default `{}`) accepts
+  additional annotations for the module-managed Ingress, rejecting any
+  module-owned key (ingress class, static-IP name, FrontendConfig,
+  ManagedCertificate, or pre-shared-cert) and warning as ignored when
+  `create_ingress = false`.
 - **Breaking:** every n8n role now emits `N8N_EDITOR_BASE_URL=https://<n8n_fqdn>`
   (`add-google-parity-through-aws-0-4-0`, section 19): this environment name
   was previously reserved (see `n8n_extra_env`'s collision guard) but never

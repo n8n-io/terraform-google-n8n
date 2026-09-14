@@ -183,3 +183,8 @@ output "n8n_webhook_route_prefixes" {
   description = "Path prefixes that must route to n8n_webhook_service_name: /webhook, /webhook-waiting, /form, /form-waiting, and /mcp."
   value       = local.effective_webhook_route_prefixes
 }
+
+output "n8n_ingress_hosts" {
+  description = "Effective hostnames n8n serves the full main/webhook route set on: n8n_fqdn followed by every configured n8n_additional_domains entry, normalized to lowercase. Populated the same way regardless of create_ingress, so a customer-managed ingress can route the same hostnames the module would."
+  value       = local.n8n_effective_ingress_hosts
+}

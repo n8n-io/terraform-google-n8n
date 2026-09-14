@@ -230,3 +230,17 @@ check "ingress_tuning_ignored_when_existing" {
     error_message = "create_ingress is false, but one or more managed-ingress tuning variables (tls_mode, https_redirect, cloud_dns_zone_name, ingress_ssl_policy_name, ingress_source_cidrs, existing_cloud_armor_policy_name) differ from their defaults. These are ignored when the caller owns ingress, DNS, and TLS; configure them on the caller-managed ingress out of band instead."
   }
 }
+
+# Opposite-path diagnostic for section 20.1 (guarded ingress annotations):
+# ingress_annotations only ever merges onto kubernetes_ingress_v1.n8n
+# (n8n.tf), which does not exist when the caller owns ingress out of band.
+# n8n_additional_domains is intentionally not included here: its effective
+# host list (n8n_ingress_hosts output) stays meaningful for a
+# customer-managed ingress even though the module creates no DNS/certificate
+# resources for it on this path (design.md, decision 7).
+check "ingress_annotations_ignored_when_existing" {
+  assert {
+    condition     = var.create_ingress || length(var.ingress_annotations) == 0
+    error_message = "create_ingress is false, but ingress_annotations is set. These annotations only apply to the module-managed Ingress; they are ignored when the caller owns ingress out of band."
+  }
+}
