@@ -177,6 +177,13 @@ Cloud SQL, Memorystore, node-pool sizing, autoscaling bounds, pruning, and OpenT
 
 ## Operations (day-2)
 
+Upgrading an existing deployment onto a newer module version? See
+[`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md) for topology transitions,
+newly reserved environment variables, reference-only configuration that needs
+a manual restart, corrected canonical URLs, Redis prefix/persistence
+transitions, and any resource-address changes needing a manual
+`terraform state mv`.
+
 Learnings from the first live deploy:
 
 - **After apply, TLS lags.** The Google L7 LB's HTTPS frontend and cert take a few

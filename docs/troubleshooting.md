@@ -2,6 +2,10 @@
 
 Issues observed in real deployments and how to resolve them. If you hit something not covered here, open an issue.
 
+Upgrading from an earlier interface (topology transitions, newly reserved
+environment variables, corrected URLs, Redis prefix changes)? See
+[`docs/upgrading-n8n.md`](./upgrading-n8n.md) first.
+
 ## `terraform apply`: `no cached repo found ... hashicorp-index.yaml`
 
 **Symptom**

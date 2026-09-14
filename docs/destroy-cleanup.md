@@ -15,6 +15,11 @@ terraform output -raw n8n_encryption_key     # Save to a password manager
 terraform output -raw n8n_database_password  # Save to a password manager
 ```
 
+`n8n_encryption_key` reflects whichever value is effective, whether the
+module generated it or you supplied it directly via `n8n_encryption_key`; see
+[`docs/upgrading-n8n.md`](./upgrading-n8n.md#exact-key-encryption-recovery) for
+reusing a saved key on a restore or clone.
+
 Set shell variables used throughout this guide:
 
 ```bash
