@@ -988,6 +988,103 @@ variable "n8n_task_runner_custom_config" {
   }
 }
 
+# ── Pod DNS ───────────────────────────────────────────────────────────────────
+
+variable "n8n_dns_config" {
+  description = <<-EOT
+    Pod-level DNS settings applied to the main, worker, and webhook-processor
+    pods (the chart's top-level `dnsConfig`, rendered into all three pod
+    specs). Defaults to null, which omits the block entirely and leaves
+    Kubernetes' cluster DNS policy and resolver defaults unchanged, so this is
+    a no-op unless set.
+
+    Nameservers are validated as plain IPv4 or IPv6 addresses, at most 3,
+    matching the limits the Kubernetes pod spec enforces at admission.
+
+    Search domains are validated against strict RFC 1123 subdomain rules:
+    lowercase alphanumeric labels and hyphens only, no underscores, and no
+    bare "." or trailing dot. This module targets GKE's supported release
+    channels (REGULAR/STABLE), whose control planes can run versions as old
+    as those still receiving upstream support; Kubernetes' relaxed search-path
+    validation (RelaxedDNSSearchValidation) only reached GA in 1.34, so an
+    older but still-supported cluster validates search domains strictly at
+    admission and rejects the relaxed shapes (bare ".", underscores) even
+    though a newer cluster would accept them. This variable validates to the
+    stricter grammar every supported GKE release admits, rather than silently
+    depending on the newer gate.
+
+    At most 32 search entries totalling 2048 characters (joined by single
+    spaces), matching the Kubernetes API server's own admission limit.
+
+    DNS options must have unique names: the API server admits only one value
+    per name, so a duplicate silently drops one entry rather than merging or
+    erroring. The ndots option, if present, must carry a whole number from 0
+    to 15 written as a string.
+  EOT
+
+  type = object({
+    nameservers = optional(list(string))
+    searches    = optional(list(string))
+    options = optional(list(object({
+      name  = string
+      value = optional(string)
+    })))
+  })
+
+  default = null
+
+  # All guard-style conditions below are written as `guard ? body : true`
+  # rather than `guard-inverted || body`, per AGENTS.md's consistency rule: the
+  # null guard gates the attribute access structurally rather than relying on
+  # short-circuit evaluation.
+  validation {
+    condition = var.n8n_dns_config == null ? true : (
+      length(coalesce(var.n8n_dns_config.nameservers, [])) <= 3
+    )
+    error_message = "n8n_dns_config.nameservers accepts at most 3 entries: the Kubernetes pod spec rejects more, and the kubelet reports it as a pod-level validation failure rather than a Helm error, which is slow to diagnose."
+  }
+
+  validation {
+    condition = var.n8n_dns_config == null ? true : alltrue([
+      for ns in coalesce(var.n8n_dns_config.nameservers, []) :
+      can(cidrhost("${ns}/32", 0)) || can(cidrhost("${ns}/128", 0))
+    ])
+    error_message = "n8n_dns_config.nameservers entries must each be a plain IPv4 or IPv6 address, without a port, prefix length, or hostname. The Kubernetes API server validates each entry as an IP at admission, so a malformed one otherwise surfaces as a rejected pod spec rather than a Helm error."
+  }
+
+  validation {
+    condition = var.n8n_dns_config == null ? true : (
+      length(coalesce(var.n8n_dns_config.searches, [])) <= 32 &&
+      length(join(" ", coalesce(var.n8n_dns_config.searches, []))) <= 2048
+    )
+    error_message = "n8n_dns_config.searches accepts at most 32 entries totalling 2048 characters, measured joined by single spaces to match how the Kubernetes API server counts them at admission."
+  }
+
+  validation {
+    condition = var.n8n_dns_config == null ? true : alltrue([
+      for s in coalesce(var.n8n_dns_config.searches, []) :
+      length(s) <= 253 && can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$", s))
+    ])
+    error_message = "n8n_dns_config.searches entries must each be a lowercase RFC 1123 subdomain of at most 253 characters: alphanumeric labels and hyphens only, no underscores, and no bare \".\" or trailing dot. Every supported GKE release admits this stricter grammar at admission; the relaxed rules (bare \".\", underscores) are only guaranteed on clusters running Kubernetes 1.34 or newer."
+  }
+
+  validation {
+    condition = var.n8n_dns_config == null ? true : (
+      length(distinct([for o in coalesce(var.n8n_dns_config.options, []) : o.name])) ==
+      length(coalesce(var.n8n_dns_config.options, []))
+    )
+    error_message = "n8n_dns_config.options must not repeat the same option name. The Kubernetes API server admits only one value per name, so a duplicate silently drops one entry rather than merging or erroring, which looks like the setting worked while leaving resolution behaviour unchanged."
+  }
+
+  validation {
+    condition = var.n8n_dns_config == null ? true : alltrue([
+      for o in coalesce(var.n8n_dns_config.options, []) :
+      o.name != "ndots" || (o.value != null && can(regex("^[0-9]+$", o.value)) && tonumber(o.value) <= 15)
+    ])
+    error_message = "n8n_dns_config: the ndots option must carry a whole number between 0 and 15, written as a string (\"1\", not \"1.5\"). glibc parses ndots with strtol and silently ignores a fractional, non-numeric, or out-of-range value, falling back to its default of 1, which looks like the setting worked while leaving resolution behaviour unchanged."
+  }
+}
+
 # ── Cloud SQL PostgreSQL ─────────────────────────────────────────────────────────────
 
 variable "create_postgres_instance" {

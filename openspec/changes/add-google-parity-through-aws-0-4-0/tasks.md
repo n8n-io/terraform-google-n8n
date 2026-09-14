@@ -73,8 +73,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 13. Add pod DNS configuration
 
-- [ ] 13.1 Add nullable typed `n8n_dns_config` and emit only supplied members; verify all three pod roles render the same custom resolver/search/options configuration while defaults omit it.
-- [ ] 13.2 Add nameserver, search-list, option-uniqueness, and `ndots` boundary tests compatible with supported GKE releases; verify fourth nameserver, malformed IP, excessive searches, duplicate options, and `ndots=16` fail without a Terraform 1.9 null error.
+- [x] 13.1 Add nullable typed `n8n_dns_config` and emit only supplied members; verify all three pod roles render the same custom resolver/search/options configuration while defaults omit it.
+- [x] 13.2 Add nameserver, search-list, option-uniqueness, and `ndots` boundary tests compatible with supported GKE releases; verify fourth nameserver, malformed IP, excessive searches, duplicate options, and `ndots=16` fail without a Terraform 1.9 null error.
 
 ## 14. Add the V8 heap ceiling
 

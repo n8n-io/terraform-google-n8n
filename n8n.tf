@@ -805,6 +805,17 @@ resource "helm_release" "n8n" {
         var.n8n_image_pull_policy == null ? {} : { pullPolicy = var.n8n_image_pull_policy },
       )
     },
+
+    # Pod DNS (task 13). Omitted entirely unless n8n_dns_config is set, so this
+    # is a no-op by default. Applies to the main, worker, and
+    # webhook-processor pods: the chart's top-level dnsConfig is rendered into
+    # all three pod specs.
+    #
+    # local.n8n_dns_config, not var.n8n_dns_config: the variable's optional()
+    # attributes materialize as nulls when unset, and yamlencode would emit
+    # `nameservers: null` into the chart's `{{- toYaml . }}`, which the API
+    # server rejects as an invalid pod spec. The local strips unset keys.
+    local.n8n_dns_config == null ? {} : { dnsConfig = local.n8n_dns_config },
   ))]
 
   depends_on = [

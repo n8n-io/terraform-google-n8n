@@ -18,6 +18,17 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `n8n_dns_config` (`add-google-parity-through-aws-0-4-0`, section 13):
+  optional pod-level DNS settings (nameservers, search domains, and options
+  such as `ndots`) applied to the main, worker, and webhook-processor pods
+  via the chart's top-level `dnsConfig`. Defaults to `null`, which omits the
+  block and leaves Kubernetes' cluster DNS defaults unchanged. Nameservers
+  are capped at 3 plain IPv4/IPv6 addresses; search domains are validated
+  against strict RFC 1123 subdomain rules (no underscores, no bare `"."` or
+  trailing dot) rather than the relaxed rules Kubernetes only guarantees on
+  1.34+, since this module targets GKE's supported release channels, which
+  can run older control planes; option names must be unique, and `ndots`
+  must be a whole number from 0 to 15.
 - Added `n8n_task_runner_custom_config` and `n8n_task_runner_timeout`
   (`add-google-parity-through-aws-0-4-0`, section 12): reference an existing
   ConfigMap holding a custom task-runner launcher configuration file, mounted
