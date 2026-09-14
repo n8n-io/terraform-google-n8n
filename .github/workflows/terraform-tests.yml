@@ -192,6 +192,25 @@ jobs:
         working-directory: ${{ matrix.target }}
         run: terraform test -verbose
 
+  chart-render:
+    name: n8n chart rendering check
+    runs-on: ubuntu-latest
+    env:
+      # Pinned to the exact Helm CLI version the chart-rendering fixtures in
+      # tests/scripts/check-n8n-chart.sh were authored and verified against
+      # (see the section-1 baseline report). OCI chart pulls only need Helm
+      # 3.8+, but pinning keeps local and CI `helm template` output identical.
+      HELM_VERSION: "v4.3.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: tests/scripts/check-n8n-chart.sh
+        run: tests/scripts/check-n8n-chart.sh
+
   tflint:
     name: tflint (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -262,10 +281,10 @@ jobs:
           # The curated baseline (parity-matrix.md / security review for
           # add-google-parity-through-aws-0-4-0) fixes every in-scope finding
           # and narrowly suppresses the rest via inline checkov:skip comments
-          # on the specific resources involved. soft_fail stays true only
-          # until that curated run is verified end-to-end in CI (tracked as a
-          # follow-up in the same change); a clean scan already returns 0
-          # failed checks locally.
-          soft_fail: true
+          # on the specific resources involved (see verification-report.md's
+          # section-23 curated run: 110 passed, 0 failed). soft_fail is now
+          # false: an unapproved new finding fails this job. Widening this
+          # back to true requires a documented reason and a follow-up.
+          soft_fail: false
           output_format: cli
           output_file_path: console

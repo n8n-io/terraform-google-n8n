@@ -133,9 +133,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 24. Make CI and local gates agree
 
-- [ ] 24.1 Wire the chart-rendering script and pinned tools into CI and documented local commands; verify a clean credential-free run on Terraform 1.9.8 and failure for a controlled wrong-value rendering fixture.
-- [ ] 24.2 Replace blanket Checkov soft-fail after the curated scan passes; verify the same local/CI command returns nonzero for an unapproved security violation.
-- [ ] 24.3 Correct root-relative verification loops in `AGENTS.md` and contributor guidance, including both controller targets; verify the target set equals CI and each Terraform documentation command uses the correct config.
+- [x] 24.1 Wire the chart-rendering script and pinned tools into CI and documented local commands; verify a clean credential-free run on Terraform 1.9.8 and failure for a controlled wrong-value rendering fixture.
+- [x] 24.2 Replace blanket Checkov soft-fail after the curated scan passes; verify the same local/CI command returns nonzero for an unapproved security violation.
+- [x] 24.3 Correct root-relative verification loops in `AGENTS.md` and contributor guidance, including both controller targets; verify the target set equals CI and each Terraform documentation command uses the correct config.
 
 ## 25. Update application examples and sizing guidance
 

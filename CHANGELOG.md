@@ -490,9 +490,31 @@ this project adheres to the stability contract in
   log access to itself. A full per-finding classification (fixed, scanner
   limitation, or intentional exception) is on record in this change's PR
   description and `openspec/changes/add-google-parity-through-aws-0-4-0/`
-  history. `soft_fail` on the CI `checkov` job stays `true` until a follow-up
-  section wires the pinned scan into the same blocking gate as the other CI
-  jobs; a scan of this baseline already returns zero failed checks.
+  history.
+
+- Wired the credential-free chart-rendering regression check into CI and made
+  the curated Checkov baseline a blocking gate
+  (`add-google-parity-through-aws-0-4-0`, section 24): added a `chart-render`
+  job to `.github/workflows/terraform-tests.yml` that installs a pinned Helm
+  CLI (`v4.3.0`, via `azure/setup-helm@v5.0.1`) and runs
+  `tests/scripts/check-n8n-chart.sh` with no credentials and no cluster; the
+  script's own embedded self-check already proves a deliberately wrong
+  expected value fails, and this job proves the same command fails CI, not
+  just a local run. Flipped the `checkov` job's `soft_fail` from `true` to
+  `false` now that section 23's curated baseline scans clean (110 passed, 0
+  failed); a reintroduced finding (verified locally by temporarily reverting
+  one of section 23's fixes) exits nonzero. Corrected `AGENTS.md`'s local
+  verification loop: it now names the same twelve `validate`/`test`/`tflint`/
+  `docs` targets CI covers (previously missing `examples/split-ingress`,
+  the four `examples/customer-managed-*` examples, `modules/controllers`,
+  and `modules/controllers/examples/direct-use`), runs each example/module
+  target in its own subshell instead of a bare `cd examples/x && ...` chain
+  (which left the shell inside the previous example directory and broke the
+  next line's relative `cd`), and points the two controller
+  `terraform-docs --output-check` invocations at the root `.terraform-docs.yml`
+  via `--config` instead of the recursive-path default that silently prints
+  CLI help. Also documents the local `check-n8n-chart.sh` and pinned `checkov`
+  commands alongside the Terraform loop.
 
 ### Fixed
 

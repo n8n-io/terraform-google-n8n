@@ -81,7 +81,7 @@ expected by the Terraform Registry:
 | `tests/*.tftest.hcl`              | `terraform test` plan-time tests with mocked providers.     |
 | `tests/scripts/smoke-test.sh`     | Post-`apply` smoke test for live deployments.               |
 | `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`. |
-| `.github/workflows/`              | CI: fmt, terraform-docs, validate, test, tflint, checkov.   |
+| `.github/workflows/`              | CI: fmt, terraform-docs, validate, test, tflint, chart-render, checkov. |
 
 ## Quality bar: HashiCorp Terraform Registry & Partner Premier Tier
 
@@ -109,15 +109,23 @@ Concretely, in this repo:
 `.github/workflows/terraform-tests.yml` runs both on every PR and push to `main`:
 
 - **`terraform fmt -check -recursive`** for canonical formatting.
-- **`terraform validate`** against the module root *and* every example
-  (`examples/small/`, `examples/medium/`, `examples/large/`,
-  `examples/cloudflare/`, `examples/godaddy/`) via the CI matrix.
-- **`tflint`** against the module root and every example, with the ruleset
+- **`terraform validate`** against the module root, every application/DNS/
+  ownership example, the `modules/controllers` submodule, and its own
+  `examples/direct-use`, via the CI matrix (see the target list in
+  `.github/workflows/terraform-tests.yml`'s `validate`/`test`/`tflint` jobs;
+  the same list drives the local loop below).
+- **`tflint`** against every target in that same matrix, with the ruleset
   initialized via `tflint --init`.
-- **`checkov`** (`bridgecrewio/checkov-action@v12`) against the Terraform
-  framework. `soft_fail` is currently `true`, see the inline comment in the
-  workflow. **When you add new resources, do not regress curated findings;
-  prefer fixing them over adding suppressions.**
+- **`checkov`** (`bridgecrewio/checkov-action@v12.3123.0`, pinned to Checkov
+  `3.3.17`) against the Terraform framework, repository root. `soft_fail` is
+  `false`: an unapproved new finding fails the job. See
+  `openspec/changes/add-google-parity-through-aws-0-4-0/verification-report.md`
+  for the curated baseline this was flipped against. **When you add new
+  resources, do not regress curated findings; prefer fixing them over adding
+  suppressions.**
+- **`tests/scripts/check-n8n-chart.sh`** (`chart-render` job) renders the
+  pinned n8n Helm chart with a synthetic values fixture and asserts on the
+  output, using a pinned Helm CLI version. No credentials, no cluster.
 
 ### 2. Unit + integration tests via `terraform test`
 
@@ -125,10 +133,10 @@ Concretely, in this repo:
   `mock_provider` for `google`, `kubernetes`, `kubectl`, `helm`,
   `random`, and `time`. The module has no data sources to override, so the
   suite runs **without Google Cloud credentials** and is safe to run in CI.
-- Each example has its own `tests/defaults.tftest.hcl` (`small`, `medium`,
-  `large`, `cloudflare`, `godaddy`) that exercises the example end-to-end with
-  the same mocking strategy, catching wiring mistakes between the module and a
-  realistic caller.
+- Each example, the `modules/controllers` submodule, and its own
+  `examples/direct-use` has its own `tests/defaults.tftest.hcl` that
+  exercises it end-to-end with the same mocking strategy, catching wiring
+  mistakes between the module (or submodule) and a realistic caller.
 - `tests/scripts/smoke-test.sh` is the **integration / post-apply** check used
   against a real cluster, kept out of CI on purpose (it needs live Google Cloud
   credentials and an applied stack).
@@ -269,9 +277,17 @@ file. Use `command = plan` unless you specifically need apply semantics.
   nullable variable's validation must use `var.x == null ? true :
   contains(...)` rather than `var.x == null || contains(...)`; (2) indexing
   a possibly-empty list on one side of `&&` errors even when the other side
-  is false, so wrap the whole access in `try(..., false)`. Newer CLIs (1.13+)
-  tolerate both spellings, which makes a green local run misleading; run the
-  loop with the CI-pinned version when touching validations or test asserts.
+  is false, so wrap the whole access in `try(..., false)`; (3) reading an
+  attribute off a nullable object variable or `for`-loop element (e.g.
+  `var.x == null || var.x.name != ""`, or `v.config_map == null ||
+  v.config_map.default_mode == null`) errors the same way, so nest ternaries
+  instead: `var.x == null ? true : (var.x.name != "")`. Newer CLIs (1.13+)
+  tolerate all three spellings, which makes a green local run misleading; run
+  the loop with the CI-pinned version when touching validations or test
+  asserts. This bit `n8n_credentials_overwrite_secret_ref`, `n8n_extra_volumes`,
+  `n8n_dns_config`'s `ndots` check, and a `redis_observability.tftest.hcl`
+  assertion (`add-google-parity-through-aws-0-4-0`, section 24.1), none of
+  which failed under a newer local Terraform.
 
 - **A `terraform test` `assert` condition can reference module `local.*` values
   directly** (not just resource/output attributes), which is the way to test
@@ -392,17 +408,36 @@ terraform test -verbose                        # plan-time, no GCP creds needed
 tflint --init && tflint --format compact
 terraform-docs --output-check .                # README drift check
 
-# Repeat under each example. Mirrors the CI matrix so a green local run
-# means CI will be green too. Keep these in sync when adding examples.
-cd examples/small      && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/medium     && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/large      && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/cloudflare && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/godaddy    && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/customer-managed-cluster    && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/customer-managed-redis      && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/customer-managed-gcs        && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
-cd examples/customer-managed-everything && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .
+# Chart-rendering regression check: pinned Helm CLI, no credentials, no
+# Terraform. Mirrors the `chart-render` CI job.
+tests/scripts/check-n8n-chart.sh
+
+# Security baseline: pinned Checkov, same command as the `checkov` CI job.
+# soft_fail is false, so an unapproved new finding exits nonzero.
+checkov -d . --framework terraform --compact --quiet
+
+# Repeat the same five commands under every example and both controller
+# targets. This exact target list mirrors the `validate`/`test`/`tflint`/`docs`
+# job matrices in .github/workflows/terraform-tests.yml; keep both in sync
+# when adding a target. Each line runs in its own subshell (the parens), so
+# every `cd` is root-relative and unaffected by the previous line, unlike a
+# bare `cd examples/x && ...` chain, which would leave the shell inside
+# examples/x and break the next line's relative path.
+# modules/controllers and its nested example are not the terraform-docs
+# recursive-path default for a bare `terraform-docs .`, so they pass the root
+# config explicitly with --config (see "Clear documentation" above).
+(cd examples/small                       && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/medium                      && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/large                       && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/cloudflare                  && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/godaddy                     && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/split-ingress               && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/customer-managed-cluster    && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/customer-managed-redis      && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/customer-managed-gcs        && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/customer-managed-everything && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd modules/controllers                  && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --config ../../.terraform-docs.yml --output-check .)
+(cd modules/controllers/examples/direct-use && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --config ../../../../.terraform-docs.yml --output-check .)
 ```
 
 A real deployment uses `terraform apply` from `examples/small/` with a

@@ -207,9 +207,13 @@ run "exporter_external_redis_with_credentials_and_custom_prefix" {
   }
 
   assert {
+    # A ternary, not `e.name != "REDIS_PASSWORD" || (... e.value_from[0] ...)`:
+    # Terraform does not short-circuit ||, so indexing value_from[0] still
+    # runs (and errors against an empty list) for every non-REDIS_PASSWORD
+    # entry, which has no value_from at all.
     condition = alltrue([
       for e in kubernetes_deployment_v1.redis_exporter[0].spec[0].template[0].spec[0].container[0].env :
-      e.name != "REDIS_PASSWORD" || (
+      e.name != "REDIS_PASSWORD" ? true : (
         length(e.value_from) == 1 &&
         e.value_from[0].secret_key_ref[0].name == "external-redis-credentials" &&
         e.value_from[0].secret_key_ref[0].key == "redis-password" &&

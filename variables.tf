@@ -118,7 +118,11 @@ variable "n8n_credentials_overwrite_secret_ref" {
   default = null
 
   validation {
-    condition     = var.n8n_credentials_overwrite_secret_ref == null || (trimspace(var.n8n_credentials_overwrite_secret_ref.name) != "" && trimspace(var.n8n_credentials_overwrite_secret_ref.key) != "")
+    # Terraform does not short-circuit ||; a bare `var.x == null ||
+    # <attribute access on var.x>` still evaluates the right-hand side and
+    # errors on Terraform 1.9.x (the CI floor) when var.x is null. Use a
+    # ternary so the attribute access only happens when var.x is non-null.
+    condition     = var.n8n_credentials_overwrite_secret_ref == null ? true : (trimspace(var.n8n_credentials_overwrite_secret_ref.name) != "" && trimspace(var.n8n_credentials_overwrite_secret_ref.key) != "")
     error_message = "n8n_credentials_overwrite_secret_ref.name and .key must be non-empty."
   }
 
@@ -446,9 +450,13 @@ variable "n8n_extra_volumes" {
   }
 
   validation {
+    # Nested ternaries, not `v.config_map == null || v.config_map.default_mode
+    # == null || ...`: Terraform does not short-circuit ||, so the attribute
+    # access still runs and errors on Terraform 1.9.x (the CI floor) whenever
+    # an entry has no config_map at all.
     condition = alltrue([
       for v in var.n8n_extra_volumes :
-      v.config_map == null || v.config_map.default_mode == null || can(regex("^[0-7]{1,4}$", v.config_map.default_mode))
+      v.config_map == null ? true : (v.config_map.default_mode == null ? true : can(regex("^[0-7]{1,4}$", v.config_map.default_mode)))
     ])
     error_message = "n8n_extra_volumes[].config_map.default_mode must be an octal permission string using only digits 0-7 (e.g. \"0440\"), or null to use the chart/Kubernetes default."
   }
@@ -456,25 +464,25 @@ variable "n8n_extra_volumes" {
   validation {
     condition = alltrue([
       for v in var.n8n_extra_volumes :
-      v.secret == null || v.secret.default_mode == null || can(regex("^[0-7]{1,4}$", v.secret.default_mode))
+      v.secret == null ? true : (v.secret.default_mode == null ? true : can(regex("^[0-7]{1,4}$", v.secret.default_mode)))
     ])
     error_message = "n8n_extra_volumes[].secret.default_mode must be an octal permission string using only digits 0-7 (e.g. \"0440\"), or null to use the chart/Kubernetes default."
   }
 
   validation {
     condition = alltrue(flatten([
-      for v in var.n8n_extra_volumes : v.config_map == null || v.config_map.items == null ? [] : [
+      for v in var.n8n_extra_volumes : v.config_map == null ? [] : (v.config_map.items == null ? [] : [
         for i in v.config_map.items : i.path != "" && !startswith(i.path, "/") && !can(regex("(^|/)\\.\\.?(/|$)", i.path))
-      ]
+      ])
     ]))
     error_message = "n8n_extra_volumes[].config_map.items[].path must be a non-empty relative path with no leading slash and no \".\" or \"..\" components."
   }
 
   validation {
     condition = alltrue(flatten([
-      for v in var.n8n_extra_volumes : v.secret == null || v.secret.items == null ? [] : [
+      for v in var.n8n_extra_volumes : v.secret == null ? [] : (v.secret.items == null ? [] : [
         for i in v.secret.items : i.path != "" && !startswith(i.path, "/") && !can(regex("(^|/)\\.\\.?(/|$)", i.path))
-      ]
+      ])
     ]))
     error_message = "n8n_extra_volumes[].secret.items[].path must be a non-empty relative path with no leading slash and no \".\" or \"..\" components."
   }
@@ -1141,9 +1149,13 @@ variable "n8n_dns_config" {
   }
 
   validation {
+    # Ternaries, not `o.name != "ndots" || (... && can(regex(...)) &&
+    # tonumber(o.value) ...)`: Terraform does not short-circuit &&/||, so
+    # tonumber still runs (and errors, e.g. on "many") even when the regex
+    # already rejected the value. Only a ternary's untaken branch is skipped.
     condition = var.n8n_dns_config == null ? true : alltrue([
       for o in coalesce(var.n8n_dns_config.options, []) :
-      o.name != "ndots" || (o.value != null && can(regex("^[0-9]+$", o.value)) && tonumber(o.value) <= 15)
+      o.name != "ndots" ? true : (o.value == null ? false : (can(regex("^[0-9]+$", o.value)) ? tonumber(o.value) <= 15 : false))
     ])
     error_message = "n8n_dns_config: the ndots option must carry a whole number between 0 and 15, written as a string (\"1\", not \"1.5\"). glibc parses ndots with strtol and silently ignores a fractional, non-numeric, or out-of-range value, falling back to its default of 1, which looks like the setting worked while leaving resolution behaviour unchanged."
   }
