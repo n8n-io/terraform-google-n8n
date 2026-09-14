@@ -18,6 +18,22 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `n8n_task_runner_custom_config` and `n8n_task_runner_timeout`
+  (`add-google-parity-through-aws-0-4-0`, section 12): reference an existing
+  ConfigMap holding a custom task-runner launcher configuration file, mounted
+  read-only at `/etc/n8n-task-runners.json` on the task-runner sidecar of
+  every main and worker pod via the chart's `taskRunners.customConfig`. The
+  module never reads the ConfigMap's contents; the whole file (not a merge)
+  comes from the caller and must match the exact task-runner image/version in
+  use. Requires `n8n_task_runners_enabled = true`; setting it with runners
+  disabled fails validation. `n8n_task_runner_timeout` (default 300 seconds,
+  wired to `N8N_RUNNERS_TASK_TIMEOUT`) separately bounds how long an accepted
+  Code node task may run, distinct from the existing
+  `n8n_task_runner_request_timeout` (how long n8n waits for a runner to
+  accept a task in the first place). Changing only the ConfigMap's contents
+  does not trigger an automatic rollout: restart the `n8n-main` and
+  `n8n-worker` deployments to load new data, see
+  [`docs/troubleshooting.md`](./docs/troubleshooting.md#task-runner-custom-launcher-configuration-needs-a-matching-image-and-a-manual-restart).
 - Added `n8n_credentials_overwrite_secret_ref`
   (`add-google-parity-through-aws-0-4-0`, section 11): reference an existing
   Kubernetes Secret holding a credential-overwrites JSON payload, mounted

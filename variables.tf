@@ -946,6 +946,48 @@ variable "n8n_task_runner_request_timeout" {
   default     = 300
 }
 
+variable "n8n_task_runner_timeout" {
+  description = "Seconds a task runner is allowed to spend executing an already-accepted Code node task before n8n cancels it. Wired to the N8N_RUNNERS_TASK_TIMEOUT env var on the main and worker pods. Distinct from n8n_task_runner_request_timeout, which bounds how long n8n waits for a runner to accept a task in the first place, not how long the task itself may run; the two are deliberately independent so a busy runner (acceptance) and a long-running script (execution) can be tuned separately."
+  type        = number
+  default     = 300
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_task_runner_timeout > 0 && var.n8n_task_runner_timeout == floor(var.n8n_task_runner_timeout)
+    error_message = "n8n_task_runner_timeout must be a positive whole number of seconds."
+  }
+}
+
+variable "n8n_task_runner_custom_config" {
+  description = "Reference to an existing ConfigMap (in the n8n namespace) holding a custom task-runner launcher configuration file (n8n-task-runners.json by default), mounted read-only at /etc/n8n-task-runners.json on the task-runner sidecar of every main and worker pod via the chart's taskRunners.customConfig. Use this to allowlist additional JavaScript/Python packages for the Code node; the module never reads the referenced ConfigMap's contents, so the whole file's contents (not a merge or patch) come from the caller and must match the exact task-runner image/version in use (n8n_task_runner_image_tag, or the inherited n8n application image tag). Changing only the ConfigMap's contents does not trigger an automatic rollout: restart the n8n-main and n8n-worker deployments to pick up new data. Leave null (the default) to leave the launcher at the chart's built-in configuration. Requires n8n_task_runners_enabled = true."
+  type = object({
+    config_map_name = string
+    config_map_key  = optional(string, "n8n-task-runners.json")
+  })
+  default = null
+
+  validation {
+    condition     = var.n8n_task_runner_custom_config == null || var.n8n_task_runners_enabled
+    error_message = "n8n_task_runner_custom_config requires n8n_task_runners_enabled = true; without a runner sidecar there is nothing to mount the launcher configuration into."
+  }
+
+  validation {
+    condition = var.n8n_task_runner_custom_config == null ? true : (
+      can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", var.n8n_task_runner_custom_config.config_map_name)) &&
+      length(var.n8n_task_runner_custom_config.config_map_name) <= 253
+    )
+    error_message = "n8n_task_runner_custom_config.config_map_name must be a DNS-1123 subdomain, which is what Kubernetes requires of a ConfigMap name: lowercase alphanumerics, hyphens and dots, starting and ending with an alphanumeric, 253 characters or fewer."
+  }
+
+  validation {
+    condition = var.n8n_task_runner_custom_config == null ? true : (
+      can(regex("^[-._a-zA-Z0-9]+$", var.n8n_task_runner_custom_config.config_map_key)) &&
+      length(var.n8n_task_runner_custom_config.config_map_key) <= 253
+    )
+    error_message = "n8n_task_runner_custom_config.config_map_key must be a valid Kubernetes ConfigMap data key: alphanumeric characters, '-', '_', or '.', 253 characters or fewer."
+  }
+}
+
 # ── Cloud SQL PostgreSQL ─────────────────────────────────────────────────────────────
 
 variable "create_postgres_instance" {

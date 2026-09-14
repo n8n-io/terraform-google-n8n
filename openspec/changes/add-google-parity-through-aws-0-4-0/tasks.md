@@ -67,9 +67,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 12. Add task-runner configuration controls
 
-- [ ] 12.1 Add `n8n_task_runner_custom_config` with separate ConfigMap-name/key validation and enabled-runner requirement; verify main/worker sidecar mounts, custom keys, null omission, and disabled-runner rejection against chart 1.10.1.
-- [ ] 12.2 Add `n8n_task_runner_timeout=300` separately from the existing request timeout; verify distinct explicit execution/acceptance values, integer validation, and protected `N8N_RUNNERS_*` ownership.
-- [ ] 12.3 Document whole-file launcher replacement, image-version alignment, and main/worker restarts; verify the examples do not create permissive allow-lists or read caller ConfigMap contents.
+- [x] 12.1 Add `n8n_task_runner_custom_config` with separate ConfigMap-name/key validation and enabled-runner requirement; verify main/worker sidecar mounts, custom keys, null omission, and disabled-runner rejection against chart 1.10.1.
+- [x] 12.2 Add `n8n_task_runner_timeout=300` separately from the existing request timeout; verify distinct explicit execution/acceptance values, integer validation, and protected `N8N_RUNNERS_*` ownership.
+- [x] 12.3 Document whole-file launcher replacement, image-version alignment, and main/worker restarts; verify the examples do not create permissive allow-lists or read caller ConfigMap contents.
 
 ## 13. Add pod DNS configuration
 

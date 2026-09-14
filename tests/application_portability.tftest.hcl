@@ -248,6 +248,158 @@ run "custom_image_without_matching_task_runner_tag_triggers_check_warning" {
   expect_failures = [check.custom_image_tag_requires_task_runner_tag]
 }
 
+# ── Task runner execution timeout (section 12) ────────────────────────────────
+
+run "task_runner_timeout_defaults_to_300" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_task_runner_timeout == 300
+    error_message = "n8n_task_runner_timeout should default to 300 seconds."
+  }
+}
+
+run "task_runner_timeout_and_request_timeout_accept_distinct_explicit_values" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout         = 120
+    n8n_task_runner_request_timeout = 45
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_timeout == 120 && var.n8n_task_runner_request_timeout == 45
+    error_message = "n8n_task_runner_timeout (execution) and n8n_task_runner_request_timeout (acceptance) should accept distinct explicit values independently."
+  }
+}
+
+run "task_runner_timeout_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout = 0
+  }
+
+  expect_failures = [var.n8n_task_runner_timeout]
+}
+
+run "task_runner_timeout_rejects_negative" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout = -1
+  }
+
+  expect_failures = [var.n8n_task_runner_timeout]
+}
+
+run "task_runner_timeout_rejects_fraction" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout = 60.5
+  }
+
+  expect_failures = [var.n8n_task_runner_timeout]
+}
+
+run "extra_env_rejects_task_runner_timeout_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_RUNNERS_TASK_TIMEOUT", value = "999" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+# ── Task runner custom launcher configuration (section 12) ───────────────────
+
+run "task_runner_custom_config_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config == null
+    error_message = "n8n_task_runner_custom_config should default to null so the chart's built-in launcher configuration applies."
+  }
+}
+
+run "task_runner_custom_config_accepts_valid_reference" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+    }
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config.config_map_name == "n8n-runner-launcher"
+    error_message = "n8n_task_runner_custom_config.config_map_name should accept a valid ConfigMap name."
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config.config_map_key == "n8n-task-runners.json"
+    error_message = "n8n_task_runner_custom_config.config_map_key should default to n8n-task-runners.json."
+  }
+}
+
+run "task_runner_custom_config_accepts_custom_key" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+      config_map_key  = "launcher-config.json"
+    }
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config.config_map_key == "launcher-config.json"
+    error_message = "n8n_task_runner_custom_config.config_map_key should accept an explicit key."
+  }
+}
+
+run "task_runner_custom_config_rejects_invalid_config_map_name" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "Invalid_Name"
+    }
+  }
+
+  expect_failures = [var.n8n_task_runner_custom_config]
+}
+
+run "task_runner_custom_config_rejects_invalid_config_map_key" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+      config_map_key  = "invalid key!"
+    }
+  }
+
+  expect_failures = [var.n8n_task_runner_custom_config]
+}
+
+run "task_runner_custom_config_requires_task_runners_enabled" {
+  command = plan
+
+  variables {
+    n8n_task_runners_enabled = false
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+    }
+  }
+
+  expect_failures = [var.n8n_task_runner_custom_config]
+}
+
 # ── Custom extensions path ────────────────────────────────────────────────────
 
 run "custom_extensions_path_defaults_to_null" {

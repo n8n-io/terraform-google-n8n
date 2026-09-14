@@ -230,6 +230,50 @@ restart all three n8n deployments so every pod re-reads the file on startup:
 kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker n8n-webhook-processor
 ```
 
+## Task-runner custom launcher configuration needs a matching image and a manual restart
+
+**Symptom**
+
+You set `n8n_task_runner_custom_config` to allowlist an additional package for
+the Code node, but the task runner still rejects the package, ignores your
+changes, or the sidecar container fails to start with a config-parsing error.
+
+**Cause**
+
+`n8n_task_runner_custom_config` only passes a ConfigMap name/key reference to
+the chart's `taskRunners.customConfig`; the module never reads, validates, or
+merges the referenced file's contents. Two behaviors follow directly from
+that:
+
+- **Whole-file replacement, not a merge.** The mounted file entirely replaces
+  the task runner launcher's built-in configuration; it is not layered on top
+  of, or merged with, the image's default allowlist. A config that omits the
+  packages the built-in default normally allows loses access to those
+  packages too.
+- **Image-version alignment.** The launcher configuration file's schema and
+  supported keys are defined by the exact task-runner image in use
+  (`n8n_task_runner_image_tag`, or the n8n application image's tag when that
+  is left null). A config written for one runner version can fail to parse,
+  or silently ignore fields, on a different version.
+- **No automatic rollout on content changes**, for the same reason as
+  `n8n_credentials_overwrite_secret_ref` above: the module never reads the
+  ConfigMap's data, so a `terraform apply` that only changes the ConfigMap's
+  contents (not the `n8n_task_runner_custom_config` reference itself) gives
+  Terraform and the chart nothing to diff.
+
+**Fix**
+
+1. Confirm the ConfigMap's contents match the schema the running task-runner
+   image expects; check the image's own release notes for the version named
+   by `n8n_task_runner_image_tag` (or the n8n application image tag).
+2. After changing the ConfigMap's data, manually restart the two deployments
+   that run the task-runner sidecar so every pod re-reads the file on
+   startup:
+
+   ```bash
+   kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker
+   ```
+
 ## Disruptive Redis transitions (prefix change, ownership switch)
 
 See

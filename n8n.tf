@@ -544,6 +544,7 @@ resource "helm_release" "n8n" {
           # Override the internally computed http://host:5678 URL so webhooks show the correct HTTPS address.
           { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}") },
           { name = "N8N_RUNNERS_TASK_REQUEST_TIMEOUT", value = tostring(var.n8n_task_runner_request_timeout) },
+          { name = "N8N_RUNNERS_TASK_TIMEOUT", value = tostring(var.n8n_task_runner_timeout) },
           # Keeps Memorystore from dropping idle Redis subscriber connections under sustained load.
           # Without this, Bull detects dropped connections, emits queue errors, and pods crash.
           { name = "QUEUE_BULL_REDIS_KEEP_ALIVE", value = "true" },
@@ -769,6 +770,17 @@ resource "helm_release" "n8n" {
           var.n8n_task_runner_image_repository == null ? {} : { repository = var.n8n_task_runner_image_repository },
           var.n8n_task_runner_image_tag == null ? {} : { tag = var.n8n_task_runner_image_tag },
         )
+      },
+      # Caller-managed launcher configuration (n8n_task_runner_custom_config):
+      # the module only passes through the ConfigMap name/key, never reads or
+      # generates the file's contents. Omitted entirely when null so the
+      # chart's own customConfig.enabled=false default applies.
+      var.n8n_task_runner_custom_config == null ? {} : {
+        customConfig = {
+          enabled       = true
+          configMapName = var.n8n_task_runner_custom_config.config_map_name
+          configMapKey  = var.n8n_task_runner_custom_config.config_map_key
+        }
     })
 
     # ── Pod Disruption Budget ─────────────────────────────────────────────────
