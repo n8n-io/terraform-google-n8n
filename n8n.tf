@@ -228,7 +228,7 @@ resource "helm_release" "n8n" {
     # ScaledObject immediately takes over (D9).
     multiMain = {
       enabled  = true
-      replicas = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_min_replicas : var.n8n_main_fixed_replicas
+      replicas = local.n8n_effective_main_replica_count
       antiAffinity = {
         type = "preferred"
       }
@@ -236,13 +236,13 @@ resource "helm_release" "n8n" {
 
     queueMode = {
       enabled            = true
-      workerReplicaCount = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_min_replicas : var.n8n_worker_fixed_replicas
+      workerReplicaCount = local.n8n_effective_worker_replica_count
       workerConcurrency  = var.n8n_worker_concurrency
     }
 
     webhookProcessor = {
       enabled                                = true
-      replicaCount                           = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
+      replicaCount                           = local.n8n_effective_webhook_replica_count
       disableProductionWebhooksOnMainProcess = true
     }
 
@@ -458,12 +458,7 @@ resource "helm_release" "n8n" {
       timeout     = var.n8n_execution_timeout
       timeoutMax  = var.n8n_execution_timeout_max
       concurrency = { productionLimit = var.n8n_execution_concurrency_limit }
-      data = {
-        saveOnError          = "all"
-        saveOnSuccess        = "all"
-        saveOnProgress       = false
-        saveManualExecutions = true
-      }
+      data        = local.n8n_executions_data
       pruning = {
         enabled            = true
         maxAge             = var.n8n_pruning_max_age

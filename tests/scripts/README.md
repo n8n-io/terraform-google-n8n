@@ -2,6 +2,26 @@
 
 Post-deployment smoke test for `terraform-google-n8n`. Verifies the multi-main deployment is healthy end to end, pod health, queue mode, KEDA, HTTPS, API, and a full webhook → worker execution.
 
+## Chart-rendering regression check (`check-n8n-chart.sh`)
+
+`check-n8n-chart.sh` is a separate, credential-free check that renders the
+pinned n8n Helm chart (`var.n8n_chart_version` / `var.n8n_chart_repository`)
+with a synthetic values fixture and asserts on the rendered Kubernetes
+manifests: replica-count floor seeding on the main/worker/webhook-processor
+Deployments, the `service.annotations` BackendConfig annotation reaching both
+the main and webhook-processor Services, and the four
+`EXECUTIONS_DATA_SAVE_*` env vars. It needs only `helm` on `PATH`, no
+Terraform, no Kubernetes cluster, and no cloud credentials:
+
+```bash
+tests/scripts/check-n8n-chart.sh
+```
+
+This proves the chart renders these value fragments the way the module
+assumes; it is not a live Helm upgrade or a proof of runtime behavior, and it
+does not exercise the module's own Terraform expressions (covered by the
+mocked plan-time `terraform test` suite at the module root).
+
 ## What it covers
 
 | Check | What it verifies |

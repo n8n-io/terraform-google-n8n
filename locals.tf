@@ -229,3 +229,36 @@ locals {
     "/mcp",
   ]
 }
+
+# ── n8n Helm chart value fragments ───────────────────────────────────────────
+# Input-derived fragments of helm_release.n8n's values (n8n.tf), factored out
+# so this change's chart-rendering script (tests/scripts/check-n8n-chart.sh)
+# and later sections (topology-aware main behavior, execution-save controls)
+# consume the exact same computed values the release does, rather than a
+# second copy of the same formula. Keep this to fragments this change actually
+# touches; do not pre-extract chart values unrelated to this change's scope.
+
+locals {
+  # Fixed replica counts fall back to n8n_*_fixed_replicas when the caller owns
+  # that pod's scaling (n8n_main_hpa_enabled / n8n_webhook_hpa_enabled /
+  # n8n_worker_keda_enabled = false); otherwise they seed the initial replica
+  # count at the scaler's own minimum, which the HPA/KEDA ScaledObject
+  # immediately takes over (D9). Single-main/multi-main topology derivation
+  # (task 3.1) will consume n8n_effective_main_replica_count instead of
+  # reintroducing this ternary.
+  n8n_effective_main_replica_count    = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_min_replicas : var.n8n_main_fixed_replicas
+  n8n_effective_worker_replica_count  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_min_replicas : var.n8n_worker_fixed_replicas
+  n8n_effective_webhook_replica_count = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
+
+  # Execution-save policy, currently hardcoded in n8n.tf's executions.data
+  # block. Task 6.1 replaces these literals with dedicated inputs
+  # (n8n_executions_data_save_on_success/on_error/on_progress/
+  # manual_executions); this local is the single place both the Helm release
+  # and the chart-rendering script read the effective policy from.
+  n8n_executions_data = {
+    saveOnError          = "all"
+    saveOnSuccess        = "all"
+    saveOnProgress       = false
+    saveManualExecutions = true
+  }
+}
