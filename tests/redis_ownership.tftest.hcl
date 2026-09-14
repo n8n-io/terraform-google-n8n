@@ -324,6 +324,62 @@ run "redis_key_prefix_rejects_malformed_value" {
   expect_failures = [var.redis_key_prefix]
 }
 
+# ── N8N_REDIS_KEY_PREFIX command-channel prefix (task 7.1) ───────────────────
+
+# Default (null) omits both the command-channel override (N8N_REDIS_KEY_PREFIX)
+# and the Bull-prefix override (redis.prefix, asserted as "" above via the
+# existing chart-truthiness comment in n8n.tf), so n8n keeps its own distinct
+# "n8n" command-channel and "bull" Bull-queue defaults. helm_release.n8n's
+# values are unknown at plan time under the mock provider (see AGENTS.md), so
+# this only proves the default plans cleanly; the actual env-var omission is
+# covered by tests/scripts/check-n8n-chart.sh.
+run "redis_key_prefix_null_plans_cleanly" {
+  command = plan
+}
+
+# A caller-supplied n8n_extra_env entry named N8N_REDIS_KEY_PREFIX must be
+# rejected: config.extraEnv is appended last (Kubernetes last-wins) and would
+# otherwise silently override the module's own N8N_REDIS_KEY_PREFIX value
+# whenever redis_key_prefix is set.
+run "extra_env_rejects_n8n_redis_key_prefix_name" {
+  command = plan
+
+  variables {
+    redis_key_prefix = "myprefix"
+    n8n_extra_env = [
+      { name = "N8N_REDIS_KEY_PREFIX", value = "other" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+# Two independent configurations against the same external Redis endpoint
+# with different prefixes must plan cleanly on their own; the distinct
+# command-prefix, Bull-prefix, and queue-key coordinates each configuration
+# produces are asserted against the real rendered chart values in
+# tests/scripts/check-n8n-chart.sh (helm_release.n8n's values are unknown at
+# plan time under the mock provider, see AGENTS.md).
+run "redis_key_prefix_deployment_a_plans_cleanly" {
+  command = plan
+
+  variables {
+    create_redis_instance = false
+    redis_host            = "shared-redis.internal"
+    redis_key_prefix      = "deploy-a"
+  }
+}
+
+run "redis_key_prefix_deployment_b_plans_cleanly" {
+  command = plan
+
+  variables {
+    create_redis_instance = false
+    redis_host            = "shared-redis.internal"
+    redis_key_prefix      = "deploy-b"
+  }
+}
+
 # ── Cloud KMS create-or-reference ─────────────────────────────────────────────
 
 run "module_created_redis_key_wires_key_ring_and_iam" {

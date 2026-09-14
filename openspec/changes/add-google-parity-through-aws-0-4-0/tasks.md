@@ -40,8 +40,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 7. Complete Redis namespace isolation
 
-- [ ] 7.1 Wire and reserve `N8N_REDIS_KEY_PREFIX` and share the effective waiting/active key list in `locals.tf` and KEDA values; verify custom prefixes change command, Bull, and scaler coordinates together.
-- [ ] 7.2 Add default-prefix and two-deployment isolation cases plus a queue-drain upgrade note; verify null omits both overrides and different prefixes on one endpoint produce distinct command/queue names.
+- [x] 7.1 Wire and reserve `N8N_REDIS_KEY_PREFIX` and share the effective waiting/active key list in `locals.tf` and KEDA values; verify custom prefixes change command, Bull, and scaler coordinates together.
+- [x] 7.2 Add default-prefix and two-deployment isolation cases plus a queue-drain upgrade note; verify null omits both overrides and different prefixes on one endpoint produce distinct command/queue names.
 
 ## 8. Add direct encryption-key recovery
 

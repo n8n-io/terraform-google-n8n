@@ -146,8 +146,11 @@ coordinates regardless of ownership (`locals.tf`). KEDA's
 not only for managed AUTH.
 
 `redis_key_prefix` and `n8n_redis_timeout_threshold_ms` apply on both paths
-and stay synchronized between n8n's Bull queue keys and KEDA's waiting/active
-list names. See [Disruptive Redis transitions](#disruptive-redis-transitions)
+and stay synchronized across n8n's command channel (`N8N_REDIS_KEY_PREFIX`),
+its Bull queue keys (the chart's `redis.prefix`), and KEDA's waiting/active
+list names. Null omits both overrides, preserving n8n's own distinct `n8n`
+command-channel and `bull` Bull-queue defaults rather than forcing them to
+one value. See [Disruptive Redis transitions](#disruptive-redis-transitions)
 below before changing `redis_key_prefix` on a live deployment.
 
 ### GCS bucket, HMAC identity, and encryption
@@ -303,9 +306,14 @@ KEDA's CRDs must exist before a `ScaledObject` referencing them can apply.
 ## Disruptive Redis transitions
 
 Changing `redis_key_prefix` on a deployment with in-flight or queued jobs
-strands them under the old prefix, because Bull's key names embed the
-prefix. Drain the queue (let `n8n_worker_keda_min_replicas`/fixed workers run
-until the queue is empty) before changing this value. The same applies when
+strands them under the old prefix, because both n8n's command channel
+(`N8N_REDIS_KEY_PREFIX`) and Bull's key names (`redis.prefix`) embed the
+prefix; every n8n role (main, worker, webhook processor) must pick up the
+new value together, since a partial rollout would split main/worker
+communication across two command-channel namespaces. Drain the queue (let
+`n8n_worker_keda_min_replicas`/fixed workers run until the queue is empty)
+before changing this value, then let the Helm upgrade restart all three
+deployments rather than rolling them independently. The same applies when
 switching `create_redis_instance` from `true` to `false` (or vice versa): the
 new Redis endpoint starts with an empty queue, so any queued jobs on the old
 endpoint are lost unless you drain first.

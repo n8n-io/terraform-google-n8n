@@ -463,6 +463,126 @@ assert_deployment_strategy_absent_in_default() {
 }
 assert_deployment_strategy_absent_in_default
 
+# ── Redis command/Bull prefix synchronization (task 7.1) ───────────────────
+# A third render with redis.prefix set (the chart's Bull-queue prefix) and
+# config.extraEnv carrying N8N_REDIS_KEY_PREFIX (the module's command-channel
+# override, n8n.tf), both set to the same var.redis_key_prefix value. Proves
+# the chart actually renders QUEUE_BULL_PREFIX from redis.prefix and
+# N8N_REDIS_KEY_PREFIX from config.extraEnv on every container that reads
+# config.extraEnv (main, worker, webhook-processor; see
+# templates/deployment-*.yaml's `with .Values.config.extraEnv` guard), so a
+# caller-set prefix reaches n8n's command channel and its Bull queue keys
+# together, not just one of the two.
+cat >"$WORKDIR/fixture-redis-prefix.yaml" <<'EOF'
+multiMain:
+  enabled: true
+  replicas: 2
+queueMode:
+  enabled: true
+  workerReplicaCount: 3
+  workerConcurrency: 5
+webhookProcessor:
+  enabled: true
+  replicaCount: 1
+  disableProductionWebhooksOnMainProcess: true
+database:
+  type: postgresdb
+  useExternal: true
+  host: synthetic-postgres.internal
+  port: 5432
+  database: n8n
+  schema: public
+  user: n8n
+  passwordSecret:
+    name: synthetic-db-secret
+    key: password
+redis:
+  enabled: true
+  useExternal: true
+  host: synthetic-redis.internal
+  port: 6379
+  tls: false
+  username: ""
+  prefix: "myprefix"
+config:
+  extraEnv:
+    - name: N8N_REDIS_KEY_PREFIX
+      value: myprefix
+service:
+  type: ClusterIP
+  port: 5678
+secretRefs:
+  existingSecret: synthetic-core-secret
+license:
+  enabled: true
+  activationKey: ""
+  existingSecret:
+    name: ""
+    key: license-key
+s3:
+  enabled: true
+  bucket:
+    name: synthetic-bucket
+    region: auto
+    host: storage.googleapis.com
+  auth:
+    autoDetect: false
+    accessKeyId: synthetic-access-id
+    secretAccessKeySecret:
+      name: synthetic-s3-secret
+      key: accessSecret
+  storage:
+    mode: s3
+    availableModes: "filesystem,s3"
+    forcePathStyle: true
+EOF
+
+echo "==> helm template (redis-prefix fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-redis-prefix.yaml" \
+  >"$WORKDIR/rendered-redis-prefix.yaml" 2>"$WORKDIR/helm-stderr-redis-prefix.log"; then
+  cat "$WORKDIR/helm-stderr-redis-prefix.log" >&2
+  fail "helm template (redis-prefix fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the redis-prefix fixture with no credentials"
+
+  RP_RENDERED="$WORKDIR/rendered-redis-prefix.yaml"
+
+  # QUEUE_BULL_PREFIX is set once in the rendered ConfigMap's data (from
+  # redis.prefix) and consumed via envFrom.configMapKeyRef on every
+  # container that reads it (main, worker, webhook-processor), not as a
+  # literal `value:` env entry, so it needs its own checks rather than
+  # assert_env_count_in (which expects a literal value).
+  RP_QUEUE_BULL_PREFIX_CONFIGMAP_VALUE="$(grep -c '^  QUEUE_BULL_PREFIX: "myprefix"$' "$RP_RENDERED" || true)"
+  if [ "$RP_QUEUE_BULL_PREFIX_CONFIGMAP_VALUE" = "1" ]; then
+    pass "ConfigMap/n8n QUEUE_BULL_PREFIX == \"myprefix\""
+  else
+    fail "ConfigMap/n8n QUEUE_BULL_PREFIX: expected exactly one occurrence of QUEUE_BULL_PREFIX: \"myprefix\", found ${RP_QUEUE_BULL_PREFIX_CONFIGMAP_VALUE}"
+  fi
+
+  RP_QUEUE_BULL_PREFIX_ENV_COUNT="$(grep -c '^            - name: QUEUE_BULL_PREFIX$' "$RP_RENDERED" || true)"
+  if [ "$RP_QUEUE_BULL_PREFIX_ENV_COUNT" = "3" ]; then
+    pass "QUEUE_BULL_PREFIX sourced from the ConfigMap on all 3 rendered containers"
+  else
+    fail "QUEUE_BULL_PREFIX env entry: expected 3 occurrences (main/worker/webhook-processor), found ${RP_QUEUE_BULL_PREFIX_ENV_COUNT}"
+  fi
+
+  # N8N_REDIS_KEY_PREFIX passes through config.extraEnv's raw `with`/toYaml
+  # block (unlike the chart's own executionsEnv helper, which quotes its
+  # values), so a plain scalar like "myprefix" round-trips unquoted.
+  RP_COMMAND_PREFIX_COUNT="$(awk '
+    $0 ~ "- name: N8N_REDIS_KEY_PREFIX$" { getline v; if (v == "              value: myprefix" || v == "            value: myprefix") count++ }
+    END { print count+0 }
+  ' "$RP_RENDERED")"
+  if [ "$RP_COMMAND_PREFIX_COUNT" = "3" ]; then
+    pass "N8N_REDIS_KEY_PREFIX == myprefix on all 3 rendered containers"
+  else
+    fail "N8N_REDIS_KEY_PREFIX: expected 3 occurrence(s) with value myprefix, found ${RP_COMMAND_PREFIX_COUNT}"
+  fi
+fi
+
 # ── Self-check: prove a wrong expected value is actually caught ─────────────
 # Runs one assertion with a deliberately wrong expected replica count in a
 # subshell (so its FAILURES increment does not pollute the real run) and

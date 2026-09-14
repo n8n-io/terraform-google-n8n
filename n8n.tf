@@ -433,8 +433,8 @@ resource "helm_release" "n8n" {
         # ref name is not valid, so the key is omitted when neither applies.
         triggers = [
           for queue in [
-            "${local.effective_redis_key_prefix}:jobs:wait",
-            "${local.effective_redis_key_prefix}:jobs:active",
+            local.effective_redis_queue_keys.waiting,
+            local.effective_redis_queue_keys.active,
             ] : merge(
             {
               type = "redis"
@@ -526,6 +526,15 @@ resource "helm_release" "n8n" {
           # because the module default deliberately overrides n8n's own default.
           { name = "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN", value = tostring(var.n8n_license_detach_floating_on_shutdown) },
         ],
+        # Redis command-channel prefix, synchronized with the Bull queue-key
+        # prefix (redis.prefix above) and the KEDA/exporter queue key names
+        # (local.effective_redis_queue_keys) so all three consumers agree on
+        # one namespace. Null omits the env var entirely, leaving n8n's own
+        # "n8n" command-channel default in place alongside the chart's own
+        # "bull" Bull-queue default (redis.prefix = "" above).
+        var.redis_key_prefix != null ? [
+          { name = "N8N_REDIS_KEY_PREFIX", value = var.redis_key_prefix },
+        ] : [],
         # Database health-check and connection-acquisition tuning. Each value
         # is null by default and omitted entirely so n8n's own default
         # applies; these apply identically for managed Cloud SQL and external

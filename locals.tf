@@ -51,6 +51,11 @@ locals {
     "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN",
     "N8N_EXECUTION_DATA_STORAGE_MODE",
     "NODE_EXTRA_CA_CERTS",
+    # Redis command-channel prefix (task 7.1), synchronized with the chart's
+    # redis.prefix (Bull queue keys, set unconditionally as "" or the
+    # supplied value in n8n.tf) via var.redis_key_prefix. Emitted only when
+    # var.redis_key_prefix is non-null (see the extraEnv block in n8n.tf).
+    "N8N_REDIS_KEY_PREFIX",
     # Rendered by the chart from executions.data (n8n_executions_data_save_*
     # in variables.tf via local.n8n_executions_data). Reserved even though
     # the module already sets a value for each (rather than leaving them
@@ -214,6 +219,16 @@ locals {
   manage_redis_trigger_auth    = local.effective_redis_password_secret_name != null || local.manage_redis_tls_ca
   manage_redis_username_secret = local.effective_redis_username != null
   effective_redis_key_prefix   = coalesce(var.redis_key_prefix, "bull")
+
+  # Bull queue key names KEDA (n8n.tf) and the opt-in Redis exporter
+  # (observability.tf, section 16) both watch, sharing the same prefix as
+  # n8n's own Bull queue and command-channel keys (redis.prefix /
+  # N8N_REDIS_KEY_PREFIX below) so all three consumers agree on which lists
+  # hold queued and in-flight jobs.
+  effective_redis_queue_keys = {
+    waiting = "${local.effective_redis_key_prefix}:jobs:wait"
+    active  = "${local.effective_redis_key_prefix}:jobs:active"
+  }
 
   # Queue lock/stall tuning (redis.worker in the chart): built as one nested
   # map, not three independent top-level merge() calls in n8n.tf, so setting

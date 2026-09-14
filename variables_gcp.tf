@@ -398,7 +398,7 @@ variable "redis_password_secret_ref" {
 }
 
 variable "redis_key_prefix" {
-  description = "Optional prefix n8n applies to its Bull queue Redis keys (the chart's redis.prefix, chart default \"bull\"), synchronized with the corresponding KEDA queue list names (\"<prefix>:jobs:wait\" / \"<prefix>:jobs:active\"). Leave null (the default) to use the chart's own default prefix. Changing this value on a deployment with in-flight or queued jobs strands them under the old prefix; drain the queue first (see docs/customer-managed-infrastructure.md)."
+  description = "Optional prefix n8n applies to both its command channel (N8N_REDIS_KEY_PREFIX, n8n default \"n8n\") and its Bull queue Redis keys (the chart's redis.prefix, chart default \"bull\"), synchronized with the corresponding KEDA queue list names (\"<prefix>:jobs:wait\" / \"<prefix>:jobs:active\") and, when enabled, the Redis exporter's queue-key checks. Leave null (the default) to use n8n's and the chart's own distinct default prefixes. Changing this value on a deployment with in-flight or queued jobs strands them under the old prefix; drain the queue first (see docs/customer-managed-infrastructure.md)."
   type        = string
   default     = null
 
