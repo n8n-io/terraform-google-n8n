@@ -152,6 +152,6 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 27. Run final automated acceptance
 
-- [ ] 27.1 Run `terraform fmt -check -recursive`, backend-free initialization, validation, mocked tests, TFLint, and Terraform documentation checks across the root, all examples, and both controller targets on Terraform 1.9.8; verify every target passes with only GoDaddy stub credentials where required.
-- [ ] 27.2 Run the complete pinned-chart rendering matrix, blocking security command, shell checks, and `openspec validate add-google-parity-through-aws-0-4-0 --strict`; verify defaults, combined overrides, invalid inputs, and all ownership paths pass without a live cluster.
-- [ ] 27.3 Review the diff and final evidence report against `parity-matrix.md` and all delta scenarios; verify no unrelated implementation, AWS-only flags, blanket exceptions, leaked secrets, unsupported version claim, or unperformed live-test success is included.
+- [x] 27.1 Run `terraform fmt -check -recursive`, backend-free initialization, validation, mocked tests, TFLint, and Terraform documentation checks across the root, all examples, and both controller targets on Terraform 1.9.8; verify every target passes with only GoDaddy stub credentials where required.
+- [x] 27.2 Run the complete pinned-chart rendering matrix, blocking security command, shell checks, and `openspec validate add-google-parity-through-aws-0-4-0 --strict`; verify defaults, combined overrides, invalid inputs, and all ownership paths pass without a live cluster.
+- [x] 27.3 Review the diff and final evidence report against `parity-matrix.md` and all delta scenarios; verify no unrelated implementation, AWS-only flags, blanket exceptions, leaked secrets, unsupported version claim, or unperformed live-test success is included.
