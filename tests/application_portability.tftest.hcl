@@ -626,6 +626,78 @@ run "dns_config_rejects_a_fractional_ndots_value" {
   expect_failures = [var.n8n_dns_config]
 }
 
+# ── V8 heap ceiling (n8n_node_max_old_space_size_mb, section 14) ─────────────
+
+run "node_max_old_space_size_mb_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_node_max_old_space_size_mb == null
+    error_message = "n8n_node_max_old_space_size_mb should default to null so Node's own heap heuristic applies."
+  }
+}
+
+run "node_max_old_space_size_mb_accepts_explicit_value" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 512
+  }
+
+  assert {
+    condition     = var.n8n_node_max_old_space_size_mb == 512
+    error_message = "n8n_node_max_old_space_size_mb should accept an explicit whole-MiB value."
+  }
+}
+
+run "node_max_old_space_size_mb_rejects_below_minimum" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 255
+  }
+
+  expect_failures = [var.n8n_node_max_old_space_size_mb]
+}
+
+run "node_max_old_space_size_mb_rejects_fraction" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 256.5
+  }
+
+  expect_failures = [var.n8n_node_max_old_space_size_mb]
+}
+
+run "node_max_old_space_size_mb_null_leaves_existing_node_options_escape_hatch_accepted" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "NODE_OPTIONS", value = "--max-old-space-size=768" },
+    ]
+  }
+
+  assert {
+    condition     = length(var.n8n_extra_env) == 1
+    error_message = "NODE_OPTIONS set through n8n_extra_env should remain accepted while n8n_node_max_old_space_size_mb is null."
+  }
+}
+
+run "node_max_old_space_size_mb_rejects_conflicting_extra_env_node_options" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 512
+    n8n_extra_env = [
+      { name = "NODE_OPTIONS", value = "--max-old-space-size=999" },
+    ]
+  }
+
+  expect_failures = [var.n8n_node_max_old_space_size_mb]
+}
+
 # ── Custom extensions path ────────────────────────────────────────────────────
 
 run "custom_extensions_path_defaults_to_null" {

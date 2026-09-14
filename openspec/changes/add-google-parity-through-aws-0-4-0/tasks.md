@@ -78,8 +78,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 14. Add the V8 heap ceiling
 
-- [ ] 14.1 Add `n8n_node_max_old_space_size_mb` and conditional `NODE_OPTIONS` protection; verify null and explicit settings across all n8n containers without changing runner containers.
-- [ ] 14.2 Add minimum/integer/collision tests and smallest-container memory guidance; verify legacy `NODE_OPTIONS` remains accepted at null and documented examples leave headroom beneath Google's webhook memory limit.
+- [x] 14.1 Add `n8n_node_max_old_space_size_mb` and conditional `NODE_OPTIONS` protection; verify null and explicit settings across all n8n containers without changing runner containers.
+- [x] 14.2 Add minimum/integer/collision tests and smallest-container memory guidance; verify legacy `NODE_OPTIONS` remains accepted at null and documented examples leave headroom beneath Google's webhook memory limit.
 
 ## 15. Add registry and security-related runtime settings
 

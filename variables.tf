@@ -988,6 +988,24 @@ variable "n8n_task_runner_custom_config" {
   }
 }
 
+# ── V8 heap ceiling ───────────────────────────────────────────────────────────
+
+variable "n8n_node_max_old_space_size_mb" {
+  description = "Whole MiB ceiling for Node.js's V8 old-space heap, applied identically to every n8n container (main, worker, webhook processor) via a global NODE_OPTIONS=--max-old-space-size=<value> on config.extraEnv. Does not change the task-runner sidecar's own heap, which is a separate Node.js process outside config.extraEnv. Null (the default) omits the setting so Node's own heuristic (roughly a quarter of the container's available memory) applies. Setting this reserves NODE_OPTIONS against n8n_extra_env while set; leave null to keep using n8n_extra_env's existing NODE_OPTIONS escape hatch. Leave headroom below the smallest n8n container's memory limit for non-heap V8/Node overhead (code cache, native buffers, thread stacks): setting this at or above that limit risks an OOM kill instead of a controlled heap error."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_node_max_old_space_size_mb == null ? true : (var.n8n_node_max_old_space_size_mb >= 256 && floor(var.n8n_node_max_old_space_size_mb) == var.n8n_node_max_old_space_size_mb)
+    error_message = "n8n_node_max_old_space_size_mb must be a whole number of MiB of at least 256, or null to omit the override."
+  }
+
+  validation {
+    condition     = var.n8n_node_max_old_space_size_mb == null ? true : !anytrue([for e in var.n8n_extra_env : e.name == "NODE_OPTIONS"])
+    error_message = "n8n_node_max_old_space_size_mb reserves NODE_OPTIONS while set (the module sets it itself from this value); remove the conflicting n8n_extra_env entry, or leave this null to keep setting NODE_OPTIONS through n8n_extra_env."
+  }
+}
+
 # ── Pod DNS ───────────────────────────────────────────────────────────────────
 
 variable "n8n_dns_config" {

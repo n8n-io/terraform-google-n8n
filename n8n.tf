@@ -585,6 +585,15 @@ resource "helm_release" "n8n" {
         var.db_postgresdb_connection_timeout_ms != null ? [
           { name = "DB_POSTGRESDB_CONNECTION_TIMEOUT", value = tostring(var.db_postgresdb_connection_timeout_ms) },
         ] : [],
+        # V8 old-space heap ceiling, applied identically to every n8n
+        # container (not the task-runner sidecar, a separate process outside
+        # config.extraEnv). Null omits the override so Node's own heuristic
+        # applies; NODE_OPTIONS stays available through n8n_extra_env in that
+        # case, and is reserved against it (see n8n_node_max_old_space_size_mb
+        # in variables.tf) only while this is set.
+        var.n8n_node_max_old_space_size_mb != null ? [
+          { name = "NODE_OPTIONS", value = "--max-old-space-size=${var.n8n_node_max_old_space_size_mb}" },
+        ] : [],
         # Points at the single key mounted read-only from
         # n8n_credentials_overwrite_secret_ref above; the module never reads
         # or renders the Secret's own JSON payload, only this file path.
