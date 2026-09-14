@@ -89,6 +89,35 @@ run "existing_namespace_creates_no_namespace_resource" {
 
 # ── License Secret reference ──────────────────────────────────────────────────
 
+# helm_release.values is unknown at plan time under the mock provider (see
+# AGENTS.md's "Known mock provider limitations"); tests/scripts/check-n8n-chart.sh
+# renders the real chart and asserts license.activationKey/existingSecret there.
+# These plan-time assertions cover the effective locals and the managed
+# Secret's own data instead.
+run "direct_license_key_creates_managed_secret_no_literal_in_helm_values" {
+  command = plan
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 1
+    error_message = "A direct n8n_license_key must create a dedicated module-managed license Secret."
+  }
+
+  assert {
+    condition     = kubernetes_secret.n8n_license[0].data["license-key"] == "test-license-key-not-real"
+    error_message = "The managed license Secret must carry the exact supplied key."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == "n8n-license-secret"
+    error_message = "The effective license Secret name must point at the managed Secret."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_key == "license-key"
+    error_message = "The managed license Secret's key must be license-key."
+  }
+}
+
 run "license_key_secret_ref_wires_into_helm_values" {
   command = plan
 
@@ -103,6 +132,21 @@ run "license_key_secret_ref_wires_into_helm_values" {
   assert {
     condition     = helm_release.n8n.namespace == "n8n"
     error_message = "A license Secret reference must still plan cleanly."
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 0
+    error_message = "A caller-managed license Secret reference must not create a duplicate managed license Secret."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == "n8n-license"
+    error_message = "The caller-supplied license Secret name must be used as-is."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_key == "activation-key"
+    error_message = "The caller-supplied license Secret key must be used as-is."
   }
 }
 

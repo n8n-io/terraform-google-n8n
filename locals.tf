@@ -189,6 +189,17 @@ locals {
   # an unread external core Secret.
   effective_encryption_key = local.manage_core_secret ? coalesce(var.n8n_encryption_key, try(random_id.n8n_encryption_key[0].hex, null)) : null
 
+  # License (D7 continued): a direct n8n_license_key wraps into a dedicated
+  # module-managed Secret (n8n.tf's kubernetes_secret.n8n_license) instead of
+  # rendering the literal activation key into Helm values; a caller-supplied
+  # n8n_license_key_secret_ref is used as-is and creates no managed Secret.
+  # The two sources remain mutually exclusive (variables.tf's validation), so
+  # exactly one of these branches is ever active.
+  manage_license_secret = var.n8n_license_key != null
+
+  effective_license_secret_name = local.manage_license_secret ? kubernetes_secret.n8n_license[0].metadata[0].name : var.n8n_license_key_secret_ref.name
+  effective_license_secret_key  = local.manage_license_secret ? "license-key" : var.n8n_license_key_secret_ref.key
+
   # Redis. ACL usernames are meaningful only on the external path; managed
   # Memorystore has no concept of one. manage_redis_secret/
   # effective_redis_password_secret_* mirror PostgreSQL's D7 password-source

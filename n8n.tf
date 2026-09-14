@@ -66,6 +66,25 @@ resource "kubernetes_secret" "n8n" {
 # Skipped when the caller references an existing Secret for the external
 # database password (n8n_database_password_secret_ref); see
 # locals.tf's manage_db_secret / effective_db_password_secret_*.
+# Wraps a direct license value (n8n_license_key) so the chart never renders
+# the literal activation key into Helm values/pod specs. Skipped when the
+# caller supplies an existing Secret instead (n8n_license_key_secret_ref,
+# used as-is); see locals.tf's manage_license_secret / effective_license_secret_*.
+resource "kubernetes_secret" "n8n_license" {
+  count = local.manage_license_secret ? 1 : 0
+
+  metadata {
+    name      = "n8n-license-secret"
+    namespace = local.effective_namespace
+  }
+
+  data = {
+    "license-key" = var.n8n_license_key
+  }
+
+  depends_on = [kubernetes_namespace.n8n]
+}
+
 resource "kubernetes_secret" "n8n_db" {
   count = local.manage_db_secret ? 1 : 0
 
@@ -206,20 +225,18 @@ resource "helm_release" "n8n" {
   cleanup_on_fail = true
 
   values = [yamlencode(merge({
-    # Ownership-neutral (D7): a direct license value (activationKey) or an
-    # existing Secret reference (existingSecret), never both (enforced by
-    # n8n_license_key_secret_ref's mutual-exclusivity validation). Exactly one
-    # of the two is ever non-empty; the chart ignores activationKey once
-    # existingSecret.name is set.
+    # Ownership-neutral (D7): the license is always delivered through
+    # existingSecret, never activationKey, so no literal activation key ever
+    # renders into Helm values or pod specs. A direct n8n_license_key wraps
+    # into the module-managed kubernetes_secret.n8n_license; a caller-supplied
+    # n8n_license_key_secret_ref is referenced as-is and creates no managed
+    # Secret (mutually exclusive, enforced by variables.tf's validation).
     license = {
       enabled       = true
-      activationKey = var.n8n_license_key_secret_ref != null ? "" : var.n8n_license_key
-      existingSecret = var.n8n_license_key_secret_ref != null ? {
-        name = var.n8n_license_key_secret_ref.name
-        key  = var.n8n_license_key_secret_ref.key
-        } : {
-        name = ""
-        key  = "license-key"
+      activationKey = ""
+      existingSecret = {
+        name = local.effective_license_secret_name
+        key  = local.effective_license_secret_key
       }
     }
 

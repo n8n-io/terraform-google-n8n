@@ -50,8 +50,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 9. Remove inline license delivery
 
-- [ ] 9.1 Add a dedicated managed Secret for direct licenses and use effective license Secret coordinates in Helm values; verify external references create no managed license Secret and all roles render `secretKeyRef` without a literal key.
-- [ ] 9.2 Preserve namespace ordering, source exclusivity, and the external-core separate-license contract; verify existing Kubernetes ownership tests and synthetic-license rendering cases pass.
+- [x] 9.1 Add a dedicated managed Secret for direct licenses and use effective license Secret coordinates in Helm values; verify external references create no managed license Secret and all roles render `secretKeyRef` without a literal key.
+- [x] 9.2 Preserve namespace ordering, source exclusivity, and the external-core separate-license contract; verify existing Kubernetes ownership tests and synthetic-license rendering cases pass.
 
 ## 10. Add caller-managed volume contracts
 

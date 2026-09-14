@@ -18,6 +18,15 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Delivered direct `n8n_license_key` values through a dedicated
+  module-managed `kubernetes_secret.n8n_license` Secret instead of a literal
+  `license.activationKey` Helm value (`add-google-parity-through-aws-0-4-0`,
+  section 9). Every n8n role now reads the license through
+  `license.existingSecret`, whether the module manages the Secret (direct
+  key) or the caller supplies `n8n_license_key_secret_ref` (unread,
+  referenced as-is, no duplicate managed Secret). No functional or interface
+  change for callers already using either input; only the rendered Helm
+  values change (no literal key ever appears in them).
 - Added sensitive `n8n_encryption_key` (`add-google-parity-through-aws-0-4-0`,
   section 8): reuse a known 64-hexadecimal-character encryption key instead of
   letting the module generate one, e.g. to keep decrypting credentials in a
