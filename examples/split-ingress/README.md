@@ -17,16 +17,16 @@ outputs). Two separate GKE Ingress objects split the surface:
 This is not the module's own managed ingress (`examples/small`,
 `examples/cloudflare`, `examples/godaddy`); it is a reference for building a
 customer-managed ingress from the module's Service/route/port outputs when
-the built-in single-ingress path doesn't fit your exposure requirements.
+the built-in single-ingress path doesn't fit your exposure requirements. Both
+`kubernetes_ingress_v1` resources (`ingress.tf`) route through the module's
+own `n8n_webhook_route_prefixes`/`n8n_main_route_prefixes` outputs, so a
+chart upgrade that changes the webhook family list changes this example's
+routing the same way it changes the module's built-in managed ingress.
 
-> **Status:** preliminary / not scale-validated, and not yet a runnable
-> end-to-end deployment. This directory currently provisions the
-> infrastructure the split ingress needs (addresses, proxy-only subnet,
-> scoped firewall rule, exposure-specific Services/BackendConfigs, TLS
-> Secret, and a Google-managed certificate for the public host); the actual
-> `kubernetes_ingress_v1` routing rules are added in a follow-up change. Do
-> not expect public/private traffic to actually reach n8n from this
-> directory alone yet.
+> **Status:** not scale-validated. This example is plan-tested with mocked
+> providers (`terraform test`); it has not been applied against a real GKE
+> cluster as part of this change. Follow the DNS/TLS prerequisites below
+> before relying on it.
 
 ## What this example creates that `examples/small` doesn't
 
@@ -41,6 +41,8 @@ the built-in single-ingress path doesn't fit your exposure requirements.
 | `kubectl_manifest.backendconfig_public`, `kubectl_manifest.backendconfig_private` | Health check (both) plus session affinity (private only, for the editor's WebSocket/push connections). |
 | `kubectl_manifest.public_managed_certificate` | Google-managed certificate for the public host. |
 | `kubernetes_secret_v1.private_tls` | Caller-supplied TLS Secret for the private host; see "TLS" below. |
+| `kubernetes_ingress_v1.public` | Public `gce`-class Ingress on `public_webhook_fqdn`: the five webhook families only, no editor/API route. |
+| `kubernetes_ingress_v1.private` | Private `gce-internal`-class Ingress on `n8n_fqdn`: editor/API catch-all plus the same webhook families, using the caller-supplied TLS Secret. |
 
 ## Prerequisites
 
@@ -122,6 +124,8 @@ terraform apply
 | [kubectl_manifest.backendconfig_private](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
 | [kubectl_manifest.backendconfig_public](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
 | [kubectl_manifest.public_managed_certificate](https://registry.terraform.io/providers/gavinbunney/kubectl/latest/docs/resources/manifest) | resource |
+| [kubernetes_ingress_v1.private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
+| [kubernetes_ingress_v1.public](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/ingress_v1) | resource |
 | [kubernetes_secret_v1.private_tls](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/secret_v1) | resource |
 | [kubernetes_service_v1.main_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_v1) | resource |
 | [kubernetes_service_v1.webhook_private](https://registry.terraform.io/providers/hashicorp/kubernetes/latest/docs/resources/service_v1) | resource |

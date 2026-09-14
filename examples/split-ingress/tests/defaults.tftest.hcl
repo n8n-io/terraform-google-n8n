@@ -142,4 +142,83 @@ run "split_ingress_produces_valid_plan" {
     error_message = "the public ManagedCertificate must cover exactly the public webhook host, not the private editor host."
   }
 
+  # ── Ingress routing (task 22.1) ────────────────────────────────────────────
+  assert {
+    condition     = kubernetes_ingress_v1.public.metadata[0].annotations["kubernetes.io/ingress.class"] == "gce"
+    error_message = "the public ingress must use the external gce Ingress class."
+  }
+
+  assert {
+    condition     = kubernetes_ingress_v1.public.metadata[0].annotations["kubernetes.io/ingress.global-static-ip-name"] == google_compute_global_address.public.name
+    error_message = "the public ingress must attach the public global static IP."
+  }
+
+  assert {
+    condition     = kubernetes_ingress_v1.public.spec[0].rule[0].host == var.public_webhook_fqdn
+    error_message = "the public ingress must serve the public webhook host."
+  }
+
+  assert {
+    condition = alltrue([
+      for path in kubernetes_ingress_v1.public.spec[0].rule[0].http[0].path :
+      contains(module.n8n.n8n_webhook_route_prefixes, path.path) && path.backend[0].service[0].name == kubernetes_service_v1.webhook_public.metadata[0].name
+    ])
+    error_message = "every public ingress path must be one of the module's webhook route prefixes and route to the public webhook Service."
+  }
+
+  assert {
+    condition     = length(kubernetes_ingress_v1.public.spec[0].rule[0].http[0].path) == length(module.n8n.n8n_webhook_route_prefixes)
+    error_message = "the public ingress must route exactly the module's webhook route prefixes, no more and no fewer."
+  }
+
+  assert {
+    condition = alltrue([
+      for path in kubernetes_ingress_v1.public.spec[0].rule[0].http[0].path :
+      path.backend[0].service[0].name != kubernetes_service_v1.main_private.metadata[0].name && path.path != "/"
+    ])
+    error_message = "the public ingress must contain no main backend and no catch-all path."
+  }
+
+  assert {
+    condition     = kubernetes_ingress_v1.private.metadata[0].annotations["kubernetes.io/ingress.class"] == "gce-internal"
+    error_message = "the private ingress must use the internal gce-internal Ingress class."
+  }
+
+  assert {
+    condition     = kubernetes_ingress_v1.private.metadata[0].annotations["kubernetes.io/ingress.regional-static-ip-name"] == google_compute_address.private.name
+    error_message = "the private ingress must attach the private regional internal static IP."
+  }
+
+  assert {
+    condition     = kubernetes_ingress_v1.private.spec[0].rule[0].host == var.n8n_fqdn
+    error_message = "the private ingress must serve the private editor host."
+  }
+
+  assert {
+    condition = alltrue([
+      for prefix in module.n8n.n8n_webhook_route_prefixes :
+      anytrue([
+        for path in kubernetes_ingress_v1.private.spec[0].rule[0].http[0].path :
+        path.path == prefix && path.backend[0].service[0].name == kubernetes_service_v1.webhook_private.metadata[0].name
+      ])
+    ])
+    error_message = "the private ingress must route every webhook family to the private webhook Service."
+  }
+
+  assert {
+    condition = alltrue([
+      for prefix in module.n8n.n8n_main_route_prefixes :
+      anytrue([
+        for path in kubernetes_ingress_v1.private.spec[0].rule[0].http[0].path :
+        path.path == prefix && path.backend[0].service[0].name == kubernetes_service_v1.main_private.metadata[0].name
+      ])
+    ])
+    error_message = "the private ingress must route the main catch-all to the private main Service."
+  }
+
+  assert {
+    condition     = kubernetes_ingress_v1.private.spec[0].tls[0].secret_name == kubernetes_secret_v1.private_tls.metadata[0].name
+    error_message = "the private ingress must use the caller-supplied TLS Secret."
+  }
+
 }

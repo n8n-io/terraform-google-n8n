@@ -121,9 +121,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 22. Complete split-ingress routing and verification
 
-- [ ] 22.1 Add public webhook-only and private editor-plus-webhook HTTPS ingress rules using module route/port outputs; verify public rules contain no main backend or catch-all and private rules cover all required families.
-- [ ] 22.2 Complete example outputs, README, synthetic input file, and plan tests for topology/ownership combinations; verify the README names internal/public DNS and certificate responsibilities and no credentials are committed.
-- [ ] 22.3 Add the example to every CI validation/test/lint/docs target and rendering selector checks; verify the local target inventory matches the workflow and documentation generation actually runs.
+- [x] 22.1 Add public webhook-only and private editor-plus-webhook HTTPS ingress rules using module route/port outputs; verify public rules contain no main backend or catch-all and private rules cover all required families.
+- [x] 22.2 Complete example outputs, README, synthetic input file, and plan tests for topology/ownership combinations; verify the README names internal/public DNS and certificate responsibilities and no credentials are committed.
+- [x] 22.3 Add the example to every CI validation/test/lint/docs target and rendering selector checks; verify the local target inventory matches the workflow and documentation generation actually runs.
 
 ## 23. Curate the Google security baseline
 
