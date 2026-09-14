@@ -35,8 +35,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 6. Add execution-save controls
 
-- [ ] 6.1 Replace the four hardcoded `executions.data` values with dedicated inputs preserving all/all/false/true defaults; verify default and mixed-policy renders on main, worker, and webhook containers.
-- [ ] 6.2 Reserve all four `EXECUTIONS_DATA_SAVE_*` names and add migration guidance; verify collisions fail and each rendered container contains exactly one entry per save setting.
+- [x] 6.1 Replace the four hardcoded `executions.data` values with dedicated inputs preserving all/all/false/true defaults; verify default and mixed-policy renders on main, worker, and webhook containers.
+- [x] 6.2 Reserve all four `EXECUTIONS_DATA_SAVE_*` names and add migration guidance; verify collisions fail and each rendered container contains exactly one entry per save setting.
 
 ## 7. Complete Redis namespace isolation
 

@@ -51,6 +51,15 @@ locals {
     "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN",
     "N8N_EXECUTION_DATA_STORAGE_MODE",
     "NODE_EXTRA_CA_CERTS",
+    # Rendered by the chart from executions.data (n8n_executions_data_save_*
+    # in variables.tf via local.n8n_executions_data). Reserved even though
+    # the module already sets a value for each (rather than leaving them
+    # unset when at their default), since config.extraEnv would otherwise
+    # silently override the caller's chosen save policy.
+    "EXECUTIONS_DATA_SAVE_ON_SUCCESS",
+    "EXECUTIONS_DATA_SAVE_ON_ERROR",
+    "EXECUTIONS_DATA_SAVE_ON_PROGRESS",
+    "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS",
     # Rendered by the chart from module values (identity, topology, storage,
     # license). DB_*, QUEUE_*, N8N_RUNNERS_*, N8N_EXTERNAL_STORAGE_S3_*,
     # N8N_MULTI_MAIN_*, and AWS_* are covered by n8n_managed_env_prefixes.
@@ -287,15 +296,13 @@ locals {
   # eviction entirely. Multi-main keeps the existing minAvailable=1 floor.
   n8n_main_pdb_min_available = local.n8n_single_main ? 0 : 1
 
-  # Execution-save policy, currently hardcoded in n8n.tf's executions.data
-  # block. Task 6.1 replaces these literals with dedicated inputs
-  # (n8n_executions_data_save_on_success/on_error/on_progress/
-  # manual_executions); this local is the single place both the Helm release
-  # and the chart-rendering script read the effective policy from.
+  # Execution-save policy: the single place both the Helm release
+  # (helm_release.n8n.values.executions.data in n8n.tf) and the
+  # chart-rendering script read the effective policy from.
   n8n_executions_data = {
-    saveOnError          = "all"
-    saveOnSuccess        = "all"
-    saveOnProgress       = false
-    saveManualExecutions = true
+    saveOnError          = var.n8n_executions_data_save_on_error
+    saveOnSuccess        = var.n8n_executions_data_save_on_success
+    saveOnProgress       = var.n8n_executions_data_save_on_progress
+    saveManualExecutions = var.n8n_executions_data_save_manual_executions
   }
 }

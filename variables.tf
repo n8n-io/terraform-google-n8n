@@ -553,6 +553,51 @@ variable "n8n_pruning_max_count" {
   default     = 10000
 }
 
+# ── Execution-save policy ─────────────────────────────────────────────────────
+# Wired through local.n8n_executions_data (locals.tf) into the chart's
+# executions.data map (n8n.tf), replacing what used to be four literals
+# hardcoded there. Reserved against n8n_extra_env in
+# local.n8n_managed_env_names (locals.tf) since the chart emits these as the
+# EXECUTIONS_DATA_SAVE_* env vars.
+
+variable "n8n_executions_data_save_on_success" {
+  description = "Whether to save data for successful execution runs (the chart's executions.data.saveOnSuccess / EXECUTIONS_DATA_SAVE_ON_SUCCESS). \"all\" (the default, and n8n's own default) saves every successful execution; \"none\" saves none."
+  type        = string
+  default     = "all"
+  nullable    = false
+
+  validation {
+    condition     = contains(["all", "none"], var.n8n_executions_data_save_on_success)
+    error_message = "n8n_executions_data_save_on_success must be either \"all\" or \"none\"."
+  }
+}
+
+variable "n8n_executions_data_save_on_error" {
+  description = "Whether to save data for failed execution runs (the chart's executions.data.saveOnError / EXECUTIONS_DATA_SAVE_ON_ERROR). \"all\" (the default, and n8n's own default) saves every failed execution; \"none\" saves none."
+  type        = string
+  default     = "all"
+  nullable    = false
+
+  validation {
+    condition     = contains(["all", "none"], var.n8n_executions_data_save_on_error)
+    error_message = "n8n_executions_data_save_on_error must be either \"all\" or \"none\"."
+  }
+}
+
+variable "n8n_executions_data_save_on_progress" {
+  description = "Whether to save in-progress execution data as each node completes, so a still-running or crashed execution's partial state is visible (the chart's executions.data.saveOnProgress / EXECUTIONS_DATA_SAVE_ON_PROGRESS). Defaults to false, matching n8n's own default; enabling it increases database writes per execution."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "n8n_executions_data_save_manual_executions" {
+  description = "Whether to save data for executions triggered manually from the editor (the chart's executions.data.saveManualExecutions / EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS). Defaults to true, matching n8n's own default."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 variable "n8n_termination_grace_period" {

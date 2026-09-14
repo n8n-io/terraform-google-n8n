@@ -21,7 +21,8 @@
 #     a smoke-test follow-up in n8n.tf's service.annotations comment.
 #   - executions.data reaches the four EXECUTIONS_DATA_SAVE_* env vars on both
 #     containers that render them (main, worker; the chart does not include
-#     executions env on the webhook-processor container).
+#     executions env on the webhook-processor container), for both the
+#     default all/all/false/true policy and a mixed non-default policy.
 #   - The self-check below proves an intentionally wrong expected value is
 #     actually caught (a real assertion failure), not a check that always
 #     passes.
@@ -224,6 +225,62 @@ assert_env_count "EXECUTIONS_DATA_SAVE_ON_ERROR" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_SUCCESS" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_PROGRESS" "2" "false"
 assert_env_count "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS" "2" "true"
+
+# ── Mixed execution-save policy (task 6.1) ──────────────────────────────────
+# A second render of the same fixture with a non-default, non-uniform
+# executions.data policy (local.n8n_executions_data's shape once
+# n8n_executions_data_save_on_success/on_error/on_progress/manual_executions
+# are all set away from their defaults), proving the chart renders each of
+# the four values independently rather than only ever exercising the all/
+# all/false/true default combination above. Webhook-processor is
+# deliberately excluded: the chart's executionsEnv helper only renders on
+# main and worker (templates/deployment-webhook-processor.yaml), matching
+# the default-fixture assertion above.
+sed 's/^\([[:space:]]*saveOnError: \).*/\1none/; s/^\([[:space:]]*saveOnProgress: \).*/\1true/; s/^\([[:space:]]*saveManualExecutions: \).*/\1false/' \
+  "$WORKDIR/fixture-values.yaml" >"$WORKDIR/fixture-mixed-executions.yaml"
+
+echo "==> helm template (mixed execution-save fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-mixed-executions.yaml" \
+  >"$WORKDIR/rendered-mixed-executions.yaml" 2>"$WORKDIR/helm-stderr-mixed-executions.log"; then
+  cat "$WORKDIR/helm-stderr-mixed-executions.log" >&2
+  fail "helm template (mixed execution-save fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the mixed execution-save fixture with no credentials"
+
+  ME_RENDERED="$WORKDIR/rendered-mixed-executions.yaml"
+
+  assert_env_count_in() {
+    local file="$1" env_name="$2" expected_count="$3" expected_value="$4" actual_count
+    actual_count="$(awk -v name="$env_name" '
+      $0 ~ "- name: " name "$" { count++ }
+      END { print count+0 }
+    ' "$file")"
+
+    if [ "$actual_count" != "$expected_count" ]; then
+      fail "${env_name}: expected ${expected_count} occurrence(s), found ${actual_count}"
+      return
+    fi
+
+    local mismatched
+    mismatched="$(awk -v name="$env_name" -v expected="value: \"${expected_value}\"" '
+      $0 ~ "- name: " name "$" { getline v; if (v != "              " expected && v != "            " expected) print v }
+    ' "$file")"
+
+    if [ -n "$mismatched" ]; then
+      fail "${env_name}: found an occurrence with an unexpected value: ${mismatched}"
+    else
+      pass "${env_name} == \"${expected_value}\" on all ${expected_count} rendered container(s)"
+    fi
+  }
+
+  assert_env_count_in "$ME_RENDERED" "EXECUTIONS_DATA_SAVE_ON_ERROR" "2" "none"
+  assert_env_count_in "$ME_RENDERED" "EXECUTIONS_DATA_SAVE_ON_SUCCESS" "2" "all"
+  assert_env_count_in "$ME_RENDERED" "EXECUTIONS_DATA_SAVE_ON_PROGRESS" "2" "true"
+  assert_env_count_in "$ME_RENDERED" "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS" "2" "false"
+fi
 
 # ── Single-main topology (task 3.1/3.3) ─────────────────────────────────────
 # A second render with the exact fragments locals.tf computes for single-main
