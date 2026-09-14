@@ -1006,6 +1006,47 @@ variable "n8n_node_max_old_space_size_mb" {
   }
 }
 
+# ── Community registry and security-related runtime controls ────────────────
+
+variable "n8n_community_packages_registry" {
+  description = "HTTPS URL of a custom registry n8n uses to resolve community (npm) package installs, mapped to N8N_COMMUNITY_PACKAGES_REGISTRY on every n8n role (main, worker, webhook processor). Null (the default) leaves n8n's own npm registry default in place. Must not embed credentials (no user:pass@ userinfo); authenticate the registry itself (e.g. a network-level allowlist or a registry that accepts anonymous reads from the cluster's egress path), since this module has no separate mechanism for registry credentials. Community package installation itself is a distinct Enterprise entitlement from this registry override; setting this value does not enable or unlock community packages by itself."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.n8n_community_packages_registry == null ? true : can(regex("^https://[^/@\\s]+(/\\S*)?$", var.n8n_community_packages_registry))
+    error_message = "n8n_community_packages_registry must be a non-blank https:// URL with no embedded userinfo credentials (no user:pass@ before the host), or null to leave n8n's own registry default in place."
+  }
+}
+
+variable "n8n_unverified_packages_enabled" {
+  description = "Whether n8n allows installing community packages that have not passed n8n's verification process, mapped to N8N_UNVERIFIED_PACKAGES_ENABLED on every n8n role. Null (the default) leaves n8n's own upstream default in place, so a future n8n release can change that default without this module pinning it. Set explicitly (true or false) to fix the behavior regardless of the upstream default."
+  type        = bool
+  default     = null
+}
+
+variable "n8n_compression_max_decompressed_size_bytes" {
+  description = "Maximum total decompressed size, in bytes, n8n allows when decompressing an archive (e.g. inside the Compression node), mapped to N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES on every n8n role. Null (the default) leaves n8n's own upstream limit in place, so a future n8n release can change that default without this module pinning it."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_compression_max_decompressed_size_bytes == null ? true : (var.n8n_compression_max_decompressed_size_bytes > 0 && floor(var.n8n_compression_max_decompressed_size_bytes) == var.n8n_compression_max_decompressed_size_bytes)
+    error_message = "n8n_compression_max_decompressed_size_bytes must be a positive whole number of bytes, or null to leave n8n's own default in place."
+  }
+}
+
+variable "n8n_compression_max_zip_entries" {
+  description = "Maximum number of entries n8n allows when decompressing a zip archive (e.g. inside the Compression node), mapped to N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES on every n8n role. Null (the default) leaves n8n's own upstream limit in place, so a future n8n release can change that default without this module pinning it."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_compression_max_zip_entries == null ? true : (var.n8n_compression_max_zip_entries > 0 && floor(var.n8n_compression_max_zip_entries) == var.n8n_compression_max_zip_entries)
+    error_message = "n8n_compression_max_zip_entries must be a positive whole number, or null to leave n8n's own default in place."
+  }
+}
+
 # ── Pod DNS ───────────────────────────────────────────────────────────────────
 
 variable "n8n_dns_config" {

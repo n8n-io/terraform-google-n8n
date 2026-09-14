@@ -56,6 +56,13 @@ locals {
     # supplied value in n8n.tf) via var.redis_key_prefix. Emitted only when
     # var.redis_key_prefix is non-null (see the extraEnv block in n8n.tf).
     "N8N_REDIS_KEY_PREFIX",
+    # Community registry and security-related runtime controls (task 15),
+    # emitted only when their respective input is non-null (see the
+    # extraEnv block in n8n.tf).
+    "N8N_COMMUNITY_PACKAGES_REGISTRY",
+    "N8N_UNVERIFIED_PACKAGES_ENABLED",
+    "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES",
+    "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES",
     # Rendered by the chart from executions.data (n8n_executions_data_save_*
     # in variables.tf via local.n8n_executions_data). Reserved even though
     # the module already sets a value for each (rather than leaving them

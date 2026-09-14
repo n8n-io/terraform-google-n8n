@@ -83,8 +83,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 15. Add registry and security-related runtime settings
 
-- [ ] 15.1 Add `n8n_community_packages_registry` with credential-free HTTPS validation and a reserved environment name; verify all-role rendering, null omission, invalid URL rejection, and entitlement/authentication documentation.
-- [ ] 15.2 Add optional unverified-package and compression size/entry controls with dedicated reserved names; verify null follows upstream defaults, explicit false survives rendering, and invalid numeric values fail validation.
+- [x] 15.1 Add `n8n_community_packages_registry` with credential-free HTTPS validation and a reserved environment name; verify all-role rendering, null omission, invalid URL rejection, and entitlement/authentication documentation.
+- [x] 15.2 Add optional unverified-package and compression size/entry controls with dedicated reserved names; verify null follows upstream defaults, explicit false survives rendering, and invalid numeric values fail validation.
 
 ## 16. Add a private Redis exporter
 

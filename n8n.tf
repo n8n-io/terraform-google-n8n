@@ -594,6 +594,21 @@ resource "helm_release" "n8n" {
         var.n8n_node_max_old_space_size_mb != null ? [
           { name = "NODE_OPTIONS", value = "--max-old-space-size=${var.n8n_node_max_old_space_size_mb}" },
         ] : [],
+        # Community registry and security-related runtime controls. Each is
+        # null by default and omitted entirely so n8n's own upstream default
+        # applies and can evolve without this module pinning it.
+        var.n8n_community_packages_registry != null ? [
+          { name = "N8N_COMMUNITY_PACKAGES_REGISTRY", value = var.n8n_community_packages_registry },
+        ] : [],
+        var.n8n_unverified_packages_enabled != null ? [
+          { name = "N8N_UNVERIFIED_PACKAGES_ENABLED", value = tostring(var.n8n_unverified_packages_enabled) },
+        ] : [],
+        var.n8n_compression_max_decompressed_size_bytes != null ? [
+          { name = "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES", value = tostring(var.n8n_compression_max_decompressed_size_bytes) },
+        ] : [],
+        var.n8n_compression_max_zip_entries != null ? [
+          { name = "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES", value = tostring(var.n8n_compression_max_zip_entries) },
+        ] : [],
         # Points at the single key mounted read-only from
         # n8n_credentials_overwrite_secret_ref above; the module never reads
         # or renders the Secret's own JSON payload, only this file path.

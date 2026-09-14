@@ -18,6 +18,22 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `n8n_community_packages_registry`, `n8n_unverified_packages_enabled`,
+  `n8n_compression_max_decompressed_size_bytes`, and
+  `n8n_compression_max_zip_entries` (`add-google-parity-through-aws-0-4-0`,
+  section 15): optional registry/security runtime controls mapped to
+  `N8N_COMMUNITY_PACKAGES_REGISTRY`, `N8N_UNVERIFIED_PACKAGES_ENABLED`,
+  `N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES`, and
+  `N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES` on every n8n role (main, worker,
+  webhook processor). All four default to `null`, which omits the
+  corresponding env var and leaves n8n's own upstream default in place so a
+  future n8n release can change it without this module pinning it.
+  `n8n_community_packages_registry` must be a non-blank `https://` URL with
+  no embedded userinfo credentials; this module has no separate mechanism
+  for registry authentication, and the registry override does not by itself
+  grant the separate Enterprise entitlement community package installation
+  requires. The two compression limits must be positive whole numbers when
+  set.
 - Added `n8n_dns_config` (`add-google-parity-through-aws-0-4-0`, section 13):
   optional pod-level DNS settings (nameservers, search domains, and options
   such as `ndots`) applied to the main, worker, and webhook-processor pods

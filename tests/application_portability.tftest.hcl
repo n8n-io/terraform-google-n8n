@@ -698,6 +698,135 @@ run "node_max_old_space_size_mb_rejects_conflicting_extra_env_node_options" {
   expect_failures = [var.n8n_node_max_old_space_size_mb]
 }
 
+# ── Community registry and security-related runtime controls (section 15) ───
+
+run "community_packages_registry_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_community_packages_registry == null
+    error_message = "n8n_community_packages_registry should default to null so n8n's own registry default applies."
+  }
+}
+
+run "community_packages_registry_accepts_valid_https_url" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = "https://registry.internal.example.com/npm"
+  }
+
+  assert {
+    condition     = var.n8n_community_packages_registry == "https://registry.internal.example.com/npm"
+    error_message = "n8n_community_packages_registry should accept a valid HTTPS URL."
+  }
+}
+
+run "community_packages_registry_rejects_blank" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = ""
+  }
+
+  expect_failures = [var.n8n_community_packages_registry]
+}
+
+run "community_packages_registry_rejects_non_https_scheme" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = "http://registry.internal.example.com/npm"
+  }
+
+  expect_failures = [var.n8n_community_packages_registry]
+}
+
+run "community_packages_registry_rejects_embedded_credentials" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = "https://user:pass@registry.internal.example.com/npm"
+  }
+
+  expect_failures = [var.n8n_community_packages_registry]
+}
+
+run "unverified_packages_enabled_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_unverified_packages_enabled == null
+    error_message = "n8n_unverified_packages_enabled should default to null so n8n's own upstream default applies."
+  }
+}
+
+run "unverified_packages_enabled_accepts_explicit_false" {
+  command = plan
+
+  variables {
+    n8n_unverified_packages_enabled = false
+  }
+
+  assert {
+    condition     = var.n8n_unverified_packages_enabled == false
+    error_message = "n8n_unverified_packages_enabled should accept and preserve an explicit false, distinct from the null default."
+  }
+}
+
+run "compression_limits_default_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_compression_max_decompressed_size_bytes == null && var.n8n_compression_max_zip_entries == null
+    error_message = "Compression limits should default to null so n8n's own upstream defaults apply."
+  }
+}
+
+run "compression_limits_accept_explicit_values" {
+  command = plan
+
+  variables {
+    n8n_compression_max_decompressed_size_bytes = 1073741824
+    n8n_compression_max_zip_entries             = 10000
+  }
+
+  assert {
+    condition     = var.n8n_compression_max_decompressed_size_bytes == 1073741824 && var.n8n_compression_max_zip_entries == 10000
+    error_message = "Compression limits should accept explicit positive whole values."
+  }
+}
+
+run "compression_max_decompressed_size_bytes_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_compression_max_decompressed_size_bytes = 0
+  }
+
+  expect_failures = [var.n8n_compression_max_decompressed_size_bytes]
+}
+
+run "compression_max_decompressed_size_bytes_rejects_fraction" {
+  command = plan
+
+  variables {
+    n8n_compression_max_decompressed_size_bytes = 100.5
+  }
+
+  expect_failures = [var.n8n_compression_max_decompressed_size_bytes]
+}
+
+run "compression_max_zip_entries_rejects_negative" {
+  command = plan
+
+  variables {
+    n8n_compression_max_zip_entries = -1
+  }
+
+  expect_failures = [var.n8n_compression_max_zip_entries]
+}
+
 # ── Custom extensions path ────────────────────────────────────────────────────
 
 run "custom_extensions_path_defaults_to_null" {
@@ -912,6 +1041,54 @@ run "extra_env_rejects_node_extra_ca_certs_name" {
   variables {
     n8n_extra_env = [
       { name = "NODE_EXTRA_CA_CERTS", value = "/tmp/unmanaged-ca.crt" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_community_packages_registry_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_COMMUNITY_PACKAGES_REGISTRY", value = "https://evil.example.com/npm" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_unverified_packages_enabled_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_UNVERIFIED_PACKAGES_ENABLED", value = "true" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_compression_max_decompressed_size_bytes_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES", value = "1" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_compression_max_zip_entries_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES", value = "1" },
     ]
   }
 
