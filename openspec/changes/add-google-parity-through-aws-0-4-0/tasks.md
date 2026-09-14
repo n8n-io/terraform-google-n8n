@@ -30,8 +30,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 5. Add queue lock and stall controls
 
-- [ ] 5.1 Add the three nullable `n8n_queue_worker_*` settings through one nested `redis.worker` map; verify a combined render retains duration, renewal, and stalled interval together without duplicate queue environment entries.
-- [ ] 5.2 Add effective-default cross-validation and chart-boundary tests; verify short duration with omitted renewal, equal renewal/duration, fractions, and stalled interval zero fail while supported values pass.
+- [x] 5.1 Add the three nullable `n8n_queue_worker_*` settings through one nested `redis.worker` map; verify a combined render retains duration, renewal, and stalled interval together without duplicate queue environment entries.
+- [x] 5.2 Add effective-default cross-validation and chart-boundary tests; verify short duration with omitted renewal, equal renewal/duration, fractions, and stalled interval zero fail while supported values pass.
 
 ## 6. Add execution-save controls
 

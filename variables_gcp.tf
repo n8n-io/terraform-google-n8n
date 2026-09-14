@@ -420,6 +420,44 @@ variable "n8n_redis_timeout_threshold_ms" {
   }
 }
 
+variable "n8n_queue_worker_lock_duration" {
+  description = "Milliseconds a worker holds an execution lease before it is considered stalled and eligible for another worker to pick up (the chart's redis.worker.lockDuration). Null (the default) omits the override so the chart's own default (60000) applies. Wired alongside n8n_queue_worker_lock_renew_time and n8n_queue_worker_stalled_interval into one nested redis.worker chart map so partial overrides do not discard the others' values."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_queue_worker_lock_duration == null ? true : (var.n8n_queue_worker_lock_duration >= 1000 && floor(var.n8n_queue_worker_lock_duration) == var.n8n_queue_worker_lock_duration)
+    error_message = "n8n_queue_worker_lock_duration must be a whole number of milliseconds of at least 1000, or null to omit the override."
+  }
+}
+
+variable "n8n_queue_worker_lock_renew_time" {
+  description = "Milliseconds between a worker's automatic renewals of its execution lease (the chart's redis.worker.lockRenewTime). Null (the default) omits the override so the chart's own default (10000) applies. Must resolve to strictly less than the effective lock duration (this input, or the chart's 60000 default when n8n_queue_worker_lock_duration is also null); otherwise the lease would expire before a renewal could ever land."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_queue_worker_lock_renew_time == null ? true : (var.n8n_queue_worker_lock_renew_time >= 1000 && floor(var.n8n_queue_worker_lock_renew_time) == var.n8n_queue_worker_lock_renew_time)
+    error_message = "n8n_queue_worker_lock_renew_time must be a whole number of milliseconds of at least 1000, or null to omit the override."
+  }
+
+  validation {
+    condition     = coalesce(var.n8n_queue_worker_lock_renew_time, 10000) < coalesce(var.n8n_queue_worker_lock_duration, 60000)
+    error_message = "n8n_queue_worker_lock_renew_time must resolve to strictly less than the effective n8n_queue_worker_lock_duration (falling back to the chart's 10000/60000 defaults for whichever is null); otherwise the lease can expire before a renewal lands."
+  }
+}
+
+variable "n8n_queue_worker_stalled_interval" {
+  description = "Milliseconds between checks for stalled jobs (jobs whose lease expired without renewal) (the chart's redis.worker.stalledInterval). Null (the default) omits the override so the chart's own default (30000) applies."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_queue_worker_stalled_interval == null ? true : (var.n8n_queue_worker_stalled_interval >= 1000 && floor(var.n8n_queue_worker_stalled_interval) == var.n8n_queue_worker_stalled_interval)
+    error_message = "n8n_queue_worker_stalled_interval must be a whole number of milliseconds of at least 1000, or null to omit the override; the pinned chart schema also forbids a stalled interval below 1000."
+  }
+}
+
 # ── Memorystore ───────────────────────────────────────────────────────────────
 
 variable "redis_tier" {

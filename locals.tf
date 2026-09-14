@@ -206,6 +206,18 @@ locals {
   manage_redis_username_secret = local.effective_redis_username != null
   effective_redis_key_prefix   = coalesce(var.redis_key_prefix, "bull")
 
+  # Queue lock/stall tuning (redis.worker in the chart): built as one nested
+  # map, not three independent top-level merge() calls in n8n.tf, so setting
+  # only one of the three values cannot shallow-merge over and discard the
+  # chart's own defaults for the other two (each key is present in this map
+  # only when its corresponding variable is non-null; Helm still supplies its
+  # own default for any key absent here).
+  n8n_queue_worker_chart_overrides = merge(
+    var.n8n_queue_worker_lock_duration != null ? { lockDuration = var.n8n_queue_worker_lock_duration } : {},
+    var.n8n_queue_worker_lock_renew_time != null ? { lockRenewTime = var.n8n_queue_worker_lock_renew_time } : {},
+    var.n8n_queue_worker_stalled_interval != null ? { stalledInterval = var.n8n_queue_worker_stalled_interval } : {},
+  )
+
   # GCS bucket. HMAC identity/key ownership (gcs.tf) is independent of bucket
   # ownership and already exposes its own locals (hmac_sa_email, etc.).
   # effective_gcs_kms_key_id lives in kms.tf next to the key resources it
