@@ -94,8 +94,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 17. Add Cloud SQL operational controls
 
-- [ ] 17.1 Add optional backup count and transaction-log retention in `variables_gcp.tf`/`cloudsql.tf`; verify count/edition ranges, omitted defaults, enabled backup/PITR, and external-instance ignored-input tests.
-- [ ] 17.2 Add opt-in DDL/slow-query logging without changing default Query Insights or TLS behavior; verify exact PostgreSQL flags, disabled defaults, and external-instance warnings, and document query-text exposure.
+- [x] 17.1 Add optional backup count and transaction-log retention in `variables_gcp.tf`/`cloudsql.tf`; verify count/edition ranges, omitted defaults, enabled backup/PITR, and external-instance ignored-input tests.
+- [x] 17.2 Add opt-in DDL/slow-query logging without changing default Query Insights or TLS behavior; verify exact PostgreSQL flags, disabled defaults, and external-instance warnings, and document query-text exposure.
 
 ## 18. Add opt-in Memorystore persistence
 

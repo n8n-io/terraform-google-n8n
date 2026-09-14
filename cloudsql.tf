@@ -79,6 +79,15 @@ resource "google_sql_database_instance" "n8n" {
       enabled                        = true
       point_in_time_recovery_enabled = true
       start_time                     = "03:00"
+      transaction_log_retention_days = var.postgres_transaction_log_retention_days
+
+      dynamic "backup_retention_settings" {
+        for_each = var.postgres_backup_retained_backups != null ? [var.postgres_backup_retained_backups] : []
+        content {
+          retained_backups = backup_retention_settings.value
+          retention_unit   = "COUNT"
+        }
+      }
     }
 
     maintenance_window {
@@ -89,6 +98,21 @@ resource "google_sql_database_instance" "n8n" {
 
     insights_config {
       query_insights_enabled = true
+    }
+
+    # Opt-in DDL/slow-statement logging (postgres_query_logging_enabled), not
+    # AWS's all-statement rds.force_ssl-style logging. log_min_duration_statement
+    # is a duration in milliseconds; logged statement text may include literal
+    # query parameter values (see the variable's description).
+    dynamic "database_flags" {
+      for_each = var.postgres_query_logging_enabled ? {
+        log_statement              = "ddl"
+        log_min_duration_statement = "1000"
+      } : {}
+      content {
+        name  = database_flags.key
+        value = database_flags.value
+      }
     }
 
     user_labels = local.gcp_labels

@@ -92,9 +92,12 @@ check "postgres_tuning_ignored_when_external" {
       var.postgres_machine_type == "db-g1-small" &&
       var.postgres_availability_type == "REGIONAL" &&
       var.postgres_disk_size == 50 &&
-      var.postgres_deletion_protection == true
+      var.postgres_deletion_protection == true &&
+      var.postgres_backup_retained_backups == null &&
+      var.postgres_transaction_log_retention_days == null &&
+      var.postgres_query_logging_enabled == false
     )
-    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
+    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection, postgres_backup_retained_backups, postgres_transaction_log_retention_days, postgres_query_logging_enabled) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
   }
 }
 

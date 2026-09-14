@@ -18,6 +18,19 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `postgres_backup_retained_backups`, `postgres_transaction_log_retention_days`,
+  and `postgres_query_logging_enabled` (`add-google-parity-through-aws-0-4-0`,
+  section 17): optional managed Cloud SQL backup-count (COUNT retention, 1-365)
+  and transaction-log retention (1-7 days for `ENTERPRISE`, 1-35 for
+  `ENTERPRISE_PLUS`) tuning, using Cloud SQL's own retention semantics rather
+  than AWS retention days. Backups and point-in-time recovery remain enabled
+  unconditionally; both inputs default to `null` and preserve the provider's
+  existing default retention when omitted. `postgres_query_logging_enabled`
+  defaults to `false` and, when enabled, adds PostgreSQL `database_flags` for
+  DDL logging (`log_statement=ddl`) and statements taking at least 1000 ms
+  (`log_min_duration_statement=1000`), not all-statement logging; logged
+  slow-statement text may include literal query parameter values. All three
+  are ignored (with an opposite-path warning) for external PostgreSQL.
 - Added `redis_exporter_enabled` and `redis_exporter_image`
   (`add-google-parity-through-aws-0-4-0`, section 16): an opt-in, private
   Redis exporter (`oliver006/redis_exporter`, pinned to `v1.90.0` by default)

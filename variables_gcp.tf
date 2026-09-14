@@ -170,6 +170,50 @@ variable "postgres_deletion_protection" {
   default     = true
 }
 
+# ── Cloud SQL backup and query-logging tuning (managed instance only) ────────
+# Google Cloud Storage semantics (a retained backup COUNT and a
+# transaction-log retention window), not AWS's retention-days model. Backups
+# and point-in-time recovery stay enabled unconditionally (see the
+# backup_configuration block in cloudsql.tf); these only tune how much history
+# is kept. Ignored (and warned) for external PostgreSQL; see the
+# postgres_tuning_ignored_when_external check in checks.tf.
+
+variable "postgres_backup_retained_backups" {
+  description = "Number of automated backups Cloud SQL retains (settings.backup_configuration.backup_retention_settings.retained_backups, retention_unit=COUNT). Null (the default) preserves the provider's existing default retention. Ignored when create_postgres_instance = false."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.postgres_backup_retained_backups == null ? true : (var.postgres_backup_retained_backups >= 1 && var.postgres_backup_retained_backups <= 365 && floor(var.postgres_backup_retained_backups) == var.postgres_backup_retained_backups)
+    error_message = "postgres_backup_retained_backups must be a whole number from 1 to 365, or null to keep the provider's default retention."
+  }
+}
+
+variable "postgres_transaction_log_retention_days" {
+  description = "Days of transaction logs Cloud SQL retains for point-in-time recovery (settings.backup_configuration.transaction_log_retention_days). Null (the default) preserves the provider's existing default. Valid range depends on postgres_edition: 1-7 for ENTERPRISE, 1-35 for ENTERPRISE_PLUS. Ignored when create_postgres_instance = false."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.postgres_transaction_log_retention_days == null ? true : floor(var.postgres_transaction_log_retention_days) == var.postgres_transaction_log_retention_days
+    error_message = "postgres_transaction_log_retention_days must be a whole number, or null to keep the provider's default retention."
+  }
+
+  validation {
+    condition = var.postgres_transaction_log_retention_days == null ? true : (
+      var.postgres_edition == "ENTERPRISE_PLUS" ? (var.postgres_transaction_log_retention_days >= 1 && var.postgres_transaction_log_retention_days <= 35) : (var.postgres_transaction_log_retention_days >= 1 && var.postgres_transaction_log_retention_days <= 7)
+    )
+    error_message = "postgres_transaction_log_retention_days must be 1-7 for ENTERPRISE, or 1-35 for ENTERPRISE_PLUS (postgres_edition)."
+  }
+}
+
+variable "postgres_query_logging_enabled" {
+  description = "When true, adds PostgreSQL database_flags to log DDL statements (log_statement=ddl) and statements taking at least 1000 ms (log_min_duration_statement=1000). Defaults to false (Query Insights' aggregate statistics remain enabled either way; this is unrelated all-statement text logging). Logged slow-statement text may include literal query parameter values; review your organization's data-handling policy before enabling. Ignored when create_postgres_instance = false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
 variable "n8n_database_name" {
   description = "n8n database name."
   type        = string

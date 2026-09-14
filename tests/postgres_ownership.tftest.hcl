@@ -455,3 +455,154 @@ run "postgres_kms_ignored_when_external_triggers_warning" {
     error_message = "Ignored PostgreSQL CMEK inputs must not create a key ring, key, or IAM binding for an external database."
   }
 }
+
+# ── Backup count / transaction-log retention / query logging (section 17) ────
+
+run "explicit_backup_policy_wires_count_and_transaction_log_retention" {
+  command = plan
+
+  variables {
+    postgres_backup_retained_backups        = 14
+    postgres_transaction_log_retention_days = 7
+  }
+
+  assert {
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].backup_retention_settings[0].retained_backups == 14
+    error_message = "postgres_backup_retained_backups must set backup_retention_settings.retained_backups."
+  }
+
+  assert {
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].backup_retention_settings[0].retention_unit == "COUNT"
+    error_message = "backup_retention_settings.retention_unit must be COUNT, not AWS-style retention days."
+  }
+
+  assert {
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].transaction_log_retention_days == 7
+    error_message = "postgres_transaction_log_retention_days must set transaction_log_retention_days."
+  }
+
+  assert {
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].enabled == true && google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].point_in_time_recovery_enabled == true
+    error_message = "Backups and point-in-time recovery must remain enabled regardless of tuning."
+  }
+}
+
+run "omitted_backup_tuning_creates_no_retention_settings_block" {
+  command = plan
+
+  assert {
+    condition     = length(google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].backup_retention_settings) == 0
+    error_message = "Omitted postgres_backup_retained_backups must not emit a backup_retention_settings block."
+  }
+
+  # Omitted transaction_log_retention_days is passed through as null, which
+  # the provider resolves to its own default; the resulting attribute is
+  # (known after apply) at plan time under the mock provider, so it cannot be
+  # asserted here. The backup_retention_settings absence above and the
+  # explicit-value case in explicit_backup_policy_wires_count_and_transaction_log_retention
+  # cover the wiring.
+}
+
+run "backup_retained_backups_bounds" {
+  command = plan
+
+  variables {
+    postgres_backup_retained_backups = 0
+  }
+
+  expect_failures = [var.postgres_backup_retained_backups]
+}
+
+run "backup_retained_backups_above_maximum_fails" {
+  command = plan
+
+  variables {
+    postgres_backup_retained_backups = 366
+  }
+
+  expect_failures = [var.postgres_backup_retained_backups]
+}
+
+run "transaction_log_retention_enterprise_limit" {
+  command = plan
+
+  variables {
+    postgres_edition                        = "ENTERPRISE"
+    postgres_transaction_log_retention_days = 8
+  }
+
+  expect_failures = [var.postgres_transaction_log_retention_days]
+}
+
+run "transaction_log_retention_enterprise_plus_allows_up_to_35" {
+  command = plan
+
+  variables {
+    postgres_edition                        = "ENTERPRISE_PLUS"
+    postgres_machine_type                   = "db-perf-optimized-N-2"
+    postgres_transaction_log_retention_days = 35
+  }
+
+  assert {
+    condition     = google_sql_database_instance.n8n[0].settings[0].backup_configuration[0].transaction_log_retention_days == 35
+    error_message = "ENTERPRISE_PLUS must accept transaction-log retention up to 35 days."
+  }
+}
+
+run "transaction_log_retention_enterprise_plus_above_35_fails" {
+  command = plan
+
+  variables {
+    postgres_edition                        = "ENTERPRISE_PLUS"
+    postgres_machine_type                   = "db-perf-optimized-N-2"
+    postgres_transaction_log_retention_days = 36
+  }
+
+  expect_failures = [var.postgres_transaction_log_retention_days]
+}
+
+run "query_logging_enabled_wires_ddl_and_slow_statement_flags" {
+  command = plan
+
+  variables {
+    postgres_query_logging_enabled = true
+  }
+
+  assert {
+    condition = contains(
+      [for f in google_sql_database_instance.n8n[0].settings[0].database_flags : f.value if f.name == "log_statement"],
+      "ddl",
+    )
+    error_message = "postgres_query_logging_enabled must set log_statement=ddl."
+  }
+
+  assert {
+    condition = contains(
+      [for f in google_sql_database_instance.n8n[0].settings[0].database_flags : f.value if f.name == "log_min_duration_statement"],
+      "1000",
+    )
+    error_message = "postgres_query_logging_enabled must set log_min_duration_statement=1000, not all-statement logging."
+  }
+}
+
+run "query_logging_disabled_by_default_emits_no_flags" {
+  command = plan
+
+  assert {
+    condition     = length(google_sql_database_instance.n8n[0].settings[0].database_flags) == 0
+    error_message = "postgres_query_logging_enabled defaults to false and must emit no database_flags."
+  }
+}
+
+run "backup_and_query_logging_tuning_ignored_when_external_triggers_warning" {
+  command = plan
+
+  variables {
+    create_postgres_instance         = false
+    n8n_database_host                = "10.9.8.7"
+    n8n_database_password            = "external-db-password"
+    postgres_backup_retained_backups = 30
+  }
+
+  expect_failures = [check.postgres_tuning_ignored_when_external]
+}
