@@ -356,76 +356,157 @@ variable "n8n_log_output" {
 
 # ── n8n resource requests and limits ──────────────────────────────────────────
 
+# Both CPU and memory validation regexes below match exactly the quantity
+# grammar capacity.tf's parser supports (documented there): CPU as a bare,
+# optionally fractional core count or a fractional millicore count suffixed
+# with "m"; memory as a bare, optionally fractional byte count or a
+# fractional quantity suffixed with Ki, Mi, or Gi. Anything else (e.g. "1C",
+# "2vCPU", "1e9", a Kubernetes-valid but unsupported suffix like "Ti" or
+# "2m" without units) would otherwise reach capacity.tf's tonumber()/endswith()
+# parsing and fail as an expression error instead of a validation error.
+
 variable "n8n_main_cpu_request" {
   description = "CPU request for n8n main pods (e.g. 1000m, 500m)"
   type        = string
   default     = "1000m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_main_cpu_request))
+    error_message = "n8n_main_cpu_request must be a bare core count (e.g. \"1\", \"0.5\") or a millicore count suffixed with m (e.g. \"1000m\", \"500m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_main_cpu_limit" {
   description = "CPU limit for n8n main pods (e.g. 2000m, 1000m)"
   type        = string
   default     = "2000m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_main_cpu_limit))
+    error_message = "n8n_main_cpu_limit must be a bare core count (e.g. \"2\", \"1.5\") or a millicore count suffixed with m (e.g. \"2000m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_main_memory_request" {
   description = "Memory request for n8n main pods (e.g. 2Gi, 1Gi)"
   type        = string
   default     = "2Gi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_main_memory_request))
+    error_message = "n8n_main_memory_request must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"2Gi\", \"512Mi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_main_memory_limit" {
   description = "Memory limit for n8n main pods (e.g. 4Gi, 2Gi)"
   type        = string
   default     = "4Gi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_main_memory_limit))
+    error_message = "n8n_main_memory_limit must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"4Gi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_worker_cpu_request" {
   description = "CPU request for n8n worker pods (e.g. 500m, 1000m)"
   type        = string
   default     = "500m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_worker_cpu_request))
+    error_message = "n8n_worker_cpu_request must be a bare core count (e.g. \"1\") or a millicore count suffixed with m (e.g. \"500m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_worker_cpu_limit" {
   description = "CPU limit for n8n worker pods (e.g. 1000m, 2000m)"
   type        = string
   default     = "1000m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_worker_cpu_limit))
+    error_message = "n8n_worker_cpu_limit must be a bare core count or a millicore count suffixed with m (e.g. \"1000m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_worker_memory_request" {
   description = "Memory request for n8n worker pods (e.g. 1Gi, 2Gi)"
   type        = string
   default     = "1Gi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_worker_memory_request))
+    error_message = "n8n_worker_memory_request must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"1Gi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_worker_memory_limit" {
   description = "Memory limit for n8n worker pods (e.g. 2Gi, 4Gi)"
   type        = string
   default     = "2Gi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_worker_memory_limit))
+    error_message = "n8n_worker_memory_limit must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"2Gi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_webhook_cpu_request" {
   description = "CPU request for n8n webhook processor pods (e.g. 300m, 500m)"
   type        = string
   default     = "300m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_webhook_cpu_request))
+    error_message = "n8n_webhook_cpu_request must be a bare core count or a millicore count suffixed with m (e.g. \"300m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_webhook_cpu_limit" {
   description = "CPU limit for n8n webhook processor pods (e.g. 800m, 1000m)"
   type        = string
   default     = "800m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_webhook_cpu_limit))
+    error_message = "n8n_webhook_cpu_limit must be a bare core count or a millicore count suffixed with m (e.g. \"800m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_webhook_memory_request" {
   description = "Memory request for n8n webhook processor pods (e.g. 512Mi, 1Gi)"
   type        = string
   default     = "512Mi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_webhook_memory_request))
+    error_message = "n8n_webhook_memory_request must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"512Mi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_webhook_memory_limit" {
   description = "Memory limit for n8n webhook processor pods (e.g. 1Gi, 2Gi)"
   type        = string
   default     = "1Gi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_webhook_memory_limit))
+    error_message = "n8n_webhook_memory_limit must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"1Gi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 # ── Execution settings ────────────────────────────────────────────────────────
@@ -434,10 +515,11 @@ variable "n8n_worker_concurrency" {
   description = "Number of jobs each worker pod can process simultaneously"
   type        = number
   default     = 10
+  nullable    = false
 
   validation {
-    condition     = var.n8n_worker_concurrency >= 1
-    error_message = "Worker concurrency must be at least 1."
+    condition     = var.n8n_worker_concurrency >= 1 && floor(var.n8n_worker_concurrency) == var.n8n_worker_concurrency
+    error_message = "n8n_worker_concurrency must be a whole number of at least 1."
   }
 }
 
@@ -507,24 +589,48 @@ variable "n8n_task_runner_cpu_request" {
   description = "CPU request for task runner sidecar containers (e.g. 200m, 500m)"
   type        = string
   default     = "200m"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_task_runner_cpu_request))
+    error_message = "n8n_task_runner_cpu_request must be a bare core count or a millicore count suffixed with m (e.g. \"200m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_task_runner_cpu_limit" {
   description = "CPU limit for task runner sidecar containers (e.g. 1, 2000m)"
   type        = string
   default     = "1"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?m?$", var.n8n_task_runner_cpu_limit))
+    error_message = "n8n_task_runner_cpu_limit must be a bare core count (e.g. \"1\") or a millicore count suffixed with m (e.g. \"2000m\"), the only CPU quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_task_runner_memory_request" {
   description = "Memory request for task runner sidecar containers (e.g. 512Mi, 1Gi)"
   type        = string
   default     = "512Mi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_task_runner_memory_request))
+    error_message = "n8n_task_runner_memory_request must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"512Mi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_task_runner_memory_limit" {
   description = "Memory limit for task runner sidecar containers (e.g. 1Gi, 2Gi)"
   type        = string
   default     = "1Gi"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[0-9]+(\\.[0-9]+)?(Ki|Mi|Gi)?$", var.n8n_task_runner_memory_limit))
+    error_message = "n8n_task_runner_memory_limit must be a bare byte count or a quantity suffixed with Ki, Mi, or Gi (e.g. \"1Gi\"), the only memory quantity grammar capacity.tf's parser supports."
+  }
 }
 
 variable "n8n_task_runner_auto_shutdown_timeout" {
@@ -677,18 +783,41 @@ variable "n8n_main_hpa_min_replicas" {
   description = "Minimum replicas for n8n main pods. HPA will not scale below this."
   type        = number
   default     = 2
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_main_hpa_min_replicas >= 1 && floor(var.n8n_main_hpa_min_replicas) == var.n8n_main_hpa_min_replicas
+    error_message = "n8n_main_hpa_min_replicas must be a whole number of at least 1."
+  }
 }
 
 variable "n8n_main_hpa_max_replicas" {
   description = "Maximum replicas for n8n main pods. HPA will not scale above this."
   type        = number
   default     = 20
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_main_hpa_max_replicas >= 1 && floor(var.n8n_main_hpa_max_replicas) == var.n8n_main_hpa_max_replicas
+    error_message = "n8n_main_hpa_max_replicas must be a whole number of at least 1."
+  }
+
+  validation {
+    condition     = var.n8n_main_hpa_max_replicas >= var.n8n_main_hpa_min_replicas
+    error_message = "n8n_main_hpa_max_replicas must be greater than or equal to n8n_main_hpa_min_replicas."
+  }
 }
 
 variable "n8n_main_hpa_cpu_threshold" {
   description = "Target average CPU utilization (%) that triggers scaling of n8n main pods."
   type        = number
   default     = 60
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_main_hpa_cpu_threshold >= 1 && var.n8n_main_hpa_cpu_threshold <= 100 && floor(var.n8n_main_hpa_cpu_threshold) == var.n8n_main_hpa_cpu_threshold
+    error_message = "n8n_main_hpa_cpu_threshold must be a whole number between 1 and 100."
+  }
 }
 
 # ── HPA: webhook processor pods ───────────────────────────────────────────────
@@ -715,18 +844,53 @@ variable "n8n_webhook_hpa_min_replicas" {
   description = "Minimum replicas for n8n webhook processor pods. HPA will not scale below this."
   type        = number
   default     = 2
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_webhook_hpa_min_replicas >= 1 && floor(var.n8n_webhook_hpa_min_replicas) == var.n8n_webhook_hpa_min_replicas
+    error_message = "n8n_webhook_hpa_min_replicas must be a whole number of at least 1."
+  }
 }
 
 variable "n8n_webhook_hpa_max_replicas" {
   description = "Maximum replicas for n8n webhook processor pods. HPA will not scale above this."
   type        = number
   default     = 50
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_webhook_hpa_max_replicas >= 1 && floor(var.n8n_webhook_hpa_max_replicas) == var.n8n_webhook_hpa_max_replicas
+    error_message = "n8n_webhook_hpa_max_replicas must be a whole number of at least 1."
+  }
+
+  validation {
+    condition     = var.n8n_webhook_hpa_max_replicas >= var.n8n_webhook_hpa_min_replicas
+    error_message = "n8n_webhook_hpa_max_replicas must be greater than or equal to n8n_webhook_hpa_min_replicas."
+  }
 }
 
 variable "n8n_webhook_hpa_cpu_threshold" {
   description = "Target average CPU utilization (%) that triggers scaling of n8n webhook pods."
   type        = number
   default     = 65
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_webhook_hpa_cpu_threshold >= 1 && var.n8n_webhook_hpa_cpu_threshold <= 100 && floor(var.n8n_webhook_hpa_cpu_threshold) == var.n8n_webhook_hpa_cpu_threshold
+    error_message = "n8n_webhook_hpa_cpu_threshold must be a whole number between 1 and 100."
+  }
+}
+
+variable "n8n_webhook_hpa_scale_up_stabilization_window_seconds" {
+  description = "Seconds the standalone n8n webhook-processor HPA waits before acting on a scale-up recommendation, smoothing out rapidly fluctuating metric values. Maps to the HPA's behavior.scaleUp.stabilizationWindowSeconds. 0 (the default) matches Kubernetes' own scale-up default (react immediately); the chart's built-in main/worker scaling is unaffected. Ignored when n8n_webhook_hpa_enabled = false, since no webhook HPA is rendered in that case."
+  type        = number
+  default     = 0
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_webhook_hpa_scale_up_stabilization_window_seconds >= 0 && var.n8n_webhook_hpa_scale_up_stabilization_window_seconds <= 3600 && floor(var.n8n_webhook_hpa_scale_up_stabilization_window_seconds) == var.n8n_webhook_hpa_scale_up_stabilization_window_seconds
+    error_message = "n8n_webhook_hpa_scale_up_stabilization_window_seconds must be a whole number of seconds between 0 and 3600."
+  }
 }
 
 # ── License shutdown behavior ─────────────────────────────────────────────────
@@ -957,18 +1121,41 @@ variable "n8n_worker_keda_min_replicas" {
   description = "Minimum worker replicas. KEDA keeps at least this many workers running even when the queue is empty."
   type        = number
   default     = 1
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_worker_keda_min_replicas >= 1 && floor(var.n8n_worker_keda_min_replicas) == var.n8n_worker_keda_min_replicas
+    error_message = "n8n_worker_keda_min_replicas must be a whole number of at least 1."
+  }
 }
 
 variable "n8n_worker_keda_max_replicas" {
   description = "Maximum worker replicas KEDA may scale to."
   type        = number
   default     = 10
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_worker_keda_max_replicas >= 1 && floor(var.n8n_worker_keda_max_replicas) == var.n8n_worker_keda_max_replicas
+    error_message = "n8n_worker_keda_max_replicas must be a whole number of at least 1."
+  }
+
+  validation {
+    condition     = var.n8n_worker_keda_max_replicas >= var.n8n_worker_keda_min_replicas
+    error_message = "n8n_worker_keda_max_replicas must be greater than or equal to n8n_worker_keda_min_replicas."
+  }
 }
 
 variable "n8n_worker_keda_jobs_per_replica" {
   description = "Number of waiting jobs per worker replica used as the KEDA scaling threshold. KEDA targets ceil(queue_depth / jobs_per_replica) replicas."
   type        = number
   default     = 5
+  nullable    = false
+
+  validation {
+    condition     = var.n8n_worker_keda_jobs_per_replica >= 1 && floor(var.n8n_worker_keda_jobs_per_replica) == var.n8n_worker_keda_jobs_per_replica
+    error_message = "n8n_worker_keda_jobs_per_replica must be a whole number of at least 1."
+  }
 }
 
 # ── External Secrets and Google Secret Manager ────────────────────────────────

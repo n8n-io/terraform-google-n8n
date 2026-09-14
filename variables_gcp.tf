@@ -822,18 +822,41 @@ variable "gke_node_min_per_zone" {
   description = "Autoscaling minimum nodes PER ZONE. A regional cluster spans ~3 zones, so total min is roughly this x3."
   type        = number
   default     = 1
+  nullable    = false
+
+  validation {
+    condition     = var.gke_node_min_per_zone >= 0 && floor(var.gke_node_min_per_zone) == var.gke_node_min_per_zone
+    error_message = "gke_node_min_per_zone must be a whole number of at least 0."
+  }
 }
 
 variable "gke_node_max_per_zone" {
   description = "Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones)."
   type        = number
   default     = 2
+  nullable    = false
+
+  validation {
+    condition     = var.gke_node_max_per_zone >= 1 && floor(var.gke_node_max_per_zone) == var.gke_node_max_per_zone
+    error_message = "gke_node_max_per_zone must be a whole number of at least 1."
+  }
+
+  validation {
+    condition     = var.gke_node_max_per_zone >= var.gke_node_min_per_zone
+    error_message = "gke_node_max_per_zone must be greater than or equal to gke_node_min_per_zone."
+  }
 }
 
 variable "gke_node_disk_size_gb" {
   description = "Node boot disk size in GB."
   type        = number
   default     = 100
+  nullable    = false
+
+  validation {
+    condition     = var.gke_node_disk_size_gb >= 10 && floor(var.gke_node_disk_size_gb) == var.gke_node_disk_size_gb
+    error_message = "gke_node_disk_size_gb must be a whole number of at least 10, Google Cloud's minimum node boot-disk size."
+  }
 }
 
 variable "gke_node_disk_type" {

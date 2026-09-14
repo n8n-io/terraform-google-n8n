@@ -31,6 +31,35 @@ resource "kubernetes_horizontal_pod_autoscaler_v2" "n8n_webhook" {
         }
       }
     }
+
+    # Omitted at the default (0) so the rendered HPA relies on Kubernetes'
+    # own scale-up default (stabilization_window_seconds=0, react
+    # immediately) instead of an explicit behavior block. When set, the
+    # policy pair below reproduces Kubernetes' own default scale-up policies
+    # (4 pods or 100% every 15s, whichever is higher) unchanged, so only the
+    # stabilization window differs from the implicit default.
+    dynamic "behavior" {
+      for_each = var.n8n_webhook_hpa_scale_up_stabilization_window_seconds > 0 ? [1] : []
+
+      content {
+        scale_up {
+          stabilization_window_seconds = var.n8n_webhook_hpa_scale_up_stabilization_window_seconds
+          select_policy                = "Max"
+
+          policy {
+            type           = "Pods"
+            value          = 4
+            period_seconds = 15
+          }
+
+          policy {
+            type           = "Percent"
+            value          = 100
+            period_seconds = 15
+          }
+        }
+      }
+    }
   }
 
   depends_on = [helm_release.n8n]

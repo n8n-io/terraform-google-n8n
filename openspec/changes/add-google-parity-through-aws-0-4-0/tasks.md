@@ -12,9 +12,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 2. Validate scaling and resource inputs
 
-- [ ] 2.1 Add non-null whole-number bounds and ordering validation for application replicas, worker concurrency, scaler thresholds, GKE per-zone bounds, and existing boot-disk size; verify valid defaults and negative/fractional/reversed cases in plan tests.
-- [ ] 2.2 Validate CPU/memory inputs against the documented capacity-parser grammar without adding a new parser abstraction; verify representative valid quantities and invalid quantities fail through variable validation on Terraform 1.9.8 rather than expression errors.
-- [ ] 2.3 Add `n8n_webhook_hpa_scale_up_stabilization_window_seconds` to the standalone HPA in `scaling.tf`; verify default zero, explicit 60, invalid bounds, and disabled-HPA omission.
+- [x] 2.1 Add non-null whole-number bounds and ordering validation for application replicas, worker concurrency, scaler thresholds, GKE per-zone bounds, and existing boot-disk size; verify valid defaults and negative/fractional/reversed cases in plan tests.
+- [x] 2.2 Validate CPU/memory inputs against the documented capacity-parser grammar without adding a new parser abstraction; verify representative valid quantities and invalid quantities fail through variable validation on Terraform 1.9.8 rather than expression errors.
+- [x] 2.3 Add `n8n_webhook_hpa_scale_up_stabilization_window_seconds` to the standalone HPA in `scaling.tf`; verify default zero, explicit 60, invalid bounds, and disabled-HPA omission.
 
 ## 3. Implement topology-aware main behavior
 

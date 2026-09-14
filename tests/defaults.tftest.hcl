@@ -1146,3 +1146,306 @@ run "common_labels_merge_into_resource_labels" {
     error_message = "common_labels must not override the module's built-in labels"
   }
 }
+
+# ── Valid scaling inputs (main-topology: replicas, worker concurrency, ────────
+# scaler thresholds, GKE per-zone bounds, boot-disk size) ─────────────────────
+# Every one of these variables is now non-null, whole-number, and (where an
+# upper/lower pair exists) ordered; see variables.tf / variables_gcp.tf for the
+# validation blocks. These tests exercise the negative/fractional/reversed
+# cases each validation exists to reject, plus one representative valid case
+# per variable to confirm the default/documented values still plan cleanly.
+
+run "worker_concurrency_rejects_fractional" {
+  command = plan
+
+  variables {
+    n8n_worker_concurrency = 2.5
+  }
+
+  expect_failures = [var.n8n_worker_concurrency]
+}
+
+run "worker_concurrency_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_worker_concurrency = 0
+  }
+
+  expect_failures = [var.n8n_worker_concurrency]
+}
+
+run "main_hpa_replicas_reject_fractional_bounds" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas = 1.5
+  }
+
+  expect_failures = [var.n8n_main_hpa_min_replicas]
+}
+
+run "main_hpa_replicas_reject_reversed_bounds" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas = 5
+    n8n_main_hpa_max_replicas = 2
+  }
+
+  expect_failures = [var.n8n_main_hpa_max_replicas]
+}
+
+run "main_hpa_cpu_threshold_rejects_out_of_range" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_cpu_threshold = 150
+  }
+
+  expect_failures = [var.n8n_main_hpa_cpu_threshold]
+}
+
+run "webhook_hpa_replicas_reject_reversed_bounds" {
+  command = plan
+
+  variables {
+    n8n_webhook_hpa_min_replicas = 10
+    n8n_webhook_hpa_max_replicas = 3
+  }
+
+  expect_failures = [var.n8n_webhook_hpa_max_replicas]
+}
+
+run "webhook_hpa_cpu_threshold_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_webhook_hpa_cpu_threshold = 0
+  }
+
+  expect_failures = [var.n8n_webhook_hpa_cpu_threshold]
+}
+
+run "worker_keda_replicas_reject_reversed_bounds" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_min_replicas = 8
+    n8n_worker_keda_max_replicas = 1
+  }
+
+  expect_failures = [var.n8n_worker_keda_max_replicas]
+}
+
+run "worker_keda_jobs_per_replica_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_jobs_per_replica = 0
+  }
+
+  expect_failures = [var.n8n_worker_keda_jobs_per_replica]
+}
+
+run "gke_node_per_zone_bounds_reject_fractional" {
+  command = plan
+
+  variables {
+    gke_node_min_per_zone = 1.2
+  }
+
+  expect_failures = [var.gke_node_min_per_zone]
+}
+
+run "gke_node_per_zone_bounds_reject_reversed" {
+  command = plan
+
+  variables {
+    gke_node_min_per_zone = 3
+    gke_node_max_per_zone = 1
+  }
+
+  expect_failures = [var.gke_node_max_per_zone]
+}
+
+run "gke_node_disk_size_rejects_below_google_minimum" {
+  command = plan
+
+  variables {
+    gke_node_disk_size_gb = 5
+  }
+
+  expect_failures = [var.gke_node_disk_size_gb]
+}
+
+run "gke_node_disk_size_rejects_fractional" {
+  command = plan
+
+  variables {
+    gke_node_disk_size_gb = 100.5
+  }
+
+  expect_failures = [var.gke_node_disk_size_gb]
+}
+
+run "gke_node_disk_size_accepts_google_minimum" {
+  command = plan
+
+  variables {
+    gke_node_disk_size_gb = 10
+  }
+
+  assert {
+    condition     = google_container_node_pool.n8n[0].node_config[0].disk_size_gb == 10
+    error_message = "gke_node_disk_size_gb=10 (Google's documented minimum) must be accepted and wired through unchanged."
+  }
+}
+
+# ── CPU/memory quantity grammar (capacity-guardrails) ─────────────────────────
+# Every *_cpu_request/limit and *_memory_request/limit variable across main,
+# worker, webhook, and task-runner roles now validates against exactly the
+# grammar capacity.tf's parser supports, so an unparsable quantity fails at
+# variable validation instead of a tonumber()/endswith() expression error deep
+# in a local. One representative valid and one invalid case per quantity shape
+# (bare-core/millicore CPU, bare-byte/Ki/Mi/Gi memory) is enough to prove the
+# regex, since every role's variable shares the identical pattern.
+
+run "cpu_quantities_accept_bare_core_and_millicore_forms" {
+  command = plan
+
+  variables {
+    n8n_main_cpu_request        = "0.5"
+    n8n_worker_cpu_limit        = "1500m"
+    n8n_task_runner_cpu_request = "1"
+  }
+
+  assert {
+    condition     = var.n8n_main_cpu_request == "0.5" && var.n8n_worker_cpu_limit == "1500m" && var.n8n_task_runner_cpu_request == "1"
+    error_message = "Bare-core and millicore CPU quantities must be accepted."
+  }
+}
+
+run "cpu_quantity_rejects_unsupported_suffix" {
+  command = plan
+
+  variables {
+    n8n_main_cpu_request = "500mCPU"
+  }
+
+  expect_failures = [var.n8n_main_cpu_request]
+}
+
+run "cpu_quantity_rejects_non_numeric_value" {
+  command = plan
+
+  variables {
+    n8n_worker_cpu_limit = "2vCPU"
+  }
+
+  expect_failures = [var.n8n_worker_cpu_limit]
+}
+
+run "memory_quantities_accept_ki_mi_gi_and_bare_byte_forms" {
+  command = plan
+
+  variables {
+    n8n_main_memory_limit          = "4Gi"
+    n8n_worker_memory_request      = "512Mi"
+    n8n_webhook_memory_limit       = "1024Ki"
+    n8n_task_runner_memory_request = "268435456"
+  }
+
+  assert {
+    condition = (
+      var.n8n_main_memory_limit == "4Gi" &&
+      var.n8n_worker_memory_request == "512Mi" &&
+      var.n8n_webhook_memory_limit == "1024Ki" &&
+      var.n8n_task_runner_memory_request == "268435456"
+    )
+    error_message = "Gi/Mi/Ki-suffixed and bare-byte memory quantities must be accepted."
+  }
+}
+
+run "memory_quantity_rejects_unsupported_suffix" {
+  command = plan
+
+  variables {
+    n8n_main_memory_request = "1Ti"
+  }
+
+  expect_failures = [var.n8n_main_memory_request]
+}
+
+run "memory_quantity_rejects_non_numeric_value" {
+  command = plan
+
+  variables {
+    n8n_webhook_memory_request = "half-a-gig"
+  }
+
+  expect_failures = [var.n8n_webhook_memory_request]
+}
+
+# ── Webhook HPA scale-up stabilization window (main-topology) ────────────────
+
+run "webhook_hpa_stabilization_defaults_to_zero_and_omits_behavior" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_webhook_hpa_scale_up_stabilization_window_seconds == 0
+    error_message = "n8n_webhook_hpa_scale_up_stabilization_window_seconds must default to 0."
+  }
+
+  assert {
+    condition     = length(kubernetes_horizontal_pod_autoscaler_v2.n8n_webhook[0].spec[0].behavior) == 0
+    error_message = "At the default (0), no behavior block should be rendered on the webhook HPA."
+  }
+}
+
+run "webhook_hpa_stabilization_explicit_60_renders_behavior" {
+  command = plan
+
+  variables {
+    n8n_webhook_hpa_scale_up_stabilization_window_seconds = 60
+  }
+
+  assert {
+    condition     = kubernetes_horizontal_pod_autoscaler_v2.n8n_webhook[0].spec[0].behavior[0].scale_up[0].stabilization_window_seconds == 60
+    error_message = "n8n_webhook_hpa_scale_up_stabilization_window_seconds=60 must be wired into the HPA's scale_up.stabilization_window_seconds."
+  }
+}
+
+run "webhook_hpa_stabilization_rejects_out_of_bounds" {
+  command = plan
+
+  variables {
+    n8n_webhook_hpa_scale_up_stabilization_window_seconds = 3601
+  }
+
+  expect_failures = [var.n8n_webhook_hpa_scale_up_stabilization_window_seconds]
+}
+
+run "webhook_hpa_stabilization_rejects_negative" {
+  command = plan
+
+  variables {
+    n8n_webhook_hpa_scale_up_stabilization_window_seconds = -1
+  }
+
+  expect_failures = [var.n8n_webhook_hpa_scale_up_stabilization_window_seconds]
+}
+
+run "webhook_hpa_stabilization_has_no_effect_when_hpa_disabled" {
+  command = plan
+
+  variables {
+    n8n_webhook_hpa_enabled                               = false
+    n8n_webhook_hpa_scale_up_stabilization_window_seconds = 60
+  }
+
+  assert {
+    condition     = length(kubernetes_horizontal_pod_autoscaler_v2.n8n_webhook) == 0
+    error_message = "No webhook HPA (and so no behavior/stabilization setting) should be rendered when n8n_webhook_hpa_enabled = false, regardless of the stabilization value."
+  }
+}
