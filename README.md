@@ -145,6 +145,13 @@ The `gce` Ingress terminates TLS at the load balancer, so the certificate must b
 
 DNS: the base module can manage a Google Cloud DNS record (`cloud_dns_zone_name`); other providers (Cloudflare, GoDaddy) manage their own record against the `static_ip` output.
 
+### Additional hostnames (`n8n_additional_domains`)
+
+Every hostname in `n8n_additional_domains` gets the identical main/webhook route set alongside `n8n_fqdn` (see the effective list in the `n8n_ingress_hosts` output). Two prerequisites apply regardless of `tls_mode`:
+
+- **DNS zone**: `cloud_dns_zone_name` is a single zone. The module creates one A record per hostname in that zone; an alias whose DNS is delegated elsewhere (a different Cloud DNS zone, or another provider entirely) is the caller's responsibility, the same way `examples/cloudflare`/`examples/godaddy` already manage the canonical record out of band.
+- **Certificate coverage**: with `tls_mode = custom` or `secret`, you supply the certificate (`tls_cert_pem`/`tls_key_pem`, or the Kubernetes Secret named by `tls_secret_name`). It must already cover every hostname in `n8n_ingress_hosts`, e.g. via SANs or a wildcard. The module does not read or parse an external Secret's certificate to confirm that coverage; a mismatch surfaces as a TLS handshake failure for the uncovered hostname, not a Terraform error. `tls_mode = google_managed` and `self_signed` cover every hostname automatically (Google-managed certificates cap out at 100 domains total).
+
 ---
 
 ## Key inputs
@@ -408,7 +415,7 @@ all now supported, see
 
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
-| <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n\_fqdn at the static IP output yourself, as examples/cloudflare does). | `string` | `""` | no |
+| <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n\_fqdn at the static IP output yourself, as examples/cloudflare does). This single zone must cover every hostname in n8n\_ingress\_hosts (n8n\_fqdn plus every n8n\_additional\_domains entry); the module creates one A record per hostname in this zone and does not split records across zones. An alias whose DNS lives in a different zone or provider is the caller's responsibility to create against the static\_ip output, the same way examples/cloudflare and examples/godaddy manage the canonical record. | `string` | `""` | no |
 | <a name="input_common_labels"></a> [common\_labels](#input\_common\_labels) | Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision. | `map(string)` | `{}` | no |
 | <a name="input_create_gcs_bucket"></a> [create\_gcs\_bucket](#input\_create\_gcs\_bucket) | When true (the default), the module creates and manages the GCS bucket used for n8n binary storage. Set to false to use an existing bucket; existing\_gcs\_bucket\_name must then be supplied. HMAC identity ownership (gcs\_hmac\_service\_account\_email) is independent of bucket ownership: the module still grants bucket-scoped IAM to the effective HMAC identity. | `bool` | `true` | no |
 | <a name="input_create_gcs_kms_key"></a> [create\_gcs\_kms\_key](#input\_create\_gcs\_kms\_key) | When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create\_kms\_key\_ring/existing\_kms\_key\_ring\_id) and configures the module-managed GCS bucket to use it as its default customer-managed encryption key. Mutually exclusive with existing\_gcs\_kms\_key\_id. Ignored when create\_gcs\_bucket = false. Defaults to false (Google-managed encryption). The created key is protected by lifecycle prevent\_destroy; see docs/destroy-cleanup.md for how to back out of a module-created key. | `bool` | `false` | no |
@@ -621,10 +628,10 @@ all now supported, see
 | <a name="input_redis_version"></a> [redis\_version](#input\_redis\_version) | Memorystore Redis version. | `string` | `"REDIS_7_2"` | no |
 | <a name="input_services_cidr"></a> [services\_cidr](#input\_services\_cidr) | Secondary range for GKE services (VPC-native / alias IPs). | `string` | `"10.30.0.0/20"` | no |
 | <a name="input_subnet_cidr"></a> [subnet\_cidr](#input\_subnet\_cidr) | Primary CIDR for the node subnet. | `string` | `"10.10.0.0/20"` | no |
-| <a name="input_tls_cert_pem"></a> [tls\_cert\_pem](#input\_tls\_cert\_pem) | PEM certificate chain (tls\_mode = custom), e.g. a Cloudflare Origin CA cert. | `string` | `""` | no |
+| <a name="input_tls_cert_pem"></a> [tls\_cert\_pem](#input\_tls\_cert\_pem) | PEM certificate chain (tls\_mode = custom), e.g. a Cloudflare Origin CA cert. Must cover every hostname in n8n\_ingress\_hosts (n8n\_fqdn plus every n8n\_additional\_domains entry), e.g. via SANs or a wildcard; the module uploads this PEM as-is to google\_compute\_ssl\_certificate and does not parse or validate its coverage. | `string` | `""` | no |
 | <a name="input_tls_key_pem"></a> [tls\_key\_pem](#input\_tls\_key\_pem) | PEM private key (tls\_mode = custom). | `string` | `""` | no |
 | <a name="input_tls_mode"></a> [tls\_mode](#input\_tls\_mode) | How the LB gets its cert (base module, provider-clean):<br/>  - "google\_managed" : ManagedCertificate CRD, auto-renew. DEFAULT. Validated end to end; the DNS A-record must point at the LB static IP before the cert can provision.<br/>  - "custom"         : bring your own PEM (tls\_cert\_pem/tls\_key\_pem), e.g. a Cloudflare Origin CA cert, uploaded as a pre-shared cert.<br/>  - "secret"         : the gce Ingress consumes an existing k8s TLS Secret (tls\_secret\_name). This is how examples/cloudflare wires Let's Encrypt via cert-manager.<br/>  - "self\_signed"    : instant cert with a browser warning, for smoke tests before DNS is live. | `string` | `"google_managed"` | no |
-| <a name="input_tls_secret_name"></a> [tls\_secret\_name](#input\_tls\_secret\_name) | Name of an existing Kubernetes TLS Secret the Ingress should use (tls\_mode = secret). Populated by an external issuer such as cert-manager in examples/cloudflare. | `string` | `"n8n-tls"` | no |
+| <a name="input_tls_secret_name"></a> [tls\_secret\_name](#input\_tls\_secret\_name) | Name of an existing Kubernetes TLS Secret the Ingress should use (tls\_mode = secret). Populated by an external issuer such as cert-manager in examples/cloudflare. The referenced Secret's certificate must cover every hostname in n8n\_ingress\_hosts (n8n\_fqdn plus every n8n\_additional\_domains entry); the module declares all of them on the Ingress's spec.tls.hosts but does not read the external Secret to confirm its certificate actually covers them. | `string` | `"n8n-tls"` | no |
 
 ## Outputs
 

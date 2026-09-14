@@ -110,8 +110,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 ## 20. Add aliases and guarded ingress annotations
 
 - [x] 20.1 Add normalized `n8n_additional_domains`, effective host output, and non-conflicting `ingress_annotations`; verify hostname/collision validation and caller-owned-ingress ignored-annotation behavior.
-- [ ] 20.2 Apply the common host list to full ingress routes, alias Cloud DNS records, Google-managed certificates, self-signed SANs, and TLS host declarations; verify all TLS modes, the 100-domain limit, default canonical resource stability, and no-ingress resource absence.
-- [ ] 20.3 Add DNS-zone and caller-certificate prerequisites; verify tests preserve canonical URL outputs and documentation does not claim to inspect external Secret certificates.
+- [x] 20.2 Apply the common host list to full ingress routes, alias Cloud DNS records, Google-managed certificates, self-signed SANs, and TLS host declarations; verify all TLS modes, the 100-domain limit, default canonical resource stability, and no-ingress resource absence.
+- [x] 20.3 Add DNS-zone and caller-certificate prerequisites; verify tests preserve canonical URL outputs and documentation does not claim to inspect external Secret certificates.
 
 ## 21. Build the split-ingress example infrastructure
 

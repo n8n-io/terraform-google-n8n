@@ -810,7 +810,7 @@ variable "tls_mode" {
 }
 
 variable "tls_cert_pem" {
-  description = "PEM certificate chain (tls_mode = custom), e.g. a Cloudflare Origin CA cert."
+  description = "PEM certificate chain (tls_mode = custom), e.g. a Cloudflare Origin CA cert. Must cover every hostname in n8n_ingress_hosts (n8n_fqdn plus every n8n_additional_domains entry), e.g. via SANs or a wildcard; the module uploads this PEM as-is to google_compute_ssl_certificate and does not parse or validate its coverage."
   type        = string
   default     = ""
   sensitive   = true
@@ -824,7 +824,7 @@ variable "tls_key_pem" {
 }
 
 variable "tls_secret_name" {
-  description = "Name of an existing Kubernetes TLS Secret the Ingress should use (tls_mode = secret). Populated by an external issuer such as cert-manager in examples/cloudflare."
+  description = "Name of an existing Kubernetes TLS Secret the Ingress should use (tls_mode = secret). Populated by an external issuer such as cert-manager in examples/cloudflare. The referenced Secret's certificate must cover every hostname in n8n_ingress_hosts (n8n_fqdn plus every n8n_additional_domains entry); the module declares all of them on the Ingress's spec.tls.hosts but does not read the external Secret to confirm its certificate actually covers them."
   type        = string
   default     = "n8n-tls"
 }
@@ -841,7 +841,7 @@ variable "https_redirect" {
 # against the module's static IP output (examples/cloudflare, examples/godaddy).
 
 variable "cloud_dns_zone_name" {
-  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does)."
+  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does). This single zone must cover every hostname in n8n_ingress_hosts (n8n_fqdn plus every n8n_additional_domains entry); the module creates one A record per hostname in this zone and does not split records across zones. An alias whose DNS lives in a different zone or provider is the caller's responsibility to create against the static_ip output, the same way examples/cloudflare and examples/godaddy manage the canonical record."
   type        = string
   default     = ""
 }
@@ -849,9 +849,9 @@ variable "cloud_dns_zone_name" {
 # ── Additional ingress hosts and annotations ───────────────────────────────
 # Both are rendered into the module-managed Ingress (n8n.tf's
 # kubernetes_ingress_v1.n8n) and its supporting DNS/certificate resources
-# (dns.tf/crds.tf) in the following task section (20.2/20.3). This section
-# (20.1) adds the validated inputs and the effective host-list output every
-# later wiring point and a customer-managed ingress can both consume.
+# (dns.tf/crds.tf; task 20.2). n8n_ingress_hosts (outputs.tf) exposes the
+# effective host list unconditionally, so a customer-managed ingress can
+# route the same hostnames the module would.
 
 variable "n8n_additional_domains" {
   description = "Additional hostnames to give the full main/webhook route set alongside n8n_fqdn, e.g. for a second public domain pointed at the same deployment. Compared case-insensitively everywhere the module uses them (duplicate detection, Cloud DNS records, ManagedCertificate/self-signed/Secret TLS coverage); see n8n_ingress_hosts for the effective lowercase-normalized list. Wildcards are not accepted. Adds no DNS, certificate, or ingress resource when create_ingress = false, but n8n_ingress_hosts still reports these hostnames for a caller-managed ingress to route."
@@ -874,6 +874,11 @@ variable "n8n_additional_domains" {
   validation {
     condition     = !contains([for d in var.n8n_additional_domains : lower(d)], lower(var.n8n_fqdn))
     error_message = "n8n_additional_domains must not repeat the canonical n8n_fqdn hostname."
+  }
+
+  validation {
+    condition     = var.tls_mode != "google_managed" || (length(var.n8n_additional_domains) + 1) <= 100
+    error_message = "tls_mode = google_managed supports at most 100 domains per ManagedCertificate (n8n_fqdn plus n8n_additional_domains). Reduce n8n_additional_domains or switch tls_mode."
   }
 }
 

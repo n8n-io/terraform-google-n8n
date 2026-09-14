@@ -33,6 +33,37 @@ this project adheres to the stability contract in
   module-owned key (ingress class, static-IP name, FrontendConfig,
   ManagedCertificate, or pre-shared-cert) and warning as ignored when
   `create_ingress = false`.
+- Wired `n8n_additional_domains` and `ingress_annotations` into the
+  module-managed Ingress, Cloud DNS records, and TLS certificate coverage
+  (`add-google-parity-through-aws-0-4-0`, section 20.2): every hostname in the
+  effective `n8n_ingress_hosts` list (canonical `n8n_fqdn` plus every
+  `n8n_additional_domains` entry) now gets its own Ingress `rule` with the
+  identical webhook/main route set, its own Cloud DNS A-record (when
+  `cloud_dns_zone_name` is set), inclusion in the `google_managed`
+  `ManagedCertificate`'s domain list (capped at 100 total, enforced by a new
+  `n8n_additional_domains` validation), and inclusion in the `self_signed`
+  certificate's SANs and the `secret` mode's `spec.tls.hosts`. `custom`/
+  `secret` TLS coverage of every hostname remains a caller prerequisite; the
+  module does not inspect an external Secret's certificate. Non-conflicting
+  `ingress_annotations` entries are now merged onto the managed Ingress's
+  metadata. The Cloud DNS record resource moved from `count` to `for_each`
+  keyed by hostname so the canonical record keeps a stable per-hostname
+  address as aliases are added or removed; per this module's pre-release "no
+  automatic state migration" policy above, an existing deployment upgrading
+  onto this resource address change needs a manual `terraform state mv
+  'google_dns_record_set.n8n[0]' 'google_dns_record_set.n8n["<n8n_fqdn
+  value>"]'` before applying (documented in `docs/upgrading-n8n.md`).
+  Canonical `n8n_url`/`N8N_EDITOR_BASE_URL`/effective webhook URL outputs are
+  unaffected by aliases.
+- Documented the DNS-zone and caller-certificate prerequisites for
+  `n8n_additional_domains` (`add-google-parity-through-aws-0-4-0`, section
+  20.3): `cloud_dns_zone_name` is a single zone that must cover every
+  hostname the module creates a record for; an alias delegated to a different
+  zone or DNS provider is the caller's responsibility. `tls_cert_pem`/
+  `tls_secret_name` (custom/secret `tls_mode`) must already cover every
+  hostname in `n8n_ingress_hosts`; the module does not read or parse an
+  external Secret's certificate to confirm that coverage, so a mismatch
+  surfaces as a TLS handshake failure, not a Terraform-time error.
 - **Breaking:** every n8n role now emits `N8N_EDITOR_BASE_URL=https://<n8n_fqdn>`
   (`add-google-parity-through-aws-0-4-0`, section 19): this environment name
   was previously reserved (see `n8n_extra_env`'s collision guard) but never

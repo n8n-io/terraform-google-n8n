@@ -296,15 +296,15 @@ locals {
     "/mcp",
   ]
 
-  # Additional ingress hosts (task 20.1): canonical hostname first, then
-  # every configured n8n_additional_domains entry, normalized to lowercase
-  # (the variable's own validation already rejects duplicates and a repeat
-  # of n8n_fqdn case-insensitively). n8n_fqdn itself is passed through
-  # unchanged, matching every other consumer of local.n8n_fqdn. Wiring this
-  # list into DNS/certificate/ingress-route resources lands in the following
-  # task sections (20.2/20.3); this local and the n8n_ingress_hosts output it
-  # feeds are available regardless of create_ingress so a customer-managed
-  # ingress can consume the same effective list.
+  # Additional ingress hosts: canonical hostname first, then every configured
+  # n8n_additional_domains entry, normalized to lowercase (the variable's own
+  # validation already rejects duplicates and a repeat of n8n_fqdn
+  # case-insensitively). n8n_fqdn itself is passed through unchanged,
+  # matching every other consumer of local.n8n_fqdn. Consumed by the managed
+  # Ingress rules/TLS, Cloud DNS records, ManagedCertificate domains, and
+  # self-signed cert SANs (n8n.tf/dns.tf/crds.tf), and exposed unconditionally
+  # via the n8n_ingress_hosts output so a customer-managed ingress can route
+  # the same effective list.
   n8n_effective_additional_domains = [for d in var.n8n_additional_domains : lower(d)]
   n8n_effective_ingress_hosts      = concat([local.n8n_fqdn], local.n8n_effective_additional_domains)
 }

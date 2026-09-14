@@ -894,43 +894,58 @@ resource "kubernetes_ingress_v1" "n8n" {
       local.tls_preshared ? {
         "ingress.gcp.kubernetes.io/pre-shared-cert" = google_compute_ssl_certificate.n8n[0].name
       } : {},
+      # Caller-supplied non-conflicting annotations (variables_gcp.tf's own
+      # validation already rejects any of the module-owned keys above), so a
+      # straight merge here never lets a caller value win over an ownership
+      # key.
+      var.ingress_annotations,
     )
   }
 
   spec {
-    rule {
-      host = local.n8n_fqdn
-      http {
-        # Webhook, webhook-waiting, form, form-waiting, and mcp traffic must go
-        # to the dedicated webhook-processor (local.effective_webhook_route_
-        # prefixes, the same list the n8n_webhook_route_prefixes output
-        # exposes for a customer-managed ingress). Production webhooks are
-        # disabled on main pods (disableProductionWebhooksOnMainProcess=true).
-        dynamic "path" {
-          for_each = local.effective_webhook_route_prefixes
-          iterator = route
-          content {
-            path      = route.value
-            path_type = "Prefix"
-            backend {
-              service {
-                name = local.effective_webhook_service_name
-                port { number = local.effective_service_port }
+    # One rule per effective ingress host (task 20.2): the canonical n8n_fqdn
+    # plus every configured n8n_additional_domains entry
+    # (local.n8n_effective_ingress_hosts, variables_gcp.tf), each getting the
+    # identical webhook/main route set so an alias behaves exactly like the
+    # canonical host.
+    dynamic "rule" {
+      for_each = local.n8n_effective_ingress_hosts
+      iterator = host
+      content {
+        host = host.value
+        http {
+          # Webhook, webhook-waiting, form, form-waiting, and mcp traffic must
+          # go to the dedicated webhook-processor (local.effective_webhook_
+          # route_prefixes, the same list the n8n_webhook_route_prefixes
+          # output exposes for a customer-managed ingress). Production
+          # webhooks are disabled on main pods
+          # (disableProductionWebhooksOnMainProcess=true).
+          dynamic "path" {
+            for_each = local.effective_webhook_route_prefixes
+            iterator = route
+            content {
+              path      = route.value
+              path_type = "Prefix"
+              backend {
+                service {
+                  name = local.effective_webhook_service_name
+                  port { number = local.effective_service_port }
+                }
               }
             }
           }
-        }
 
-        dynamic "path" {
-          for_each = local.effective_main_route_prefixes
-          iterator = route
-          content {
-            path      = route.value
-            path_type = "Prefix"
-            backend {
-              service {
-                name = local.effective_main_service_name
-                port { number = local.effective_service_port }
+          dynamic "path" {
+            for_each = local.effective_main_route_prefixes
+            iterator = route
+            content {
+              path      = route.value
+              path_type = "Prefix"
+              backend {
+                service {
+                  name = local.effective_main_service_name
+                  port { number = local.effective_service_port }
+                }
               }
             }
           }
@@ -940,11 +955,14 @@ resource "kubernetes_ingress_v1" "n8n" {
 
     # tls_mode = secret: the gce Ingress consumes an external k8s TLS Secret
     # (e.g. cert-manager output in examples/cloudflare). Other modes attach the
-    # cert via the annotations above, so no spec.tls block.
+    # cert via the annotations above, so no spec.tls block. The caller-supplied
+    # Secret must cover every host in local.n8n_effective_ingress_hosts
+    # (documented on tls_secret_name); the module does not inspect the
+    # external Secret's certificate to confirm that coverage.
     dynamic "tls" {
       for_each = var.tls_mode == "secret" ? [1] : []
       content {
-        hosts       = [local.n8n_fqdn]
+        hosts       = local.n8n_effective_ingress_hosts
         secret_name = var.tls_secret_name
       }
     }

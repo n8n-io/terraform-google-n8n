@@ -25,16 +25,31 @@ resource "google_compute_global_address" "lb" {
   project = var.project_id
 }
 
-# ── Google Cloud DNS A-record (base/default path) ─────────────────────────────
+# ── Google Cloud DNS A-records (base/default path) ────────────────────────────
 # Only when cloud_dns_zone_name is set. Alternative DNS providers (Cloudflare,
 # GoDaddy) manage their own record against google_compute_global_address.lb in
-# the respective examples.
+# the respective examples. One record per effective ingress host (task 20.2:
+# n8n_fqdn plus every n8n_additional_domains entry) in the single configured
+# zone; a caller whose aliases live in a different Cloud DNS zone (or a
+# different provider) manages those records themselves, the same way
+# examples/cloudflare and examples/godaddy already manage the canonical
+# record out of band.
+#
+# Keyed by hostname (for_each), not index, so the canonical record's resource
+# instance key stays local.n8n_fqdn regardless of how n8n_additional_domains
+# changes afterwards. Terraform's `moved` block requires a static (literal)
+# index, so it cannot express the count[0] -> for_each[n8n_fqdn] migration
+# for a caller upgrading from a pre-20.2 release; that one-time transition
+# needs a manual `terraform state mv 'google_dns_record_set.n8n[0]'
+# 'google_dns_record_set.n8n["<n8n_fqdn value>"]'` before apply, documented
+# in docs/upgrading-n8n.md (task 26.1), to avoid an unnecessary record
+# delete/recreate.
 resource "google_dns_record_set" "n8n" {
-  count = var.create_ingress && var.cloud_dns_zone_name != "" ? 1 : 0
+  for_each = var.create_ingress && var.cloud_dns_zone_name != "" ? toset(local.n8n_effective_ingress_hosts) : toset([])
 
   project      = var.project_id
   managed_zone = var.cloud_dns_zone_name
-  name         = "${var.n8n_fqdn}."
+  name         = "${each.value}."
   type         = "A"
   ttl          = 300
   rrdatas      = [google_compute_global_address.lb[0].address]
@@ -55,7 +70,10 @@ resource "tls_self_signed_cert" "self_signed" {
     common_name = var.n8n_fqdn
   }
 
-  dns_names             = [var.n8n_fqdn]
+  # SANs cover every effective ingress host (task 20.2), not just the
+  # canonical common_name, so an alias hostname also gets a valid self-signed
+  # cert instead of only satisfying browser/client SNI on n8n_fqdn.
+  dns_names             = local.n8n_effective_ingress_hosts
   validity_period_hours = 8760
   allowed_uses          = ["key_encipherment", "digital_signature", "server_auth"]
 }
