@@ -464,3 +464,106 @@ run "module_created_redis_key_without_ring_reference_fails" {
 
   expect_failures = [var.existing_kms_key_ring_id]
 }
+
+# ── Opt-in Memorystore RDB persistence (section 18) ───────────────────────────
+
+run "persistence_enabled_wires_rdb_schedule" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled     = true
+    redis_rdb_snapshot_period     = "SIX_HOURS"
+    redis_rdb_snapshot_start_time = "2024-01-01T03:00:00Z"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].persistence_mode == "RDB"
+    error_message = "redis_persistence_enabled must set persistence_config.persistence_mode = RDB."
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].rdb_snapshot_period == "SIX_HOURS"
+    error_message = "redis_rdb_snapshot_period must set persistence_config.rdb_snapshot_period."
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].rdb_snapshot_start_time == "2024-01-01T03:00:00Z"
+    error_message = "redis_rdb_snapshot_start_time must set persistence_config.rdb_snapshot_start_time."
+  }
+}
+
+run "persistence_enabled_accepts_all_documented_periods" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled = true
+    redis_rdb_snapshot_period = "ONE_HOUR"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].rdb_snapshot_period == "ONE_HOUR"
+    error_message = "ONE_HOUR must be an accepted redis_rdb_snapshot_period value."
+  }
+}
+
+run "persistence_disabled_by_default_emits_no_persistence_config" {
+  command = plan
+
+  assert {
+    condition     = length(google_redis_instance.n8n[0].persistence_config) == 0
+    error_message = "redis_persistence_enabled defaults to false and must emit no persistence_config block."
+  }
+}
+
+run "redis_rdb_snapshot_period_invalid_value_fails" {
+  command = plan
+
+  variables {
+    redis_rdb_snapshot_period = "TWO_HOURS"
+  }
+
+  expect_failures = [var.redis_rdb_snapshot_period]
+}
+
+run "redis_rdb_snapshot_start_time_malformed_fails" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled     = true
+    redis_rdb_snapshot_start_time = "not-a-timestamp"
+  }
+
+  expect_failures = [var.redis_rdb_snapshot_start_time]
+}
+
+run "redis_persistence_ignored_when_external_triggers_warning" {
+  command = plan
+
+  variables {
+    create_redis_instance     = false
+    redis_host                = "10.9.8.8"
+    redis_persistence_enabled = true
+  }
+
+  expect_failures = [check.redis_tuning_ignored_when_existing]
+
+  assert {
+    condition     = length(google_redis_instance.n8n) == 0
+    error_message = "External Redis (create_redis_instance = false) must remain untouched by redis_persistence_enabled; no Memorystore instance should be created."
+  }
+}
+
+run "redis_persistence_schedule_tuning_ignored_when_disabled_triggers_warning" {
+  command = plan
+
+  variables {
+    redis_rdb_snapshot_period = "ONE_HOUR"
+  }
+
+  expect_failures = [check.redis_persistence_tuning_ignored_when_disabled]
+
+  assert {
+    condition     = length(google_redis_instance.n8n[0].persistence_config) == 0
+    error_message = "redis_persistence_enabled = false must still emit no persistence_config block even when the schedule inputs are set."
+  }
+}

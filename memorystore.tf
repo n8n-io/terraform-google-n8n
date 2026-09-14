@@ -33,6 +33,19 @@ resource "google_redis_instance" "n8n" {
 
   labels = local.gcp_labels
 
+  # Opt-in RDB persistence (redis_persistence_enabled): Memorystore's own
+  # automatic last-snapshot recovery, not a numbered backup-retention count.
+  # Omitted entirely when disabled, leaving persistence off (Memorystore's own
+  # default) rather than emitting an explicit DISABLED block.
+  dynamic "persistence_config" {
+    for_each = var.redis_persistence_enabled ? [1] : []
+    content {
+      persistence_mode        = "RDB"
+      rdb_snapshot_period     = var.redis_rdb_snapshot_period
+      rdb_snapshot_start_time = var.redis_rdb_snapshot_start_time
+    }
+  }
+
   # Depending on the time_sleep (not the connection directly) also delays the
   # peering's destruction until after this instance is gone; see network.tf.
   # Also wait for the module-created key's IAM grant (kms.tf).

@@ -147,9 +147,26 @@ check "redis_tuning_ignored_when_existing" {
       var.redis_memory_size_gb == 1 &&
       var.redis_version == "REDIS_7_2" &&
       var.redis_auth_enabled == false &&
-      var.redis_transit_encryption_enabled == false
+      var.redis_transit_encryption_enabled == false &&
+      var.redis_persistence_enabled == false &&
+      var.redis_rdb_snapshot_period == "TWENTY_FOUR_HOURS" &&
+      var.redis_rdb_snapshot_start_time == null
     )
-    error_message = "create_redis_instance is false, but one or more managed-Memorystore tuning variables (redis_tier, redis_memory_size_gb, redis_version, redis_auth_enabled, redis_transit_encryption_enabled) differ from their defaults. These are ignored when using an external Redis host; configure the external service out of band instead."
+    error_message = "create_redis_instance is false, but one or more managed-Memorystore tuning variables (redis_tier, redis_memory_size_gb, redis_version, redis_auth_enabled, redis_transit_encryption_enabled, redis_persistence_enabled, redis_rdb_snapshot_period, redis_rdb_snapshot_start_time) differ from their defaults. These are ignored when using an external Redis host; configure the external service out of band instead."
+  }
+}
+
+# redis_persistence_enabled itself is covered by redis_tuning_ignored_when_existing
+# above; this check separately flags snapshot-schedule tuning left set while
+# persistence is disabled on a module-managed instance (RDB is off either way,
+# so the schedule inputs are ignored).
+check "redis_persistence_tuning_ignored_when_disabled" {
+  assert {
+    condition = var.redis_persistence_enabled || (
+      var.redis_rdb_snapshot_period == "TWENTY_FOUR_HOURS" &&
+      var.redis_rdb_snapshot_start_time == null
+    )
+    error_message = "redis_persistence_enabled is false, but redis_rdb_snapshot_period or redis_rdb_snapshot_start_time differs from its default. These are ignored while Memorystore RDB persistence is disabled."
   }
 }
 

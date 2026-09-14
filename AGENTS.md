@@ -285,6 +285,14 @@ file. Use `command = plan` unless you specifically need apply semantics.
   `try(local.x.type, null) == "Recreate" && length(keys(local.x)) == 1` for an
   expected-single-key map instead of a direct map `==`.
 
+- **An RFC3339 timestamp input can be validated at the variable layer with
+  `can(formatdate("YYYY", var.x))`** (any format string works; only whether
+  parsing succeeds matters) instead of a hand-rolled regex: `formatdate`
+  itself rejects malformed timestamps, non-existent dates (e.g. month 13),
+  and non-Zulu/non-RFC3339 strings, and `can(...)` turns that error into a
+  clean `false` for a `validation` block. Used for
+  `redis_rdb_snapshot_start_time` (`google_redis_instance.persistence_config`).
+
 - **A chart's top-level `strategy` (Deployment rollout strategy) may be read
   by only one role's Deployment template**, even when the chart also renders
   worker/webhook-processor Deployments from the same values file; grep the

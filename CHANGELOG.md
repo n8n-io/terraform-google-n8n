@@ -18,6 +18,23 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `redis_persistence_enabled`, `redis_rdb_snapshot_period`, and
+  `redis_rdb_snapshot_start_time` (`add-google-parity-through-aws-0-4-0`,
+  section 18): opt-in Memorystore RDB persistence
+  (`persistence_config.persistence_mode = RDB`) on the module-managed
+  instance, defaulting to disabled. When enabled, `redis_rdb_snapshot_period`
+  selects one of Memorystore's own `ONE_HOUR`, `SIX_HOURS`, `TWELVE_HOURS`, or
+  `TWENTY_FOUR_HOURS` schedules (default `TWENTY_FOUR_HOURS`), and
+  `redis_rdb_snapshot_start_time` optionally pins an RFC3339 alignment
+  timestamp. This is Memorystore's automatic last-snapshot recovery on an
+  unplanned restart, not a numbered backup-retention count like Cloud SQL's
+  `postgres_backup_retained_backups` or AWS ElastiCache snapshots: at most one
+  RDB snapshot is kept and replayed, which can reintroduce stale/duplicate
+  queue jobs and adds memory and latency overhead while a snapshot is being
+  written. All three inputs are ignored (with an opposite-path warning) for
+  external Redis, and the two schedule inputs are separately warned when set
+  while persistence is disabled. Independent export/import backups remain an
+  operator responsibility; this module does not schedule or manage them.
 - Added `postgres_backup_retained_backups`, `postgres_transaction_log_retention_days`,
   and `postgres_query_logging_enabled` (`add-google-parity-through-aws-0-4-0`,
   section 17): optional managed Cloud SQL backup-count (COUNT retention, 1-365)

@@ -99,8 +99,8 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 18. Add opt-in Memorystore persistence
 
-- [ ] 18.1 Add the persistence switch, period enum, and start timestamp and wire managed RDB configuration; verify default-disabled, all supported periods, invalid timestamps, and external ownership cases.
-- [ ] 18.2 Add ignored-input diagnostics and recovery guidance; verify documentation distinguishes last-snapshot recovery from backup retention and describes stale data, replay, memory/latency overhead, and independent export/import backups.
+- [x] 18.1 Add the persistence switch, period enum, and start timestamp and wire managed RDB configuration; verify default-disabled, all supported periods, invalid timestamps, and external ownership cases.
+- [x] 18.2 Add ignored-input diagnostics and recovery guidance; verify documentation distinguishes last-snapshot recovery from backup retention and describes stale data, replay, memory/latency overhead, and independent export/import backups.
 
 ## 19. Correct canonical application URLs
 

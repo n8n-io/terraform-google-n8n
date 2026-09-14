@@ -540,6 +540,45 @@ variable "redis_transit_encryption_enabled" {
   nullable    = false
 }
 
+# ── Opt-in Memorystore RDB persistence (managed instance only) ───────────────
+# Memorystore's own automatic last-snapshot recovery (persistence_config),
+# not AWS ElastiCache's numbered snapshot-retention count: enabling this keeps
+# at most one RDB snapshot that Memorystore replays on an unplanned restart,
+# not a history of restore points. Disabled by default; see docs guidance
+# before enabling on a memory- or latency-sensitive workload. Ignored (and
+# warned) for external Redis; see the redis_tuning_ignored_when_existing and
+# redis_persistence_tuning_ignored_when_disabled checks in checks.tf.
+
+variable "redis_persistence_enabled" {
+  description = "When true, enables Memorystore RDB persistence (persistence_config.persistence_mode = RDB) on the module-managed instance, keeping one automatically-replayed snapshot for unplanned restarts. This is NOT a historical backup or a substitute for a separate export; see redis_rdb_snapshot_period/redis_rdb_snapshot_start_time and docs/post-deployment.md for recovery, memory, and latency guidance. Ignored when create_redis_instance = false. Defaults to false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "redis_rdb_snapshot_period" {
+  description = "Memorystore RDB snapshot schedule period (persistence_config.rdb_snapshot_period). One of ONE_HOUR, SIX_HOURS, TWELVE_HOURS, or TWENTY_FOUR_HOURS. Ignored when redis_persistence_enabled = false or create_redis_instance = false. Defaults to TWENTY_FOUR_HOURS."
+  type        = string
+  default     = "TWENTY_FOUR_HOURS"
+  nullable    = false
+
+  validation {
+    condition     = contains(["ONE_HOUR", "SIX_HOURS", "TWELVE_HOURS", "TWENTY_FOUR_HOURS"], var.redis_rdb_snapshot_period)
+    error_message = "redis_rdb_snapshot_period must be one of ONE_HOUR, SIX_HOURS, TWELVE_HOURS, or TWENTY_FOUR_HOURS."
+  }
+}
+
+variable "redis_rdb_snapshot_start_time" {
+  description = "RFC3339 UTC timestamp (e.g. \"2024-01-01T03:00:00Z\") that the first RDB snapshot was/will be attempted, and to which future snapshots align (persistence_config.rdb_snapshot_start_time). Null (the default) lets Memorystore use the current time. Ignored when redis_persistence_enabled = false or create_redis_instance = false."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.redis_rdb_snapshot_start_time == null || can(formatdate("YYYY", var.redis_rdb_snapshot_start_time))
+    error_message = "redis_rdb_snapshot_start_time must be null or a valid RFC3339 UTC timestamp (e.g. \"2024-01-01T03:00:00Z\")."
+  }
+}
+
 # ── Opt-in Redis exporter (observability.tf) ───────────────────────────────────
 # Independent of n8n_metrics_enabled, KEDA installation, and scaler ownership;
 # see locals.tf's effective_redis_* / effective_redis_queue_keys, which the

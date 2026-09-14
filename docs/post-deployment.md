@@ -32,3 +32,36 @@ With `tls_mode = "google_managed"`, the certificate cannot provision until this 
 ## Access n8n and activate your license
 
 Open `https://n8n.yourdomain.com` in your browser. Create your owner account, then select **Settings** > **License** and enter your activation key.
+
+## Redis persistence and recovery
+
+`redis_persistence_enabled` (default `false`) turns on Memorystore's own RDB
+persistence for a module-managed instance. This is **not** a backup feature
+and is not comparable to `postgres_backup_retained_backups`/point-in-time
+recovery on Cloud SQL, or to AWS ElastiCache's numbered snapshot retention:
+
+- Memorystore keeps **at most one** RDB snapshot, taken on the schedule set by
+  `redis_rdb_snapshot_period` (`ONE_HOUR`, `SIX_HOURS`, `TWELVE_HOURS`, or
+  `TWENTY_FOUR_HOURS`; default `TWENTY_FOUR_HOURS`) and optionally aligned to
+  `redis_rdb_snapshot_start_time`. There is no history of restore points, and
+  no way to pick an older snapshot once a newer one is written.
+- Recovery only happens automatically, on an unplanned Memorystore restart
+  (for example a failover or maintenance event); it replays the last snapshot
+  rather than restoring current state. Any queue or Bull key writes since that
+  snapshot are lost, and n8n's workers may see **stale or duplicate** queued
+  jobs replayed from before the restart. Treat this the same way you would a
+  crash-recovery journal, not a checkpoint you can restore to on demand.
+- Snapshotting adds memory overhead (Redis forks to write the RDB file) and a
+  latency spike while the snapshot is taken, which is more noticeable on
+  smaller `redis_memory_size_gb` instances or `BASIC` tier without a replica.
+  Weigh this against your actual recovery requirement before enabling it.
+- This module does not schedule, export, or import Redis backups.
+  Independent backup/export of Memorystore data (for example scheduled
+  `gcloud redis instances export` runs to Cloud Storage) remains an operator
+  responsibility outside this module.
+
+`redis_persistence_enabled`, `redis_rdb_snapshot_period`, and
+`redis_rdb_snapshot_start_time` are ignored for external Redis
+(`create_redis_instance = false`); the module warns instead of failing if any
+are left set. The two schedule inputs are also ignored, with a warning, when
+`redis_persistence_enabled = false` on a module-managed instance.
