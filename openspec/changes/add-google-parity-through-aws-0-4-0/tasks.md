@@ -18,9 +18,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 3. Implement topology-aware main behavior
 
-- [ ] 3.1 Derive single-main/multi-main from the selected HPA minimum or fixed count and wire the effective HPA ceiling, main strategy, and PDB; verify renders for counts 1, 2, and 3 on both scaler ownership paths, including a high unused single-main maximum.
-- [ ] 3.2 Update `capacity.tf` to consume the effective main ceiling; verify a single-main test counts one main/runner while multi-main and external-GKE cases retain their contracts.
-- [ ] 3.3 Add regression cases for returning to multi-main and unchanged worker/webhook strategies; verify the chart renders main-only Recreate/PDB behavior and no disabled scalers.
+- [x] 3.1 Derive single-main/multi-main from the selected HPA minimum or fixed count and wire the effective HPA ceiling, main strategy, and PDB; verify renders for counts 1, 2, and 3 on both scaler ownership paths, including a high unused single-main maximum.
+- [x] 3.2 Update `capacity.tf` to consume the effective main ceiling; verify a single-main test counts one main/runner while multi-main and external-GKE cases retain their contracts.
+- [x] 3.3 Add regression cases for returning to multi-main and unchanged worker/webhook strategies; verify the chart renders main-only Recreate/PDB behavior and no disabled scalers.
 
 ## 4. Add database health and acquisition tuning
 

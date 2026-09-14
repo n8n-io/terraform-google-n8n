@@ -273,6 +273,25 @@ file. Use `command = plan` unless you specifically need apply semantics.
   tolerate both spellings, which makes a green local run misleading; run the
   loop with the CI-pinned version when touching validations or test asserts.
 
+- **A `terraform test` `assert` condition can reference module `local.*` values
+  directly** (not just resource/output attributes), which is the way to test
+  a pure-input-derived local (e.g. topology selection, a rollout `strategy`
+  map) that plan-time mock limitations keep out of `helm_release.values`.
+  However, `==` between two object/map-typed expressions (e.g.
+  `local.x == { type = "Recreate" }` or `local.x == {}`) only emits a
+  "LHS and RHS values are of different types" warning and the assertion
+  silently fails even when the maps are logically equal; compare via
+  `length(keys(local.x)) == 0` for an expected-empty map and
+  `try(local.x.type, null) == "Recreate" && length(keys(local.x)) == 1` for an
+  expected-single-key map instead of a direct map `==`.
+
+- **A chart's top-level `strategy` (Deployment rollout strategy) may be read
+  by only one role's Deployment template**, even when the chart also renders
+  worker/webhook-processor Deployments from the same values file; grep the
+  vendored chart's other `deployment-*.yaml` templates for the same values
+  path before assuming a shared top-level key changes every role's rollout
+  behavior.
+
 **Recommended pattern** when end-to-end wiring cannot be tested under mocks:
 
 1. Write `command = plan` assertions at the variable contract level (default

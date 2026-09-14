@@ -243,12 +243,37 @@ locals {
   # that pod's scaling (n8n_main_hpa_enabled / n8n_webhook_hpa_enabled /
   # n8n_worker_keda_enabled = false); otherwise they seed the initial replica
   # count at the scaler's own minimum, which the HPA/KEDA ScaledObject
-  # immediately takes over (D9). Single-main/multi-main topology derivation
-  # (task 3.1) will consume n8n_effective_main_replica_count instead of
-  # reintroducing this ternary.
+  # immediately takes over (D9). n8n_effective_main_replica_count also drives
+  # single-main/multi-main topology selection below.
   n8n_effective_main_replica_count    = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_min_replicas : var.n8n_main_fixed_replicas
   n8n_effective_worker_replica_count  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_min_replicas : var.n8n_worker_fixed_replicas
   n8n_effective_webhook_replica_count = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
+
+  # ── Single-main / multi-main topology (main-topology capability) ──────────
+  # Single-main is selected whenever the effective starting main count above
+  # is exactly one, whichever scaler owns it (module HPA at minReplicas=1, or
+  # a caller-fixed count of 1 with the HPA disabled). Larger selected counts
+  # keep the module's existing multi-main default and behavior.
+  n8n_single_main = local.n8n_effective_main_replica_count == 1
+
+  # A module-owned main HPA never scales a single-main deployment past its
+  # licensed ceiling of one main: single-main clamps the effective maximum to
+  # one regardless of the configured n8n_main_hpa_max_replicas, so raising
+  # that bound later (without changing the minimum) cannot silently grow past
+  # one main pod. capacity.tf's estimate consumes this same effective ceiling.
+  n8n_effective_main_hpa_max_replicas = local.n8n_single_main ? 1 : var.n8n_main_hpa_max_replicas
+
+  # Recreate guarantees the old main pod fully terminates before a new one
+  # starts, required because n8n's floating license seat and a single main's
+  # scheduler/SQLite assumptions expect at most one main running at a time.
+  # {} (the chart's own default) leaves multi-main's existing rollout
+  # behavior untouched; this does not change worker or webhook strategy.
+  n8n_main_strategy = local.n8n_single_main ? { type = "Recreate" } : {}
+
+  # A single main's PDB must allow its own (only) replica to be evicted during
+  # a voluntary disruption (e.g. node drain); minAvailable=1 would block that
+  # eviction entirely. Multi-main keeps the existing minAvailable=1 floor.
+  n8n_main_pdb_min_available = local.n8n_single_main ? 0 : 1
 
   # Execution-save policy, currently hardcoded in n8n.tf's executions.data
   # block. Task 6.1 replaces these literals with dedicated inputs

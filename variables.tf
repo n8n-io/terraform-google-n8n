@@ -762,14 +762,14 @@ variable "n8n_execution_data_storage_mode" {
 # ── HPA: main pods ────────────────────────────────────────────────────────────
 
 variable "n8n_main_hpa_enabled" {
-  description = "When true (the default), the module creates and manages the HPA for n8n main pods. Set to false to let the caller own main-pod scaling (or run a fixed replica count); no n8n main HPA is rendered. n8n_main_fixed_replicas sets the replica count while disabled."
+  description = "When true (the default), the module creates and manages the HPA for n8n main pods. Set to false to let the caller own main-pod scaling (or run a fixed replica count); no n8n main HPA is rendered. n8n_main_fixed_replicas sets the replica count while disabled. Topology follows the selected count either way: n8n_main_hpa_min_replicas=1 (with this enabled) or n8n_main_fixed_replicas=1 (with this disabled) selects single-main; any larger selected count keeps the module's multi-main default. Single-main requires an n8n Enterprise license edition that supports it (not community edition) and interrupts the editor, REST API, and scheduled triggers during maintenance; it does not by itself grant External Secrets, log streaming, the custom package registry, or object-storage entitlements, and Recreate does not guarantee at-most-one execution after a manual pod deletion, node failure, or network partition. A caller-owned main scaler (this disabled) must not exceed one main until deliberately switching back to multi-main with the appropriate entitlement."
   type        = bool
   default     = true
   nullable    = false
 }
 
 variable "n8n_main_fixed_replicas" {
-  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled."
+  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled. A value of 1 selects single-main topology; see n8n_main_hpa_enabled for the licensing and maintenance implications."
   type        = number
   default     = 2
 
@@ -780,7 +780,7 @@ variable "n8n_main_fixed_replicas" {
 }
 
 variable "n8n_main_hpa_min_replicas" {
-  description = "Minimum replicas for n8n main pods. HPA will not scale below this."
+  description = "Minimum replicas for n8n main pods. HPA will not scale below this. A value of 1 selects single-main topology; see n8n_main_hpa_enabled for the licensing and maintenance implications."
   type        = number
   default     = 2
   nullable    = false
@@ -792,7 +792,7 @@ variable "n8n_main_hpa_min_replicas" {
 }
 
 variable "n8n_main_hpa_max_replicas" {
-  description = "Maximum replicas for n8n main pods. HPA will not scale above this."
+  description = "Maximum replicas for n8n main pods. HPA will not scale above this. Ignored (effectively clamped to 1) while n8n_main_hpa_min_replicas=1 selects single-main topology, so a module-owned main HPA never scales a single-main deployment past its licensed ceiling of one main; raise n8n_main_hpa_min_replicas above 1 to return to multi-main and use this maximum."
   type        = number
   default     = 20
   nullable    = false

@@ -226,13 +226,23 @@ resource "helm_release" "n8n" {
     # n8n_worker_keda_enabled = false); otherwise they seed the initial
     # replica count at the scaler's own minimum, which the HPA/KEDA
     # ScaledObject immediately takes over (D9).
+    #
+    # Single-main (local.n8n_single_main) disables multiMain leader election;
+    # the chart then reads top-level replicaCount instead (both locals equal
+    # 1 whenever single-main is selected). Multi-main (the default) is
+    # unchanged.
     multiMain = {
-      enabled  = true
+      enabled  = !local.n8n_single_main
       replicas = local.n8n_effective_main_replica_count
       antiAffinity = {
         type = "preferred"
       }
     }
+    replicaCount = local.n8n_effective_main_replica_count
+
+    # Main-only rollout strategy: Recreate for single-main, chart default ({})
+    # for multi-main. Does not affect worker or webhook-processor Deployments.
+    strategy = local.n8n_main_strategy
 
     queueMode = {
       enabled            = true
@@ -379,9 +389,12 @@ resource "helm_release" "n8n" {
 
     hpa = {
       main = {
-        enabled                        = var.n8n_main_hpa_enabled
-        minReplicas                    = var.n8n_main_hpa_min_replicas
-        maxReplicas                    = var.n8n_main_hpa_max_replicas
+        enabled     = var.n8n_main_hpa_enabled
+        minReplicas = var.n8n_main_hpa_min_replicas
+        # Clamped to 1 for single-main (local.n8n_effective_main_hpa_max_replicas),
+        # so a module-owned main HPA never scales past its licensed ceiling of
+        # one main even when the caller left a higher maximum configured.
+        maxReplicas                    = local.n8n_effective_main_hpa_max_replicas
         targetCPUUtilizationPercentage = var.n8n_main_hpa_cpu_threshold
       }
       # Independent of n8n_webhook_hpa_enabled: the chart never creates a
@@ -690,10 +703,12 @@ resource "helm_release" "n8n" {
     })
 
     # ── Pod Disruption Budget ─────────────────────────────────────────────────
-    # Ensures at least one main pod stays running during node drains or rollouts.
+    # Ensures at least one main pod stays running during node drains or
+    # rollouts, except single-main, where minAvailable=0 permits evicting the
+    # sole main replica (local.n8n_main_pdb_min_available).
     pdb = {
       enabled      = true
-      minAvailable = 1
+      minAvailable = local.n8n_main_pdb_min_available
     }
     },
     # Override the app image only where the caller asks for it; otherwise the

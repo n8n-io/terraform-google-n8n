@@ -103,8 +103,12 @@ locals {
 
   # Maximum replica ceiling per role: the scaler's own maximum when the module
   # owns scaling, otherwise the fixed replica count the caller configured
-  # (mirrors the n8n.tf replica-count wiring for each scaler switch).
-  capacity_main_max_replicas    = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_max_replicas : var.n8n_main_fixed_replicas
+  # (mirrors the n8n.tf replica-count wiring for each scaler switch). Main
+  # uses the same effective, single-main-clamped ceiling n8n.tf's main HPA
+  # renders (locals.tf's n8n_effective_main_hpa_max_replicas), so a caller-
+  # configured maximum above 1 does not overstate capacity while single-main
+  # is selected.
+  capacity_main_max_replicas    = var.n8n_main_hpa_enabled ? local.n8n_effective_main_hpa_max_replicas : var.n8n_main_fixed_replicas
   capacity_worker_max_replicas  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_max_replicas : var.n8n_worker_fixed_replicas
   capacity_webhook_max_replicas = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_max_replicas : var.n8n_webhook_fixed_replicas
 

@@ -225,6 +225,187 @@ assert_env_count "EXECUTIONS_DATA_SAVE_ON_SUCCESS" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_PROGRESS" "2" "false"
 assert_env_count "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS" "2" "true"
 
+# ── Single-main topology (task 3.1/3.3) ─────────────────────────────────────
+# A second render with the exact fragments locals.tf computes for single-main
+# (n8n_single_main=true): multiMain.enabled=false, top-level replicaCount=1,
+# strategy={type: Recreate}, and pdb.minAvailable=0. Proves the chart actually
+# turns those fragments into a Recreate main Deployment and a permissive main
+# PDB, and leaves worker/webhook replicas and strategy untouched.
+cat >"$WORKDIR/fixture-single-main.yaml" <<'EOF'
+multiMain:
+  enabled: false
+  replicas: 1
+replicaCount: 1
+strategy:
+  type: Recreate
+queueMode:
+  enabled: true
+  workerReplicaCount: 3
+  workerConcurrency: 5
+webhookProcessor:
+  enabled: true
+  replicaCount: 1
+  disableProductionWebhooksOnMainProcess: true
+database:
+  type: postgresdb
+  useExternal: true
+  host: synthetic-postgres.internal
+  port: 5432
+  database: n8n
+  schema: public
+  user: n8n
+  passwordSecret:
+    name: synthetic-db-secret
+    key: password
+redis:
+  enabled: true
+  useExternal: true
+  host: synthetic-redis.internal
+  port: 6379
+  tls: false
+  username: ""
+  prefix: ""
+hpa:
+  main:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 1
+    targetCPUUtilizationPercentage: 60
+pdb:
+  enabled: true
+  minAvailable: 0
+secretRefs:
+  existingSecret: synthetic-core-secret
+license:
+  enabled: true
+  activationKey: ""
+  existingSecret:
+    name: ""
+    key: license-key
+s3:
+  enabled: true
+  bucket:
+    name: synthetic-bucket
+    region: auto
+    host: storage.googleapis.com
+  auth:
+    autoDetect: false
+    accessKeyId: synthetic-access-id
+    secretAccessKeySecret:
+      name: synthetic-s3-secret
+      key: accessSecret
+  storage:
+    mode: s3
+    availableModes: "filesystem,s3"
+    forcePathStyle: true
+EOF
+
+echo "==> helm template (single-main fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-single-main.yaml" \
+  >"$WORKDIR/rendered-single-main.yaml" 2>"$WORKDIR/helm-stderr-single-main.log"; then
+  cat "$WORKDIR/helm-stderr-single-main.log" >&2
+  fail "helm template (single-main fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the single-main fixture with no credentials"
+
+  SM_RENDERED="$WORKDIR/rendered-single-main.yaml"
+
+  # assert_deployment_strategy <deployment-name> <expected-type-or-empty>
+  # Reads the `strategy.type:` field from the named Deployment. An expected
+  # value of "" asserts the Deployment has NO strategy block at all (the
+  # chart's `with .Values.strategy` guard omits the whole key when empty).
+  assert_deployment_strategy() {
+    local name="$1" expected="$2" actual
+    actual="$(awk -v name="$name" '
+      /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+      in_deploy && $0 == "  name: " name { found_name = 1; next }
+      in_deploy && found_name && /^  strategy:/ { in_strategy = 1; next }
+      in_deploy && found_name && in_strategy && /^    type:/ { print $2; exit }
+      in_deploy && found_name && /^  selector:/ { exit }
+      /^---$/ { in_deploy = 0; found_name = 0; in_strategy = 0 }
+    ' "$SM_RENDERED")"
+    if [ "$actual" = "$expected" ]; then
+      pass "Deployment/${name} strategy.type == '${expected:-<absent>}'"
+    else
+      fail "Deployment/${name} strategy.type: expected '${expected:-<absent>}', got '${actual:-<absent>}'"
+    fi
+  }
+
+  # assert_pdb_min_available <expected>
+  # This chart renders exactly one PDB (main only), so no name filter is
+  # needed.
+  assert_pdb_min_available() {
+    local expected="$1" actual
+    actual="$(awk '
+      /^kind: PodDisruptionBudget$/ { in_pdb = 1; next }
+      in_pdb && /^  minAvailable:/ { print $2; exit }
+    ' "$SM_RENDERED")"
+    if [ "$actual" = "$expected" ]; then
+      pass "PodDisruptionBudget minAvailable == ${expected}"
+    else
+      fail "PodDisruptionBudget minAvailable: expected ${expected}, got '${actual:-<not found>}'"
+    fi
+  }
+
+  SM_MAIN_REPLICAS="$(awk '
+    /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+    in_deploy && $0 == "  name: n8n-main" { found_name = 1; next }
+    in_deploy && found_name && /^  replicas:/ { print $2; exit }
+    /^---$/ { in_deploy = 0; found_name = 0 }
+  ' "$SM_RENDERED")"
+  if [ "$SM_MAIN_REPLICAS" = "1" ]; then
+    pass "single-main Deployment/n8n-main replicas == 1"
+  else
+    fail "single-main Deployment/n8n-main replicas: expected 1, got '${SM_MAIN_REPLICAS:-<not found>}'"
+  fi
+
+  assert_deployment_strategy "n8n-main" "Recreate"
+  assert_deployment_strategy "n8n-worker" ""
+  assert_deployment_strategy "n8n-webhook-processor" ""
+  assert_pdb_min_available "0"
+
+  # No disabled scalers: worker/webhook queue-mode Deployments and the
+  # multi-main-only main HPA/Service still render at their configured
+  # replica counts, single-main only changes the main rollout/PDB/HPA
+  # ceiling, not whether workers or webhook processors exist.
+  SM_WORKER_REPLICAS="$(awk '
+    /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+    in_deploy && $0 == "  name: n8n-worker" { found_name = 1; next }
+    in_deploy && found_name && /^  replicas:/ { print $2; exit }
+    /^---$/ { in_deploy = 0; found_name = 0 }
+  ' "$SM_RENDERED")"
+  if [ "$SM_WORKER_REPLICAS" = "3" ]; then
+    pass "single-main fixture still renders Deployment/n8n-worker at its configured replica count (no disabled scalers)"
+  else
+    fail "single-main fixture's Deployment/n8n-worker replicas: expected 3, got '${SM_WORKER_REPLICAS:-<not found>}'"
+  fi
+fi
+
+# ── Return to multi-main (task 3.3) ─────────────────────────────────────────
+# Confirms the main Deployment's/PDB's rendering reverts once multiMain is
+# re-enabled with a count above one, proving topology is not sticky: this is
+# the exact fixture-values.yaml fixture above (replicas: 2), so reuse
+# $RENDERED rather than rendering a third time.
+assert_deployment_strategy_absent_in_default() {
+  local actual
+  actual="$(awk '
+    /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+    in_deploy && $0 == "  name: n8n-main" { found_name = 1; next }
+    in_deploy && found_name && /^  strategy:/ { print "present"; exit }
+    in_deploy && found_name && /^  selector:/ { exit }
+    /^---$/ { in_deploy = 0; found_name = 0 }
+  ' "$RENDERED")"
+  if [ -z "$actual" ]; then
+    pass "multi-main Deployment/n8n-main has no strategy override (chart default)"
+  else
+    fail "multi-main Deployment/n8n-main unexpectedly has a strategy override"
+  fi
+}
+assert_deployment_strategy_absent_in_default
+
 # ── Self-check: prove a wrong expected value is actually caught ─────────────
 # Runs one assertion with a deliberately wrong expected replica count in a
 # subshell (so its FAILURES increment does not pollute the real run) and
