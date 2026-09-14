@@ -533,6 +533,34 @@ this project adheres to the stability contract in
   single-main queue mode. The controller submodule and its `direct-use`
   example are untouched. Added a `single_main_floor_produces_valid_plan` (or
   equivalent) plan-time test to every touched example.
+- Exposed GKE boot-disk sizing and the database connection-pool ceiling as
+  passthrough inputs in the two sizing examples
+  (`add-google-parity-through-aws-0-4-0`, section 25.2): `examples/medium` and
+  `examples/large` each add `gke_node_disk_size_gb` (default `100`),
+  `gke_node_disk_type` (default `"pd-balanced"`), and
+  `db_postgresdb_pool_size` (default `10`) passthroughs, matching the module's
+  own defaults, so a load-tested deployment can tune boot-disk size/type and
+  the per-pod TypeORM pool ceiling without editing the example itself. No
+  Google resource sizing default changes; added plan-time tests confirming the
+  default and an overridden value both produce a valid plan.
+- Corrected `examples/large/README.md`'s stale worker-ceiling prose and added
+  operator guidance (`add-google-parity-through-aws-0-4-0`, section 25.3): the
+  sentence claiming a "worker max to 160" now reads 80, matching the
+  `n8n_worker_keda_max_replicas` default already shown in the sizing table.
+  Added a "Things to watch before you raise these ceilings further" section
+  explaining that `db_postgresdb_pool_size` is a lazy per-pod ceiling whose
+  aggregate demand (pool size times running pod count) can exceed Cloud SQL's
+  `max_connections` before any autoscaler bound is reached; that cluster DNS
+  query volume grows with pod count and `n8n_dns_config` is available if it
+  becomes a bottleneck; that `n8n_node_max_old_space_size_mb` applies to every
+  n8n container and must leave headroom under the smallest role's memory
+  limit; that `gke_node_disk_size_gb` affects image/ephemeral-storage disk
+  pressure under higher pod density, not only cost; that `n8n_pruning_max_age`/
+  `n8n_pruning_max_count` bound Cloud SQL execution-table growth at this
+  tier's higher execution-concurrency ceiling; and that opt-in Memorystore RDB
+  persistence (`redis_persistence_enabled`) trades memory/latency overhead for
+  last-snapshot (not point-in-time) recovery. No numeric table or default
+  changed; the not-scale-validated warning is retained.
 
 ### Fixed
 

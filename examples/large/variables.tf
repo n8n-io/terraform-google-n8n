@@ -104,10 +104,28 @@ variable "gke_node_max_per_zone" {
   default     = 10
 }
 
+variable "gke_node_disk_size_gb" {
+  description = "Node boot disk size in GB, passed straight through to the module. Defaults to the module's own default of 100."
+  type        = number
+  default     = 100
+}
+
+variable "gke_node_disk_type" {
+  description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd), passed straight through to the module. Defaults to the module's own default of pd-balanced."
+  type        = string
+  default     = "pd-balanced"
+}
+
 variable "n8n_worker_concurrency" {
   description = "Concurrent executions per worker pod."
   type        = number
   default     = 20
+}
+
+variable "db_postgresdb_pool_size" {
+  description = "Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10, which already covers this tier's rule-of-thumb floor of n8n_worker_concurrency / 4 (20 / 4 = 5); raise it only after a load test shows pool exhaustion."
+  type        = number
+  default     = 10
 }
 
 variable "n8n_worker_keda_min_replicas" {

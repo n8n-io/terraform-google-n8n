@@ -20,6 +20,9 @@ cloud_dns_zone_name     = "my-cloud-dns-zone" # empty = manage the A-record your
 # gke_node_type               = "e2-standard-16"
 # gke_node_min_per_zone               = 3
 # gke_node_max_per_zone               = 10
+# gke_node_disk_size_gb           = 100
+# gke_node_disk_type              = "pd-balanced"
+# db_postgresdb_pool_size         = 10
 # n8n_worker_concurrency          = 20
 # n8n_worker_keda_min_replicas    = 3
 # n8n_worker_keda_max_replicas    = 80

@@ -19,13 +19,67 @@ Sizing vs the module defaults (small):
 | Webhook HPA | 2 -> 50 | 5 -> 80 |
 | Execution concurrency | 100 | 400 |
 
-The ceilings set the webhook max to 80 and the worker max to 160. Keep
+The ceilings set the webhook max to 80 and the worker max to 80. Keep
 `gke_node_max_per_zone` high enough to schedule the KEDA worker ceiling.
 
 > **Not scale-validated on GKE.** These bounds are a reasoned starting
 > point, not measured ceilings. Tune them against a load test before relying on
 > them, and watch the DB write ceiling / connection pooling first (the binding
 > constraints, typically reached well before autoscaler bounds).
+
+### Things to watch before you raise these ceilings further
+
+- **Connection-pool budget is lazy and per-pod, not pre-reserved.**
+  `db_postgresdb_pool_size` (module default 10, exposed as a passthrough
+  above) caps TypeORM connections *per n8n pod*, acquired on demand rather
+  than held open from startup. At this tier's ceilings (3 mains + up to 80
+  workers + up to 80 webhook processors), the theoretical worst case is
+  `db_postgresdb_pool_size * (running main + worker + webhook pod count)`
+  concurrent Cloud SQL connections, which can exceed `postgres_machine_type`'s
+  `max_connections` well before every autoscaler ceiling is reached. Size
+  `db_postgresdb_pool_size` against the actual number of pods you expect to
+  run concurrently, not against this tier's autoscaler maximum, and watch
+  Cloud SQL's connection count under load.
+- **Cluster DNS query volume grows with pod count.** GKE's default cluster
+  DNS (`kube-dns`) resolves Cloud SQL/Memorystore hostnames and n8n's
+  internal Service names for every main/worker/webhook pod; a high worker
+  ceiling under load can raise DNS query volume and, in turn, latency for
+  slow lookups. The module's `n8n_dns_config` input lets you point n8n pods
+  at a different resolver, search list, or `ndots` value if cluster DNS
+  becomes a bottleneck; this example does not set it.
+- **The V8 heap ceiling applies to every n8n container, not just the busiest
+  one.** `n8n_node_max_old_space_size_mb` (module default: unset, so Node's
+  own default applies) sets one `NODE_OPTIONS=--max-old-space-size` value
+  across main, worker, and webhook-processor containers. If you raise it,
+  leave non-heap headroom (Node's own overhead, buffers, native modules)
+  beneath the *smallest* configured container memory limit across all three
+  roles, not just the worker's.
+- **Boot-disk size affects image and ephemeral-storage pressure, not just
+  cluster cost.** `gke_node_disk_size_gb` (module default 100, exposed as a
+  passthrough above) is shared per node across the container runtime, pulled
+  images (n8n and task-runner images can be sizable), and every pod's
+  ephemeral storage on that node. Higher pod density at this tier's node
+  ceilings raises the odds of disk pressure evictions on an undersized boot
+  disk; watch node disk usage under sustained load, particularly if you also
+  raise `gke_node_max_per_zone` well beyond this tier's default.
+- **Execution retention drives Cloud SQL storage growth at higher
+  throughput.** `n8n_pruning_max_age` (default 336 hours / 14 days) and
+  `n8n_pruning_max_count` (default 10000) bound how much execution history
+  accumulates in Cloud SQL; at this tier's execution-concurrency ceiling
+  (`n8n_execution_concurrency_limit = 400`), the default retention window can
+  accumulate substantially more execution data than at the module's small
+  defaults. Pair a lower retention window, or `n8n_execution_data_storage_mode
+  = "s3"` for execution-data offload, with `postgres_disk_size` growth
+  expectations.
+- **Opt-in Memorystore RDB persistence is last-snapshot recovery, not a
+  throughput feature.** This example leaves `redis_persistence_enabled` at
+  its default `false`. Enabling it trades memory and write-latency overhead
+  (Memorystore periodically serializes the full keyspace) for automatic
+  recovery from the last successful snapshot after an instance failure; it
+  is not point-in-time recovery and can replay or lose in-flight queue state
+  since the last snapshot. Weigh that overhead against this tier's Redis
+  throughput requirements before enabling it, and keep independent Redis
+  export/import backups if you need durable, inspectable snapshots.
 
 > **Note:** `tls_mode = "google_managed"` is validated end to end (cert issued,
 > HTTPS reachable). [`../cloudflare`](../cloudflare) is an alternative; the sizing
@@ -86,11 +140,14 @@ If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name for n8n\_fqdn. Empty means you manage the A-record yourself against the static\_ip output. | `string` | `""` | no |
+| <a name="input_db_postgresdb_pool_size"></a> [db\_postgresdb\_pool\_size](#input\_db\_postgresdb\_pool\_size) | Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10, which already covers this tier's rule-of-thumb floor of n8n\_worker\_concurrency / 4 (20 / 4 = 5); raise it only after a load test shows pool exhaustion. | `number` | `10` | no |
 | <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates. | `string` | `"large"` | no |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region (e.g. us-east4, us-east1, europe-west1). | `string` | `"us-east4"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete the (non-empty) GCS bucket. | `bool` | `false` | no |
 | <a name="input_gcs_location"></a> [gcs\_location](#input\_gcs\_location) | GCS bucket location for binary storage. Keep it near gcp\_region (e.g. US for a us-* region, EU for europe-*). | `string` | `"US"` | no |
 | <a name="input_gke_deletion_protection"></a> [gke\_deletion\_protection](#input\_gke\_deletion\_protection) | Block terraform destroy of the GKE cluster. | `bool` | `true` | no |
+| <a name="input_gke_node_disk_size_gb"></a> [gke\_node\_disk\_size\_gb](#input\_gke\_node\_disk\_size\_gb) | Node boot disk size in GB, passed straight through to the module. Defaults to the module's own default of 100. | `number` | `100` | no |
+| <a name="input_gke_node_disk_type"></a> [gke\_node\_disk\_type](#input\_gke\_node\_disk\_type) | Node boot disk type (pd-standard, pd-balanced, pd-ssd), passed straight through to the module. Defaults to the module's own default of pd-balanced. | `string` | `"pd-balanced"` | no |
 | <a name="input_gke_node_max_per_zone"></a> [gke\_node\_max\_per\_zone](#input\_gke\_node\_max\_per\_zone) | Autoscaling max nodes per zone. Must be high enough to schedule the KEDA worker ceiling below. | `number` | `10` | no |
 | <a name="input_gke_node_min_per_zone"></a> [gke\_node\_min\_per\_zone](#input\_gke\_node\_min\_per\_zone) | Autoscaling min nodes per zone (regional cluster ~3 zones). | `number` | `3` | no |
 | <a name="input_gke_node_type"></a> [gke\_node\_type](#input\_gke\_node\_type) | GKE node machine type. | `string` | `"e2-standard-16"` | no |
