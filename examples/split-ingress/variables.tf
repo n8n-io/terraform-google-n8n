@@ -38,6 +38,12 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_main_hpa_min_replicas" {
+  description = "Minimum replica count for n8n main pods, passed straight through to the module's own n8n_main_hpa_min_replicas. Leave null (the default) to use the module's default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n_main_hpa_enabled description for the required license edition and maintenance implications."
+  type        = number
+  default     = null
+}
+
 variable "manage_sa_key_org_policy" {
   description = "Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation for this project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise."
   type        = bool

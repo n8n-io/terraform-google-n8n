@@ -122,6 +122,13 @@ variable "n8n_worker_keda_max_replicas" {
   default     = 30
 }
 
+variable "n8n_main_hpa_min_replicas" {
+  description = "Main-pod HPA floor, passed straight through to the module. Defaults to the module's own default of 2 (multi-main) so this tier's sizing does not silently diverge; set to 1 for single-main queue mode instead (see the module's n8n_main_hpa_enabled description for licensing and maintenance implications)."
+  type        = number
+  default     = 2
+  nullable    = false
+}
+
 variable "n8n_webhook_hpa_min_replicas" {
   description = "Webhook-processor HPA floor."
   type        = number

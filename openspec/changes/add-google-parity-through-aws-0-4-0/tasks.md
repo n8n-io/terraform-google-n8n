@@ -139,7 +139,7 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 25. Update application examples and sizing guidance
 
-- [ ] 25.1 Expose the main floor in every application example and preserve each existing effective default; verify example mock tests allow single-main and retain current medium/large defaults without altering the controller-only example.
+- [x] 25.1 Expose the main floor in every application example and preserve each existing effective default; verify example mock tests allow single-main and retain current medium/large defaults without altering the controller-only example.
 - [ ] 25.2 Pass through existing GKE boot-disk sizing and relevant pool/runtime tuning in the sizing examples rather than hardcoding AWS values; verify passthrough tests and unchanged Google resource sizing defaults.
 - [ ] 25.3 Correct large-tier prose to match the actual worker ceiling and explain lazy pool budgets, DNS, heap, disk pressure, pruning, and RDB considerations; verify all numerical tables agree with example inputs and retain the not-scale-validated warning.
 

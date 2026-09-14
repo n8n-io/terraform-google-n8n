@@ -39,6 +39,7 @@ module "n8n" {
   n8n_worker_concurrency       = var.n8n_worker_concurrency
   n8n_worker_keda_min_replicas = var.n8n_worker_keda_min_replicas
   n8n_worker_keda_max_replicas = var.n8n_worker_keda_max_replicas
+  n8n_main_hpa_min_replicas    = var.n8n_main_hpa_min_replicas
   n8n_webhook_hpa_min_replicas = var.n8n_webhook_hpa_min_replicas
   n8n_webhook_hpa_max_replicas = var.n8n_webhook_hpa_max_replicas
 

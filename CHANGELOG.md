@@ -516,6 +516,24 @@ this project adheres to the stability contract in
   CLI help. Also documents the local `check-n8n-chart.sh` and pinned `checkov`
   commands alongside the Terraform loop.
 
+- Exposed the n8n main-pod HPA floor (or, in `examples/customer-managed-everything`,
+  the fixed-replica floor) in every application example
+  (`add-google-parity-through-aws-0-4-0`, section 25.1): `examples/small`,
+  `examples/cloudflare`, `examples/godaddy`, `examples/split-ingress`,
+  `examples/customer-managed-cluster`, `examples/customer-managed-gcs`, and
+  `examples/customer-managed-redis` each add a `n8n_main_hpa_min_replicas`
+  passthrough defaulting to `null` (the module's own default of 2, multi-main,
+  is unchanged); `examples/medium` adds the same passthrough with an explicit
+  default of `2`, its prior effective value; `examples/customer-managed-everything`
+  adds a `n8n_main_fixed_replicas` passthrough (that example already sets
+  `n8n_main_hpa_enabled = false`) defaulting to `2`, also its prior effective
+  value. `examples/large`, which already exposed `n8n_main_hpa_min_replicas`
+  with its own default of 3, is unchanged. Every example's default renders the
+  same topology as before this change; setting the new input to 1 selects
+  single-main queue mode. The controller submodule and its `direct-use`
+  example are untouched. Added a `single_main_floor_produces_valid_plan` (or
+  equivalent) plan-time test to every touched example.
+
 ### Fixed
 
 - Pinned the managed-GKE Workload Identity binding to the project's own pool:

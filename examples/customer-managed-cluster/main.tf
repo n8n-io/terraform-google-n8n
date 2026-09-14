@@ -20,6 +20,8 @@ module "n8n" {
 
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
+  n8n_main_hpa_min_replicas = var.n8n_main_hpa_min_replicas
+
   # ── GKE ownership: attach to an existing regional cluster ──────────────────
   create_gke                             = false
   existing_gke_cluster_name              = var.existing_gke_cluster_name

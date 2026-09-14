@@ -33,6 +33,12 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_main_hpa_min_replicas" {
+  description = "Minimum replica count for n8n main pods, passed straight through to the module's own n8n_main_hpa_min_replicas. Leave null (the default) to use the module's default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n_main_hpa_enabled description for the required license edition and maintenance implications."
+  type        = number
+  default     = null
+}
+
 # ── GoDaddy DNS ───────────────────────────────────────────────────────────────
 variable "godaddy_domain" {
   description = "The GoDaddy zone (registered domain) that owns n8n_fqdn, e.g. example.com."

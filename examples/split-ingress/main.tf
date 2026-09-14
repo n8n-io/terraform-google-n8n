@@ -35,6 +35,8 @@ module "n8n" {
   # Set true only if your creds have org-policy admin (see variable docs).
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
+  n8n_main_hpa_min_replicas = var.n8n_main_hpa_min_replicas
+
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
   gke_deletion_protection      = var.gke_deletion_protection
   postgres_deletion_protection = var.postgres_deletion_protection

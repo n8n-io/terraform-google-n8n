@@ -20,6 +20,8 @@ module "n8n" {
 
   n8n_license_key = var.n8n_license_key
 
+  n8n_main_hpa_min_replicas = var.n8n_main_hpa_min_replicas
+
   # ── GCS ownership: existing bucket + BYO HMAC identity ─────────────────────
   create_gcs_bucket              = false
   existing_gcs_bucket_name       = var.existing_gcs_bucket_name
