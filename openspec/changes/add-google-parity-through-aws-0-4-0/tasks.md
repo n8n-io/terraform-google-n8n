@@ -24,9 +24,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 4. Add database health and acquisition tuning
 
-- [ ] 4.1 Add the four `db_ping_*`/`db_postgresdb_connection_timeout_ms` inputs and shared runtime wiring; verify null omission and explicit values on all three n8n roles for managed and external PostgreSQL.
-- [ ] 4.2 Add positive-integer, zero-acquisition-timeout, overflow, and extra-env collision tests; verify each fails or passes at the documented boundary on Terraform 1.9.8.
-- [ ] 4.3 Correct the pool-size description to a lazy per-process maximum and explain its interaction with health-check acquisition; verify documentation no longer claims every pod continuously holds the configured number of connections.
+- [x] 4.1 Add the four `db_ping_*`/`db_postgresdb_connection_timeout_ms` inputs and shared runtime wiring; verify null omission and explicit values on all three n8n roles for managed and external PostgreSQL.
+- [x] 4.2 Add positive-integer, zero-acquisition-timeout, overflow, and extra-env collision tests; verify each fails or passes at the documented boundary on Terraform 1.9.8.
+- [x] 4.3 Correct the pool-size description to a lazy per-process maximum and explain its interaction with health-check acquisition; verify documentation no longer claims every pod continuously holds the configured number of connections.
 
 ## 5. Add queue lock and stall controls
 

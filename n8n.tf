@@ -521,6 +521,23 @@ resource "helm_release" "n8n" {
           # because the module default deliberately overrides n8n's own default.
           { name = "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN", value = tostring(var.n8n_license_detach_floating_on_shutdown) },
         ],
+        # Database health-check and connection-acquisition tuning. Each value
+        # is null by default and omitted entirely so n8n's own default
+        # applies; these apply identically for managed Cloud SQL and external
+        # PostgreSQL (config.extraEnv does not distinguish infrastructure
+        # ownership).
+        var.db_ping_timeout_ms != null ? [
+          { name = "DB_PING_TIMEOUT_MS", value = tostring(var.db_ping_timeout_ms) },
+        ] : [],
+        var.db_ping_interval_seconds != null ? [
+          { name = "DB_PING_INTERVAL_SECONDS", value = tostring(var.db_ping_interval_seconds) },
+        ] : [],
+        var.db_ping_max_failures_before_recovery != null ? [
+          { name = "DB_PING_MAX_FAILURES_BEFORE_RECOVERY", value = tostring(var.db_ping_max_failures_before_recovery) },
+        ] : [],
+        var.db_postgresdb_connection_timeout_ms != null ? [
+          { name = "DB_POSTGRESDB_CONNECTION_TIMEOUT", value = tostring(var.db_postgresdb_connection_timeout_ms) },
+        ] : [],
         local.manage_redis_tls_ca ? [
           { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
         ] : [],

@@ -729,13 +729,57 @@ variable "n8n_database_password_secret_ref" {
 }
 
 variable "db_postgresdb_pool_size" {
-  description = "Number of TypeORM connection pool slots per n8n pod. Each pod holds this many persistent PostgreSQL connections. Rule of thumb: pool_size >= worker_concurrency / 4. With PgBouncer in transaction mode a lower value (5) is sufficient; without PgBouncer use a value matching concurrency (10-20)."
+  description = "Maximum number of TypeORM connection pool slots per n8n pod. Pool connections are acquired lazily on demand, up to this ceiling, not held open continuously from startup; a pod that never reaches this many concurrent queries never opens this many connections. db_ping_timeout_ms/db_postgresdb_connection_timeout_ms bound how long a request waits to acquire a slot from this pool once it is exhausted. Rule of thumb: pool_size >= worker_concurrency / 4. With PgBouncer in transaction mode a lower value (5) is sufficient; without PgBouncer use a value matching concurrency (10-20)."
   type        = number
   default     = 10
 
   validation {
     condition     = var.db_postgresdb_pool_size >= 1
     error_message = "db_postgresdb_pool_size must be at least 1."
+  }
+}
+
+variable "db_ping_timeout_ms" {
+  description = "Milliseconds n8n waits for a database ping to respond before considering the connection unhealthy. Wired to DB_PING_TIMEOUT_MS on every n8n role (main, worker, webhook processor), for both managed Cloud SQL and external PostgreSQL. Null (the default) omits the override so n8n's own default applies."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.db_ping_timeout_ms == null ? true : (var.db_ping_timeout_ms >= 1 && floor(var.db_ping_timeout_ms) == var.db_ping_timeout_ms)
+    error_message = "db_ping_timeout_ms must be a positive whole number of milliseconds, or null to omit the override."
+  }
+}
+
+variable "db_ping_interval_seconds" {
+  description = "Seconds between database health-check pings. Wired to DB_PING_INTERVAL_SECONDS on every n8n role, for both managed Cloud SQL and external PostgreSQL. Null (the default) omits the override so n8n's own default applies."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.db_ping_interval_seconds == null ? true : (var.db_ping_interval_seconds >= 1 && floor(var.db_ping_interval_seconds) == var.db_ping_interval_seconds)
+    error_message = "db_ping_interval_seconds must be a positive whole number of seconds, or null to omit the override."
+  }
+}
+
+variable "db_ping_max_failures_before_recovery" {
+  description = "Number of consecutive failed database pings n8n tolerates before entering recovery. Wired to DB_PING_MAX_FAILURES_BEFORE_RECOVERY on every n8n role, for both managed Cloud SQL and external PostgreSQL. Null (the default) omits the override so n8n's own default applies."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.db_ping_max_failures_before_recovery == null ? true : (var.db_ping_max_failures_before_recovery >= 1 && floor(var.db_ping_max_failures_before_recovery) == var.db_ping_max_failures_before_recovery)
+    error_message = "db_ping_max_failures_before_recovery must be a positive whole count, or null to omit the override."
+  }
+}
+
+variable "db_postgresdb_connection_timeout_ms" {
+  description = "Milliseconds n8n waits to acquire a connection slot from db_postgresdb_pool_size before failing the request (TypeORM connection-acquisition timeout, distinct from db_ping_timeout_ms's health-check timeout). Wired to DB_POSTGRESDB_CONNECTION_TIMEOUT on every n8n role, for both managed Cloud SQL and external PostgreSQL. Zero disables this acquisition timeout. Null (the default) omits the override so n8n's own default applies."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.db_postgresdb_connection_timeout_ms == null ? true : (var.db_postgresdb_connection_timeout_ms >= 0 && var.db_postgresdb_connection_timeout_ms <= 2147483647 && floor(var.db_postgresdb_connection_timeout_ms) == var.db_postgresdb_connection_timeout_ms)
+    error_message = "db_postgresdb_connection_timeout_ms must be a whole number of milliseconds from 0 to 2147483647, or null to omit the override."
   }
 }
 
