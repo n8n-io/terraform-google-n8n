@@ -21,8 +21,8 @@ output "lb_ingress_ip" {
 # ── Secrets (retrieve with terraform output -raw <name>) ──────────────────────
 
 output "n8n_encryption_key" {
-  description = "n8n encryption key. Back this up; losing it makes all stored credentials unreadable. Null when existing_n8n_core_secret_name supplies an existing core Secret; the module generates and reads no encryption key on that path."
-  value       = local.manage_core_secret ? random_id.n8n_encryption_key[0].hex : null
+  description = "n8n encryption key: the direct n8n_encryption_key when supplied, else the generated key. Back this up; losing it makes all stored credentials unreadable. Null when existing_n8n_core_secret_name supplies an existing core Secret; the module generates and reads no encryption key on that path."
+  value       = local.effective_encryption_key
   sensitive   = true
 }
 

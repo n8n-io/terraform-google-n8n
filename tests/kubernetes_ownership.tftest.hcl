@@ -170,6 +170,92 @@ run "existing_core_secret_without_license_secret_ref_fails_validation" {
   expect_failures = [var.existing_n8n_core_secret_name]
 }
 
+# ── Direct encryption-key continuity ──────────────────────────────────────────
+
+run "default_generates_encryption_key" {
+  command = plan
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 1
+    error_message = "With no direct key and no existing core Secret, the module must generate the encryption key."
+  }
+
+  assert {
+    condition     = contains(keys(kubernetes_secret.n8n[0].data), "N8N_ENCRYPTION_KEY")
+    error_message = "The managed core Secret must carry a generated encryption key."
+  }
+}
+
+run "direct_encryption_key_replaces_generation" {
+  command = plan
+
+  variables {
+    n8n_encryption_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 0
+    error_message = "A supplied direct key must replace generation; no random key should be created."
+  }
+
+  assert {
+    condition     = kubernetes_secret.n8n[0].data["N8N_ENCRYPTION_KEY"] == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    error_message = "The managed core Secret must carry the exact supplied key, unchanged."
+  }
+
+  assert {
+    condition     = output.n8n_encryption_key == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    error_message = "The sensitive output must return the supplied key."
+  }
+}
+
+run "encryption_key_ignored_when_existing_core_secret_unread" {
+  command = plan
+
+  variables {
+    existing_n8n_core_secret_name = "existing-core-secrets"
+    n8n_license_key               = null
+    n8n_license_key_secret_ref = {
+      name = "n8n-license"
+    }
+  }
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 0
+    error_message = "An unread external core Secret must never trigger key generation."
+  }
+
+  assert {
+    condition     = output.n8n_encryption_key == null
+    error_message = "The sensitive output must stay null for an unread external core Secret."
+  }
+}
+
+run "encryption_key_rejects_malformed_value" {
+  command = plan
+
+  variables {
+    n8n_encryption_key = "not-a-valid-hex-key"
+  }
+
+  expect_failures = [var.n8n_encryption_key]
+}
+
+run "encryption_key_and_existing_core_secret_are_mutually_exclusive" {
+  command = plan
+
+  variables {
+    n8n_encryption_key            = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    existing_n8n_core_secret_name = "existing-core-secrets"
+    n8n_license_key               = null
+    n8n_license_key_secret_ref = {
+      name = "n8n-license"
+    }
+  }
+
+  expect_failures = [var.n8n_encryption_key]
+}
+
 # ── Existing Secret references (PostgreSQL, Redis, GCS) plan cleanly together ─
 # with an existing namespace and core Secret, proving every credential Secret
 # reference is independent of namespace and core Secret ownership.

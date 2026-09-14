@@ -1,10 +1,12 @@
 # ── Encryption key ────────────────────────────────────────────────────────────
 # Skipped when the caller references an existing core Secret
 # (existing_n8n_core_secret_name); the generated key would never be used, see
-# locals.tf's manage_core_secret / effective_core_secret_name (D7).
+# locals.tf's manage_core_secret / effective_core_secret_name (D7). Also
+# skipped when the caller supplies a direct key to reuse (n8n_encryption_key);
+# see locals.tf's effective_encryption_key, which prefers that direct value.
 
 resource "random_id" "n8n_encryption_key" {
-  count = local.manage_core_secret ? 1 : 0
+  count = local.manage_core_secret && var.n8n_encryption_key == null ? 1 : 0
 
   byte_length = 32
 }
@@ -51,7 +53,7 @@ resource "kubernetes_secret" "n8n" {
   }
 
   data = {
-    N8N_ENCRYPTION_KEY = random_id.n8n_encryption_key[0].hex
+    N8N_ENCRYPTION_KEY = local.effective_encryption_key
     N8N_HOST           = local.n8n_fqdn
     N8N_PORT           = "5678"
     N8N_PROTOCOL       = "http"

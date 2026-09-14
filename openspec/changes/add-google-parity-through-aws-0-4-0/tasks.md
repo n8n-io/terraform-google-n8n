@@ -45,7 +45,7 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 8. Add direct encryption-key recovery
 
-- [ ] 8.1 Add sensitive `n8n_encryption_key`, generation gating, core Secret wiring, and effective sensitive output; verify generated, valid-direct, external-core, malformed, and conflicting-source plan cases.
+- [x] 8.1 Add sensitive `n8n_encryption_key`, generation gating, core Secret wiring, and effective sensitive output; verify generated, valid-direct, external-core, malformed, and conflicting-source plan cases.
 - [ ] 8.2 Update restore/clone continuity diagnostics and tests in the PostgreSQL ownership suite; verify direct or external-core continuity suppresses only the missing-key warning and does not bypass restore-source validation.
 
 ## 9. Remove inline license delivery

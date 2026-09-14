@@ -18,6 +18,14 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added sensitive `n8n_encryption_key` (`add-google-parity-through-aws-0-4-0`,
+  section 8): reuse a known 64-hexadecimal-character encryption key instead of
+  letting the module generate one, e.g. to keep decrypting credentials in a
+  restored/cloned database. Mutually exclusive with
+  `existing_n8n_core_secret_name`. When supplied, the managed core Secret
+  carries the exact value and no `random_id.n8n_encryption_key` is generated;
+  the `n8n_encryption_key` output returns the supplied/generated value and
+  stays null for an unread external core Secret.
 - Added the foundation of the explicit infrastructure/Kubernetes ownership
   model (`add-full-stack-modularity`, section 1): non-null `create_network`,
   `create_psa`, `create_gke`, `create_redis_instance`, `create_gcs_bucket`,

@@ -183,6 +183,12 @@ locals {
   manage_core_secret         = var.existing_n8n_core_secret_name == null
   effective_core_secret_name = local.manage_core_secret ? kubernetes_secret.n8n[0].metadata[0].name : var.existing_n8n_core_secret_name
 
+  # effective_encryption_key: the direct var.n8n_encryption_key when supplied,
+  # else the generated random_id (n8n.tf only creates that resource when
+  # manage_core_secret is true and no direct key was supplied), else null for
+  # an unread external core Secret.
+  effective_encryption_key = local.manage_core_secret ? coalesce(var.n8n_encryption_key, try(random_id.n8n_encryption_key[0].hex, null)) : null
+
   # Redis. ACL usernames are meaningful only on the external path; managed
   # Memorystore has no concept of one. manage_redis_secret/
   # effective_redis_password_secret_* mirror PostgreSQL's D7 password-source

@@ -110,6 +110,23 @@ variable "create_namespace" {
 
 # ── Existing core Secret (n8n_kube_namespace) ─────────────────────────────────
 
+variable "n8n_encryption_key" {
+  description = "Direct n8n encryption key to reuse instead of letting the module generate one, e.g. when restoring/cloning a database whose existing credentials were encrypted with a known key. Exactly 64 hexadecimal characters, matching the module's own generated-key format (32 random bytes, hex-encoded). Mutually exclusive with existing_n8n_core_secret_name, which supplies the encryption key through an entire caller-managed core Secret instead. Leave null (the default) for the module to generate one, whose value is exposed by the n8n_encryption_key output. This reuses a key; it does not rotate one or prove the key matches a given database."
+  type        = string
+  default     = null
+  sensitive   = true
+
+  validation {
+    condition     = var.n8n_encryption_key == null || can(regex("^[0-9a-fA-F]{64}$", var.n8n_encryption_key))
+    error_message = "n8n_encryption_key must be exactly 64 hexadecimal characters, matching the module's own generated-key format."
+  }
+
+  validation {
+    condition     = var.n8n_encryption_key == null || var.existing_n8n_core_secret_name == null
+    error_message = "n8n_encryption_key and existing_n8n_core_secret_name are mutually exclusive: a direct key has nowhere to go once the caller supplies the entire core Secret."
+  }
+}
+
 variable "existing_n8n_core_secret_name" {
   description = "Name of an existing Kubernetes Secret (in n8n_kube_namespace) holding N8N_ENCRYPTION_KEY, N8N_HOST, N8N_PORT, and N8N_PROTOCOL - the n8n Helm chart's secretRefs.existingSecret core-Secret contract. When set, the module creates no core Secret and generates no encryption key; n8n_license_key_secret_ref must then be set, because the chart's core-Secret contract requires the license to come from a separate Secret, not n8n_license_key. Leave null (the default) for the module to generate the encryption key and create the core Secret itself."
   type        = string
