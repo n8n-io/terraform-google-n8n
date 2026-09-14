@@ -413,6 +413,12 @@ run "module_created_redis_key_wires_key_ring_and_iam" {
     )
     error_message = "A module-created Redis key must materialize the target project's Redis service agent before granting IAM."
   }
+
+  # CKV_GCP_43: every module-created CMEK key rotates within 90 days.
+  assert {
+    condition     = google_kms_crypto_key.redis[0].rotation_period == "7776000s"
+    error_message = "A module-created Memorystore CryptoKey must rotate every 90 days."
+  }
 }
 
 run "existing_redis_key_creates_no_key_or_iam" {

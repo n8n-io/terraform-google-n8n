@@ -458,6 +458,42 @@ this project adheres to the stability contract in
   and `modules/controllers/examples/direct-use`, which were runnable and
   mock-tested (section 4) but not yet wired into CI.
 
+- Curated the Google-specific Checkov security baseline
+  (`add-google-parity-through-aws-0-4-0`, section 23): rotated every
+  module-created CMEK key every 90 days (`kms.tf`); added always-on, PII-free
+  Cloud SQL audit flags (`log_connections`, `log_disconnections`,
+  `log_checkpoints`, `log_lock_waits`, `log_duration`, `log_hostname`,
+  `log_min_error_statement`); added VPC Flow Logs on the module-managed
+  subnet and an explicit low-priority deny-all-ingress firewall rule on the
+  module-managed network (neither changes any actual allowed traffic); made
+  GKE client-certificate authentication, intranode visibility, Dataplane V2
+  network policy enforcement, and Shielded-node Secure Boot/Integrity
+  Monitoring explicit instead of relying on unstated API defaults; and added a
+  dedicated, short-lived access-log bucket (`google_storage_bucket.n8n_access_logs`)
+  for the module-managed GCS binary-data bucket. None of these change any
+  existing default that other tests, examples, or the Helm release depend on.
+  Pinned Checkov to `3.3.17` for local use (`uv tool install checkov==3.3.17`
+  or equivalent) and CI (`bridgecrewio/checkov-action@v12.3123.0`, the release
+  tag whose bundled image is `ghcr.io/bridgecrewio/checkov:3.3.17`). Narrowly
+  scoped, resource-level `checkov:skip` comments (which must sit inside the
+  resource body to take effect, not above it) document the remaining findings
+  Checkov cannot avoid: Cloud SQL SSL/pgAudit/full-statement-logging/major-version
+  and Memorystore AUTH/in-transit-encryption stay off by default to match n8n's
+  own default unencrypted client contract and remain caller-configurable
+  opt-ins; GKE Binary Authorization and Google-Groups RBAC need a
+  caller-owned policy/directory group this module cannot assume; the
+  module-managed network's own firewall and every Cloud SQL dynamic
+  `database_flags` value are real and verified by `terraform test`, but not
+  visible to Checkov's static analysis once the resource is `count`-indexed
+  or the flags come from a `dynamic` block (reproduced against minimal
+  fixtures during this review); and the dedicated access-log bucket does not
+  log access to itself. A full per-finding classification (fixed, scanner
+  limitation, or intentional exception) is on record in this change's PR
+  description and `openspec/changes/add-google-parity-through-aws-0-4-0/`
+  history. `soft_fail` on the CI `checkov` job stays `true` until a follow-up
+  section wires the pinned scan into the same blocking gate as the other CI
+  jobs; a scan of this baseline already returns zero failed checks.
+
 ### Fixed
 
 - Pinned the managed-GKE Workload Identity binding to the project's own pool:

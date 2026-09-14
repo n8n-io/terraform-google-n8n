@@ -381,6 +381,12 @@ run "module_created_postgres_key_wires_key_ring_and_iam" {
     )
     error_message = "A module-created Cloud SQL key must materialize the target project's Cloud SQL service agent before granting IAM."
   }
+
+  # CKV_GCP_43: every module-created CMEK key rotates within 90 days.
+  assert {
+    condition     = google_kms_crypto_key.postgres[0].rotation_period == "7776000s"
+    error_message = "A module-created Cloud SQL CryptoKey must rotate every 90 days."
+  }
 }
 
 run "existing_postgres_key_creates_no_key_or_iam" {
@@ -589,8 +595,13 @@ run "query_logging_disabled_by_default_emits_no_flags" {
   command = plan
 
   assert {
-    condition     = length(google_sql_database_instance.n8n[0].settings[0].database_flags) == 0
-    error_message = "postgres_query_logging_enabled defaults to false and must emit no database_flags."
+    condition     = length([for flag in google_sql_database_instance.n8n[0].settings[0].database_flags : flag if contains(["log_statement", "log_min_duration_statement"], flag.name)]) == 0
+    error_message = "postgres_query_logging_enabled defaults to false and must emit no log_statement/log_min_duration_statement flags."
+  }
+
+  assert {
+    condition     = length(google_sql_database_instance.n8n[0].settings[0].database_flags) == 7
+    error_message = "The always-on audit flags (log_connections, log_disconnections, log_checkpoints, log_lock_waits, log_duration, log_hostname, log_min_error_statement) must still render by default."
   }
 }
 

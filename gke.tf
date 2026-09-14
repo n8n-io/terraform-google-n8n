@@ -8,8 +8,27 @@
 # existing regional cluster instead (see the data lookup and prerequisites
 # checks below, and locals.tf's effective_gke_* locals).
 
+# Curated Checkov exceptions for this cluster:
+#
+# CKV_GCP_65 (RBAC via Google Groups): authenticator_groups_config requires an
+# existing Google Group (e.g. gke-security-groups@<domain>) in the caller's
+# own Cloud Identity/Workspace directory; this module cannot create or assume
+# one on a generic project. Set google_container_cluster's
+# authenticator_groups_config out of band, or fork gke.tf, if your org
+# already manages such a group.
+#
+# CKV_GCP_66 (Binary Authorization): requires a project-level admission
+# policy and, to provide real protection, an attestor pipeline that is a
+# separate platform decision outside this module's ownership contract (D3's
+# GKE scope). Enabling it against an unconfigured project's default
+# permissive policy would add an API dependency and a cluster field with no
+# actual admission protection; document and let interested operators layer it
+# on deliberately once they have a policy to enforce.
 resource "google_container_cluster" "n8n" {
   count = var.create_gke ? 1 : 0
+
+  # checkov:skip=CKV_GCP_65: intentional, requires caller-owned Google Group, see resource comment above.
+  # checkov:skip=CKV_GCP_66: intentional, out of module scope, see resource comment above.
 
   name     = local.name_prefix
   project  = var.project_id
@@ -39,6 +58,49 @@ resource "google_container_cluster" "n8n" {
   # Workload Identity: bind KSAs to Google service accounts.
   workload_identity_config {
     workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+  # CKV_GCP_13: client-certificate authentication is not requested (GKE has
+  # not issued client certificates by default for years); this makes that
+  # explicit in configuration rather than relying on an unstated API default.
+  master_auth {
+    client_certificate_config {
+      issue_client_certificate = false
+    }
+  }
+
+  # CKV_GCP_61: intranode visibility, so pod-to-pod traffic on the same node is
+  # also visible to the subnet's VPC Flow Logs (network.tf).
+  enable_intranode_visibility = true
+
+  # CKV_GCP_12: Dataplane V2 (Cilium-based), GKE's own recommended default,
+  # which enforces Kubernetes NetworkPolicy natively. The legacy Calico-based
+  # network_policy add-on is explicitly left disabled, as Google recommends
+  # when datapath_provider is ADVANCED_DATAPATH: enabling both is redundant
+  # and unsupported together.
+  datapath_provider = "ADVANCED_DATAPATH"
+  network_policy {
+    enabled = false
+  }
+
+  # CKV_GCP_69: the default node pool this template configures is removed
+  # immediately (remove_default_node_pool below), but Checkov inspects this
+  # cluster-level template independently of the actual managed node pool's own
+  # workload_metadata_config (which already sets GKE_METADATA); keep both in
+  # sync so the metadata server posture is explicit at every level GKE reads
+  # node_config from.
+  node_config {
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
+
+    # CKV_GCP_68/CKV_GCP_72: kept in sync with the managed node pool's own
+    # shielded_instance_config below so this otherwise-unused template does
+    # not read as a regression on either check.
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
+    }
   }
 
   private_cluster_config {
@@ -133,6 +195,14 @@ resource "google_container_node_pool" "n8n" {
     # Required so pods can use Workload Identity.
     workload_metadata_config {
       mode = "GKE_METADATA"
+    }
+
+    # CKV_GCP_68/CKV_GCP_72: Secure Boot and Integrity Monitoring for these
+    # Shielded VM nodes. Both are already GKE's own default; this only makes
+    # that explicit rather than relying on an unstated API default.
+    shielded_instance_config {
+      enable_secure_boot          = true
+      enable_integrity_monitoring = true
     }
 
     labels = local.gcp_labels

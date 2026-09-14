@@ -134,6 +134,68 @@ curates it (fix genuine findings, add narrowly scoped documented exceptions
 for real ownership-model conflicts, then flip `soft_fail` to `false` in
 section 24.2). None of these findings are fixed or suppressed by this report.
 
+## Section 23: curated Checkov security baseline
+
+Captured after sections 1-22's implementation, using Checkov `3.3.17` (pinned
+for local and CI use in section 23.1; see `CHANGELOG.md`'s section-23 entry
+and `.github/workflows/terraform-tests.yml`'s `checkov` job, which now
+references `bridgecrewio/checkov-action@v12.3123.0`, the release tag whose
+bundled image is `ghcr.io/bridgecrewio/checkov:3.3.17`):
+
+```
+checkov -d . --framework terraform --compact --quiet
+# Passed checks: 110, Failed checks: 0, Skipped checks: 162
+```
+
+The 28 distinct findings from this report's earlier Checkov `3.3.9` baseline
+(module root only) are all accounted for below, scanning the whole repository
+(root plus all 10 example/module call sites, hence the higher pass/skip
+counts from the same set of underlying findings). Every skip below is a
+resource-scoped Checkov `checkov:skip` comment placed inside the resource
+body (a comment above the resource declaration does not suppress anything;
+verified against a minimal fixture during this review), each pointing back to
+a longer rationale comment on the same resource.
+
+### Fixed (real configuration changes)
+
+| Check | Resource | Fix |
+| --- | --- | --- |
+| `CKV_GCP_43` | `google_kms_crypto_key.postgres` / `.redis` / `.gcs` | `rotation_period = "7776000s"` (90 days) added to all three keys. |
+| `CKV_GCP_26` | `google_compute_subnetwork.n8n` | Added a `log_config` block (5s aggregation, 0.5 sampling, full metadata). |
+| `CKV2_GCP_18` (partially; see exceptions) | `google_compute_network.n8n` | Added an explicit, low-priority (65534) deny-all-ingress `google_compute_firewall.deny_all_ingress`, which changes no actual allowed traffic. |
+| `CKV_GCP_51`/`52`/`53`/`54`/`108`/`109`, `CKV2_GCP_13` | `google_sql_database_instance.n8n` | Added always-on `log_connections`, `log_disconnections`, `log_checkpoints`, `log_lock_waits`, `log_duration`, `log_hostname`, `log_min_error_statement` database flags (none carry query text or parameter values); see also the scanner-limitation exception below for why Checkov still cannot see these. |
+| `CKV_GCP_69` | `google_container_cluster.n8n` | Added a `node_config` block with `workload_metadata_config { mode = "GKE_METADATA" }` to the (immediately removed) default node pool template, matching the actual managed node pool's own setting. |
+| `CKV_GCP_13` | `google_container_cluster.n8n` | Added `master_auth.client_certificate_config.issue_client_certificate = false`. |
+| `CKV_GCP_61` | `google_container_cluster.n8n` | Added `enable_intranode_visibility = true`. |
+| `CKV_GCP_12` | `google_container_cluster.n8n` | Added `datapath_provider = "ADVANCED_DATAPATH"` with `network_policy { enabled = false }` (Google's own recommended combination: Dataplane V2 enforces NetworkPolicy natively; enabling the legacy add-on alongside it is redundant and unsupported). |
+| `CKV_GCP_68`, `CKV_GCP_72` | `google_container_node_pool.n8n` (and the cluster's template `node_config` above) | Added `shielded_instance_config { enable_secure_boot = true, enable_integrity_monitoring = true }` to both. |
+| `CKV_GCP_62`, `CKV_GCP_78` | `google_storage_bucket.n8n` / new `google_storage_bucket.n8n_access_logs` | Added a dedicated, versioned, 30-day-lifecycle access-log bucket and pointed the binary-data bucket's `logging.log_bucket` at it. |
+
+### Scanner limitations (config is correct; Checkov's static analysis cannot see it)
+
+| Check | Resource | Why Checkov cannot see the fix |
+| --- | --- | --- |
+| `CKV_GCP_51`, `CKV_GCP_52`, `CKV_GCP_53`, `CKV_GCP_54`, `CKV_GCP_108`, `CKV_GCP_109`, `CKV2_GCP_13` | `google_sql_database_instance.n8n` | The flags above are emitted via a `dynamic "database_flags"` block. Reproduced against a minimal two-resource fixture during this review: an identical `name`/`value` pair passed every one of these checks as a literal `database_flags { ... }` block and failed all of them as a `dynamic "database_flags"` block with a literal `for_each` map. Verified instead by `tests/postgres_ownership.tftest.hcl`'s always-on-flags assertions (`query_logging_disabled_by_default_emits_no_flags` and neighbors). |
+| `CKV_GCP_79` | `google_sql_database_instance.n8n` | The check hardcodes a single literal "latest" version per engine (currently `POSTGRES_18` only) that goes stale on every new Cloud SQL major-version release. `postgres_version` defaults to `POSTGRES_16` (Google's own extended support runs through 2032) and remains caller-configurable to any supported version, including the literal this check currently expects. |
+| `CKV2_GCP_18` | `google_compute_network.n8n` | `google_compute_firewall.deny_all_ingress` (added above) is connected to this network and satisfies the check's actual intent (a non-default firewall exists). Reproduced against a two-resource fixture during this review: an identical network/firewall pair passed without `count`, and failed once both resources used `count = 1`, i.e. Checkov's graph connection lookup does not resolve a count-indexed `network = google_compute_network.n8n[0].id` reference. This module always sets `count` on this resource (`create_network`), so the false positive is unavoidable without dropping that ownership switch. |
+
+### Intentional exceptions (fixing would contradict a documented design choice)
+
+| Check | Resource | Why this is intentional |
+| --- | --- | --- |
+| `CKV_GCP_6` | `google_sql_database_instance.n8n` | `ssl_mode = ALLOW_UNENCRYPTED_AND_ENCRYPTED` (not `ENCRYPTED_ONLY`) matches n8n's own default `DB_POSTGRESDB_SSL_ENABLED=false` client behavior over a private VPC (Private Services Access, never a public IP). `db_postgresdb_ssl_enabled` lets an operator require SSL on the n8n client side without breaking connectivity for the documented default. |
+| `CKV_GCP_110` | `google_sql_database_instance.n8n` | pgAudit is a heavier, always-on audit-logging feature beyond this change's opt-in DDL/slow-query logging (`postgres_query_logging_enabled`); not requested and not implied by AWS parity. An operator can add `cloudsql.enable_pgaudit = on` to the same `for_each` map this resource already builds `database_flags` from. |
+| `CKV_GCP_111` | `google_sql_database_instance.n8n` | Forcing `log_statement=all/mod/ddl` for every instance would override `postgres_query_logging_enabled`'s own documented, opt-in scope (`log_statement=ddl` only, and only when explicitly enabled) with an always-on, potentially PII-carrying statement log. |
+| `CKV_GCP_97`, `CKV_GCP_95` | `google_redis_instance.n8n` | `transit_encryption_mode`/`auth_enabled` default to `DISABLED`/`false`, matching n8n's own default unencrypted, unauthenticated Redis client behavior over a private VPC connection. `redis_transit_encryption_enabled`/`redis_auth_enabled` let an operator turn both on without any code change (and `locals.tf`'s `manage_redis_trigger_auth` already accounts for the resulting KEDA `TriggerAuthentication` requirement). |
+| `CKV_GCP_65` | `google_container_cluster.n8n` | `authenticator_groups_config` requires an existing Google Group (e.g. `gke-security-groups@<domain>`) in the caller's own Cloud Identity/Workspace directory; this module cannot create or assume one on a generic project. |
+| `CKV_GCP_66` | `google_container_cluster.n8n` | Binary Authorization requires a project-level admission policy and, to provide real protection, a separate attestor pipeline outside this module's GKE ownership scope (D3). Enabling it against an unconfigured project's default permissive policy adds an API dependency and a cluster field with no actual admission protection. |
+| `CKV_GCP_62` | `google_storage_bucket.n8n_access_logs` | A log bucket does not log access to itself; nothing else in this module writes to it, and pointing it at another bucket would just move this same finding one bucket over. |
+
+No resource lost an existing curated protection (e.g. the Cloud Armor
+`cve-canary` rule from `add-full-stack-modularity`'s final verification is
+unchanged), and no check was suppressed more broadly than the single resource
+it was reproduced against.
+
 ## What this report does not verify
 
 No live Google Cloud apply, no live Helm upgrade, no chart rendering (chart

@@ -23,6 +23,12 @@ locals {
   create_gcs_kms_key      = var.create_gcs_bucket && var.create_gcs_kms_key
   create_any_kms_key      = local.create_postgres_kms_key || local.create_redis_kms_key || local.create_gcs_kms_key
 
+  # CKV_GCP_43 (Checkov): rotate every module-created CMEK key within 90 days.
+  # Google recommends this as a default hygiene practice; rotation only
+  # re-wraps the key material, so it does not require any n8n-side change or
+  # re-encrypt the underlying Cloud SQL/Memorystore/GCS data.
+  kms_rotation_period = "7776000s"
+
   # Cloud Storage uses "europe" for an EU multi-region KMS key; all other
   # bucket location codes match their KMS location after lower-casing.
   gcs_kms_location = lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location)
@@ -56,9 +62,10 @@ resource "google_project_service_identity" "postgres" {
 resource "google_kms_crypto_key" "postgres" {
   count = local.create_postgres_kms_key ? 1 : 0
 
-  name     = "${local.name_prefix}-pg-key"
-  key_ring = local.effective_kms_key_ring_id
-  purpose  = "ENCRYPT_DECRYPT"
+  name            = "${local.name_prefix}-pg-key"
+  key_ring        = local.effective_kms_key_ring_id
+  purpose         = "ENCRYPT_DECRYPT"
+  rotation_period = local.kms_rotation_period
 
   lifecycle {
     prevent_destroy = true
@@ -99,9 +106,10 @@ resource "google_project_service_identity" "redis" {
 resource "google_kms_crypto_key" "redis" {
   count = local.create_redis_kms_key ? 1 : 0
 
-  name     = "${local.name_prefix}-redis-key"
-  key_ring = local.effective_kms_key_ring_id
-  purpose  = "ENCRYPT_DECRYPT"
+  name            = "${local.name_prefix}-redis-key"
+  key_ring        = local.effective_kms_key_ring_id
+  purpose         = "ENCRYPT_DECRYPT"
+  rotation_period = local.kms_rotation_period
 
   lifecycle {
     prevent_destroy = true
@@ -140,9 +148,10 @@ resource "google_project_service_identity" "gcs" {
 resource "google_kms_crypto_key" "gcs" {
   count = local.create_gcs_kms_key ? 1 : 0
 
-  name     = "${local.name_prefix}-gcs-key"
-  key_ring = local.effective_kms_key_ring_id
-  purpose  = "ENCRYPT_DECRYPT"
+  name            = "${local.name_prefix}-gcs-key"
+  key_ring        = local.effective_kms_key_ring_id
+  purpose         = "ENCRYPT_DECRYPT"
+  rotation_period = local.kms_rotation_period
 
   lifecycle {
     prevent_destroy = true

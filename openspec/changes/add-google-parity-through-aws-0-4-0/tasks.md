@@ -127,9 +127,9 @@ Only automated checks and delivery of the manual checklist gate completion. Do n
 
 ## 23. Curate the Google security baseline
 
-- [ ] 23.1 Pin the selected Checkov version for local and CI use and refresh the baseline from section 1; verify a report groups every remaining finding by Google resource, actual risk, scanner limitation, or intentional ownership choice.
-- [ ] 23.2 Fix in-scope real findings and add explicit tests for scanner coverage gaps; verify repeated scans contain no unexplained finding and no resource loses an existing curated protection, including Cloud Armor's CVE rule.
-- [ ] 23.3 Record narrowly scoped justified exceptions where a fix conflicts with the supported ownership/feature contract; verify no broad check suppression or undocumented change to unrelated defaults is introduced, and escalate any newly discovered architectural change rather than assuming it.
+- [x] 23.1 Pin the selected Checkov version for local and CI use and refresh the baseline from section 1; verify a report groups every remaining finding by Google resource, actual risk, scanner limitation, or intentional ownership choice.
+- [x] 23.2 Fix in-scope real findings and add explicit tests for scanner coverage gaps; verify repeated scans contain no unexplained finding and no resource loses an existing curated protection, including Cloud Armor's CVE rule.
+- [x] 23.3 Record narrowly scoped justified exceptions where a fix conflicts with the supported ownership/feature contract; verify no broad check suppression or undocumented change to unrelated defaults is introduced, and escalate any newly discovered architectural change rather than assuming it.
 
 ## 24. Make CI and local gates agree
 

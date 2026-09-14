@@ -246,15 +246,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: checkov
-        uses: bridgecrewio/checkov-action@v12
+        # Pinned to the checkov-action release tag whose bundled Docker image
+        # is ghcr.io/bridgecrewio/checkov:3.3.17 (the action has no separate
+        # checkov-version input; its own action.yml bakes in a Checkov tag per
+        # release, so the action ref itself is the pin). Local runs install
+        # the matching `checkov==3.3.17` (e.g. `uv tool install checkov==3.3.17`)
+        # so `checkov -d .` locally and this job agree; see the security
+        # baseline report referenced from CHANGELOG.md for the curated,
+        # remaining-finding-free baseline this version was pinned against.
+        uses: bridgecrewio/checkov-action@v12.3123.0
         with:
           directory: .
           framework: terraform
           quiet: true
-          # Module surfaces low-severity findings (e.g. Cloud SQL deletion
-          # protection, encryption knobs) that are intentional defaults for a
-          # getting-started template. Flip soft_fail to false once we curate
-          # suppressions.
+          # The curated baseline (parity-matrix.md / security review for
+          # add-google-parity-through-aws-0-4-0) fixes every in-scope finding
+          # and narrowly suppresses the rest via inline checkov:skip comments
+          # on the specific resources involved. soft_fail stays true only
+          # until that curated run is verified end-to-end in CI (tracked as a
+          # follow-up in the same change); a clean scan already returns 0
+          # failed checks locally.
           soft_fail: true
           output_format: cli
           output_file_path: console

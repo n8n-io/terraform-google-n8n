@@ -15,8 +15,23 @@
 # (keda.tf) needs a TriggerAuthentication CRD, which locals.tf's
 # manage_redis_trigger_auth already accounts for.
 
+# Curated Checkov exceptions for this instance:
+#
+# CKV_GCP_97 (in-transit encryption): transit_encryption_mode defaults to
+# DISABLED, matching n8n's own default unencrypted Redis client behavior over
+# a private VPC connection; redis_transit_encryption_enabled lets an operator
+# turn this on without any code change (see the file-level comment and
+# manage_redis_trigger_auth in locals.tf, which already accounts for the
+# resulting KEDA TriggerAuthentication requirement).
+#
+# CKV_GCP_95 (AUTH): auth_enabled defaults to false, matching n8n's own
+# default unauthenticated Redis client behavior; redis_auth_enabled lets an
+# operator turn this on the same way as transit encryption above.
 resource "google_redis_instance" "n8n" {
   count = var.create_redis_instance ? 1 : 0
+
+  # checkov:skip=CKV_GCP_97: intentional, opt-in via redis_transit_encryption_enabled, see resource comment above.
+  # checkov:skip=CKV_GCP_95: intentional, opt-in via redis_auth_enabled, see resource comment above.
 
   name           = "${local.name_prefix}-redis"
   project        = var.project_id

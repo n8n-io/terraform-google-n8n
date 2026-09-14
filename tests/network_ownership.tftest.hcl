@@ -45,6 +45,27 @@ run "defaults_create_managed_network_resources" {
     error_message = "create_network defaults to true and must create Cloud NAT."
   }
 
+  # CKV_GCP_26: the subnet must always carry VPC Flow Logs.
+  assert {
+    condition     = google_compute_subnetwork.n8n[0].log_config[0].flow_sampling == 0.5
+    error_message = "The module-managed subnet must always enable VPC Flow Logs."
+  }
+
+  # Curated for Checkov's CKV2_GCP_18 (see network.tf's resource comment and
+  # this change's security baseline report): the explicit deny-all-ingress
+  # firewall must exist and stay attached to the module-managed network,
+  # changing no actual allowed traffic (lowest precedence priority, deny-all
+  # direction INGRESS).
+  assert {
+    condition     = length(google_compute_firewall.deny_all_ingress) == 1
+    error_message = "create_network defaults to true and must create the explicit deny-all-ingress firewall."
+  }
+
+  assert {
+    condition     = google_compute_firewall.deny_all_ingress[0].priority == 65534
+    error_message = "The deny-all-ingress firewall must use a low priority so it never overrides a more specific allow rule."
+  }
+
   assert {
     condition     = length(google_compute_global_address.psa) == 1
     error_message = "create_psa defaults to true and must create the PSA range."
@@ -92,6 +113,11 @@ run "existing_network_creates_no_network_resources" {
   assert {
     condition     = length(google_compute_router_nat.n8n) == 0
     error_message = "create_network = false must not create Cloud NAT."
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.deny_all_ingress) == 0
+    error_message = "create_network = false must not create the module-managed deny-all-ingress firewall; the caller owns firewall policy on an existing network."
   }
 
   # PSA ownership is independent of network ownership; it still defaults to

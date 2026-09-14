@@ -46,6 +46,41 @@ resource "google_service_account" "storage" {
   display_name = "n8n GCS binary storage access (${local.name_prefix})"
 }
 
+# A dedicated access-log bucket for the binary-data bucket below. Short-lived:
+# access logs are useful for near-term investigation, not long-term
+# retention, so objects expire quickly to keep storage cost negligible.
+#
+# CKV_GCP_62 exception: a log bucket does not log access to itself; nothing
+# else in this module writes to it, and pointing it at another bucket would
+# just move this same finding one bucket over.
+resource "google_storage_bucket" "n8n_access_logs" {
+  count = var.create_gcs_bucket ? 1 : 0
+
+  # checkov:skip=CKV_GCP_62: intentional design choice, see resource comment above.
+
+  name                        = "${var.project_id}-n8n-${var.friendly_name_prefix}-logs"
+  project                     = var.project_id
+  location                    = var.gcs_location
+  uniform_bucket_level_access = true
+  force_destroy               = var.gcs_force_destroy
+  labels                      = local.gcp_labels
+  public_access_prevention    = "enforced"
+
+  # CKV_GCP_78: cheap to keep on even for a short-lived log bucket.
+  versioning {
+    enabled = true
+  }
+
+  lifecycle_rule {
+    action {
+      type = "Delete"
+    }
+    condition {
+      age = 30
+    }
+  }
+}
+
 resource "google_storage_bucket" "n8n" {
   count = var.create_gcs_bucket ? 1 : 0
 
@@ -64,6 +99,11 @@ resource "google_storage_bucket" "n8n" {
 
   versioning {
     enabled = true
+  }
+
+  # CKV_GCP_62: log every access to the log bucket declared above.
+  logging {
+    log_bucket = google_storage_bucket.n8n_access_logs[0].name
   }
 
   # Keep versioning bounded: n8n rewrites binary-data objects constantly, so

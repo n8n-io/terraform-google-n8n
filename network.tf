@@ -17,8 +17,20 @@ locals {
 # as a single unit (D2): with create_network = false the caller supplies an
 # existing network, subnetwork, and secondary range names instead (see
 # variables_gcp.tf and locals.tf's effective_* network locals).
+#
+# CKV2_GCP_18 exception: google_compute_firewall.deny_all_ingress below is
+# connected to this network and satisfies the check's actual requirement (a
+# non-default firewall exists); Checkov's graph connection lookup does not
+# resolve a count-indexed `network = google_compute_network.n8n[0].id`
+# reference (reproduced against a two-resource fixture with count = 1 during
+# this change's security review, where an identical firewall/network pair
+# without count passed and the count-indexed pair failed), so it reports this
+# false positive whenever create_network's count expression is present at
+# all, regardless of value.
 resource "google_compute_network" "n8n" {
   count = var.create_network ? 1 : 0
+
+  # checkov:skip=CKV2_GCP_18: intentional, count-indexing scanner limitation, see resource comment above.
 
   name                    = "${local.name_prefix}-vpc"
   auto_create_subnetworks = false
@@ -43,6 +55,39 @@ resource "google_compute_subnetwork" "n8n" {
     range_name    = "${local.name_prefix}-services"
     ip_cidr_range = var.services_cidr
   }
+
+  # CKV_GCP_26: VPC Flow Logs for this subnet, sampled rather than exhaustive,
+  # so day-2 network debugging and the GKE cluster's own intranode visibility
+  # (gke.tf's enable_intranode_visibility) both have real Cloud Logging data
+  # to draw on.
+  log_config {
+    aggregation_interval = "INTERVAL_5_SEC"
+    flow_sampling        = 0.5
+    metadata             = "INCLUDE_ALL_METADATA"
+  }
+}
+
+# CKV2_GCP_18: an explicit, low-priority deny-all-ingress rule so this network
+# is provably not relying on any implicit default-allow behavior. Terraform
+# custom-mode VPCs (auto_create_subnetworks = false, set above) already carry
+# no GCP-managed default rules, and GKE's own control-plane-to-node rules are
+# created outside Terraform at a higher (numerically lower) priority, so this
+# rule changes no actual traffic; it only closes the gap Checkov flags when no
+# firewall resource is declared for the network at all.
+resource "google_compute_firewall" "deny_all_ingress" {
+  count = var.create_network ? 1 : 0
+
+  name      = "${local.name_prefix}-deny-all-ingress"
+  project   = var.project_id
+  network   = google_compute_network.n8n[0].id
+  direction = "INGRESS"
+  priority  = 65534
+
+  deny {
+    protocol = "all"
+  }
+
+  source_ranges = ["0.0.0.0/0"]
 }
 
 resource "google_compute_router" "n8n" {
