@@ -465,13 +465,14 @@ this project adheres to the stability contract in
   `log_checkpoints`, `log_lock_waits`, `log_duration`, `log_hostname`,
   `log_min_error_statement`); added VPC Flow Logs on the module-managed
   subnet and an explicit low-priority deny-all-ingress firewall rule on the
-  module-managed network (neither changes any actual allowed traffic); made
-  GKE client-certificate authentication, intranode visibility, Dataplane V2
-  network policy enforcement, and Shielded-node Secure Boot/Integrity
-  Monitoring explicit instead of relying on unstated API defaults; and added a
-  dedicated, short-lived access-log bucket (`google_storage_bucket.n8n_access_logs`)
-  for the module-managed GCS binary-data bucket. None of these change any
-  existing default that other tests, examples, or the Helm release depend on.
+  module-managed network (neither changes any actual allowed traffic);
+  disabled GKE client-certificate authentication and enabled intranode
+  visibility, Dataplane V2 network policy enforcement, and Shielded-node
+  Secure Boot/Integrity Monitoring; and added a dedicated access-log bucket
+  (`google_storage_bucket.n8n_access_logs`) for the module-managed GCS
+  binary-data bucket. These are infrastructure behavior changes, not just
+  explicit API defaults. In particular, Dataplane V2 replaces existing
+  legacy-datapath clusters; see the breaking upgrade note below.
   Pinned Checkov to `3.3.17` for local use (`uv tool install checkov==3.3.17`
   or equivalent) and CI (`bridgecrewio/checkov-action@v12.3123.0`, the release
   tag whose bundled image is `ghcr.io/bridgecrewio/checkov:3.3.17`). Narrowly
@@ -617,6 +618,20 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- Explicitly set Memorystore persistence to `DISABLED` when
+  `redis_persistence_enabled = false`. Previously, omitting the
+  optional/computed block retained RDB persistence on an existing instance.
+  Snapshot schedule inputs are omitted while disabled. An existing instance
+  still using RDB with this input set to false now plans a disabling update;
+  review the loss of snapshot recovery before applying.
+- Made the split-ingress example's private Ingress HTTPS-only. Disabling
+  HTTP avoids requiring a `SHARED_LOADBALANCER_VIP` address for simultaneous
+  HTTP and HTTPS forwarding rules. The public Ingress is unchanged.
+- Granted `group:cloud-storage-analytics@google.com` the bucket-scoped
+  `roles/storage.objectCreator` role on the managed access-log bucket so
+  Cloud Storage can deliver logs. No logging IAM is created for
+  customer-managed buckets.
+
 - Pinned the managed-GKE Workload Identity binding to the project's own pool:
   `existing_gke_workload_identity_pool` is now genuinely ignored when
   `create_gke = true` (it previously rewrote the binding member silently,
@@ -676,6 +691,17 @@ this project adheres to the stability contract in
   15 final verification; Checkov `CKV_GCP_73`).
 
 ### Changed
+
+- **Breaking, minor release only:** managed GKE now uses Dataplane V2
+  (`datapath_provider = "ADVANCED_DATAPATH"`). With Google provider 6.x,
+  upgrading a `LEGACY_DATAPATH` cluster forces replacement and workload
+  downtime. The default is retained intentionally; no managed-path legacy
+  opt-out is provided. A state-address move cannot avoid replacement.
+  Rehearse the migration and review deletion protection, caller-managed
+  Kubernetes objects, and provider reconnection before applying. See
+  [the GKE migration procedure](./docs/upgrading-n8n.md#gke-dataplane-v2-requires-cluster-replacement).
+  Existing Dataplane V2 clusters and customer-managed clusters are unaffected
+  by this datapath setting.
 
 - **Breaking:** `cluster_name` is replaced by `friendly_name_prefix` as the
   naming driver for every Google Cloud resource the module creates. The

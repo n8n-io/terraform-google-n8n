@@ -60,6 +60,8 @@ resource "kubernetes_ingress_v1" "private" {
     annotations = {
       "kubernetes.io/ingress.class"                   = "gce-internal"
       "kubernetes.io/ingress.regional-static-ip-name" = google_compute_address.private.name
+      # HTTPS only: serving both protocols requires SHARED_LOADBALANCER_VIP.
+      "kubernetes.io/ingress.allow-http" = "false"
     }
   }
 

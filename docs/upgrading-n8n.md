@@ -2,7 +2,8 @@
 
 This guide covers behavior changes introduced by
 `add-google-parity-through-aws-0-4-0` that affect an existing deployment:
-resource-address changes that need a manual `terraform state mv`, topology
+GKE cluster replacement, resource-address changes that need a manual
+`terraform state mv`, topology
 transitions, newly reserved environment variable names, reference-only
 configuration that needs a manual restart, corrected canonical URLs, Redis
 prefix/persistence transitions, and the chart's existing replica-floor reset
@@ -13,6 +14,58 @@ This module is pre-1.0 and, as stated in
 tagged version has shipped this interface yet: there is no automatic state
 migration for any change below. Apply the manual steps in this guide yourself,
 or start a fresh `terraform apply` against new state.
+
+## GKE Dataplane V2 requires cluster replacement
+
+**Breaking default, minor release only:** module-managed GKE now sets
+`datapath_provider = "ADVANCED_DATAPATH"` (Dataplane V2). With Google provider
+6.x, changing an existing cluster from `LEGACY_DATAPATH` forces cluster
+replacement, not an in-place network upgrade. This default is intentional;
+there is no module input to retain the legacy datapath on the managed path.
+Clusters already using Dataplane V2 and customer-managed clusters
+(`create_gke = false`) do not need replacement for this setting.
+
+A replacement interrupts all workloads on that cluster, including the n8n
+editor, API, webhooks, workers, and scheduled triggers. It also removes
+cluster-local objects, including caller-managed Secrets and ConfigMaps. A
+`terraform state mv` cannot avoid replacement: the resource address is not
+the cause. Reverting the module version after deleting the old cluster does
+not restore it.
+
+Before upgrading an existing deployment:
+
+1. Back up Terraform state, the n8n encryption key, the database, and any
+   caller-managed Kubernetes objects or persistent data. Keep these backups
+   secure and test recovery in a disposable environment.
+2. Run `terraform plan` with the new module version. Inspect the cluster's
+   `datapath_provider` diff and every replacement or deletion. Stop if the
+   plan proposes replacing the VPC, Cloud SQL, Memorystore, or GCS resources
+   you intend to retain. Do not use a full-stack destroy to migrate GKE.
+3. Choose and rehearse a migration: provision a separate Dataplane V2 cluster
+   and use the customer-managed-cluster contract, or accept a maintenance
+   window for replacement. Do not run two independent n8n installations
+   against the same live database and queue during a cutover.
+4. For replacement, pause new executions and webhook traffic, then let queued
+   and active jobs finish. While the old module version is still selected,
+   apply `gke_deletion_protection = false` as a separate, reviewed change.
+   Confirm this plan only removes cluster deletion protection. The default
+   protection otherwise blocks deletion; do not disable database protection
+   or set `gcs_force_destroy` for a cluster migration.
+5. Follow the rehearsed cluster and workload migration procedure. Remove old
+   Ingress resources while their controller still runs so load balancer
+   cleanup can complete. Kubernetes, Helm, and kubectl providers depend on
+   the cluster endpoint and CA, so do not assume one full-module apply can
+   replace the cluster and reconcile all workloads. Reinitialize their
+   connections to the new cluster and restore caller-managed objects before
+   starting n8n.
+6. Verify database and binary-storage access, credential decryption, worker
+   execution, DNS/TLS, and every ingress route before resuming traffic.
+   Restore `gke_deletion_protection = true` and confirm a final plan has no
+   unexpected changes.
+
+See [manual verification, item 13](./manual-verification-checklist.md#13-gke-dataplane-v2-migration)
+for the required rehearsal evidence. No live cluster migration has been
+validated by the mocked test suite.
 
 ## Resource-address changes
 
@@ -206,6 +259,15 @@ migration hazard, but see
 before enabling it: it is Memorystore's own automatic last-snapshot recovery
 on an unplanned restart, not a numbered backup-retention count, and can
 reintroduce stale or duplicate queued jobs.
+
+Setting `redis_persistence_enabled = false` explicitly configures
+`persistence_mode = "DISABLED"`, including after RDB was enabled. It no longer
+omits the provider's optional/computed block, which retained the previous
+RDB setting. An instance still using RDB while this input is false will now
+plan an update to disable it. Review this change before applying if you rely
+on snapshot recovery. Snapshot schedule inputs are omitted while disabled;
+reset them to their defaults to clear ignored-input warnings. To re-enable,
+set the switch to true and review the desired schedule again.
 
 ## Sizing and observability additions
 

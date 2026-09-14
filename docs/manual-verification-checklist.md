@@ -43,6 +43,8 @@ changes) against a production deployment.
 | 10 | Redis exporter TLS and metrics | Not run |
 | 11 | Memorystore RDB persistence recovery | Not run |
 | 12 | n8n Enterprise license activation and single-main entitlement | Not run |
+| 13 | GKE Dataplane V2 migration | Not run |
+| 14 | GCS access-log delivery | Not run |
 
 ## 1. Single-main rollout and drain
 
@@ -181,8 +183,12 @@ test from.
 3. From a private network path (VPN/interconnect/bastion reaching the
    internal load balancer), confirm the internal ingress serves the same
    five webhook families **and** the main editor route (`/`).
-4. **Expected result:** the public address never exposes the editor UI or
-   REST API; the internal address exposes both editor and webhook routes.
+4. Verify the private host's certificate with a client that trusts its CA,
+   without skipping TLS verification. Confirm port 80 does not serve the
+   application or an HTTP redirect; the private Ingress is HTTPS-only.
+5. **Expected result:** the public address never exposes the editor UI or
+   REST API; the internal address exposes both editor and webhook routes over
+   HTTPS, with no Ingress reconciliation errors.
 
 ## 9. Redis command/Bull prefix isolation transition
 
@@ -236,6 +242,14 @@ duplicate queued jobs. Do not run against a deployment with real user data.
    empty state; confirm this is last-snapshot recovery (some in-flight work
    since the snapshot may be lost or replayed as stale/duplicate), not a
    numbered backup-retention restore point.
+5. Set `redis_persistence_enabled = false`, leaving the previous schedule
+   inputs set for this test. Confirm the plan changes `persistence_mode`
+   from `RDB` to `DISABLED`, with only the expected ignored-schedule warning,
+   then apply. Inspect the instance in Google Cloud and confirm persistence
+   is disabled. A subsequent plan must not try to re-enable it.
+6. Set the switch back to true, review the schedule, and apply. Confirm RDB
+   persistence and the configured schedule return. This tests both
+   transitions, which fresh-state mocked plans cannot prove.
 
 ## 12. n8n Enterprise license activation and single-main entitlement
 
@@ -257,3 +271,39 @@ duplicate queued jobs. Do not run against a deployment with real user data.
    and that single-main entitlement alone does not unlock External Secrets,
    log streaming, the custom package registry, or object-storage
    entitlements, which depend on the edition's other features.
+
+## 13. GKE Dataplane V2 migration
+
+**Safety prerequisite:** disposable deployment created with the previous
+module version and `LEGACY_DATAPATH`. Cluster replacement is destructive;
+never use production data for this rehearsal.
+
+1. Follow the [GKE migration procedure](./upgrading-n8n.md#gke-dataplane-v2-requires-cluster-replacement).
+   Save the reviewed plan showing the cluster replacement and confirm that
+   the database, Redis, GCS, and VPC resources are retained.
+2. Record the separate deletion-protection change, load balancer cleanup,
+   cluster replacement, and provider reconnection steps actually required.
+   Do not record a one-apply migration as supported unless it succeeds.
+3. Restore caller-managed Kubernetes objects and verify the recovered n8n
+   deployment can decrypt existing credentials and execute a workflow.
+4. **Expected result:** the new cluster uses `ADVANCED_DATAPATH`, all workload
+   and ingress checks pass, deletion protection is restored, and a final plan
+   has no unexpected changes. Record the observed downtime.
+
+## 14. GCS access-log delivery
+
+**Safety prerequisite:** disposable deployment with a module-managed bucket;
+use a non-sensitive test object.
+
+1. Confirm the log destination is the module-managed access-log bucket and
+   its IAM policy grants `roles/storage.objectCreator` to
+   `group:cloud-storage-analytics@google.com`.
+2. Write and read the test object in the binary-data bucket. Wait for Cloud
+   Storage's asynchronous log delivery, then inspect the destination for
+   usage-log objects corresponding to the test requests. Follow
+   [Cloud Storage usage-log guidance](https://docs.cloud.google.com/storage/docs/access-logs)
+   for delivery timing and request coverage.
+3. **Expected result:** log objects arrive in the dedicated destination. A
+   configured logging block or passing IAM assertion alone is not proof of
+   delivery. With `create_gcs_bucket = false`, confirm the plan creates no
+   logging bucket or log-delivery IAM grant.

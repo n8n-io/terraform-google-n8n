@@ -81,6 +81,16 @@ resource "google_storage_bucket" "n8n_access_logs" {
   }
 }
 
+# Cloud Storage's logging identity needs write-only access to the destination.
+# This grant follows bucket ownership, independently of the HMAC identity.
+resource "google_storage_bucket_iam_member" "n8n_access_logs" {
+  count = var.create_gcs_bucket ? 1 : 0
+
+  bucket = google_storage_bucket.n8n_access_logs[0].name
+  role   = "roles/storage.objectCreator"
+  member = "group:cloud-storage-analytics@google.com"
+}
+
 resource "google_storage_bucket" "n8n" {
   count = var.create_gcs_bucket ? 1 : 0
 
@@ -101,7 +111,7 @@ resource "google_storage_bucket" "n8n" {
     enabled = true
   }
 
-  # CKV_GCP_62: log every access to the log bucket declared above.
+  # CKV_GCP_62: deliver access logs to the dedicated bucket declared above.
   logging {
     log_bucket = google_storage_bucket.n8n_access_logs[0].name
   }
@@ -129,7 +139,10 @@ resource "google_storage_bucket" "n8n" {
     }
   }
 
-  depends_on = [google_kms_crypto_key_iam_member.gcs]
+  depends_on = [
+    google_kms_crypto_key_iam_member.gcs,
+    google_storage_bucket_iam_member.n8n_access_logs,
+  ]
 }
 
 # Bucket-scoped, least-privilege IAM for the effective HMAC identity, granted

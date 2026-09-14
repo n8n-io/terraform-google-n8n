@@ -60,6 +60,12 @@ recovery on Cloud SQL, or to AWS ElastiCache's numbered snapshot retention:
   `gcloud redis instances export` runs to Cloud Storage) remains an operator
   responsibility outside this module.
 
+To turn persistence off again, set `redis_persistence_enabled = false`,
+review the plan, and apply it. The module explicitly sends `DISABLED`, rather
+than omitting the configuration and retaining an existing RDB setting. This
+removes the automatic snapshot-recovery protection. Reset schedule inputs
+to their defaults while disabled to avoid ignored-input warnings.
+
 `redis_persistence_enabled`, `redis_rdb_snapshot_period`, and
 `redis_rdb_snapshot_start_time` are ignored for external Redis
 (`create_redis_instance = false`); the module warns instead of failing if any

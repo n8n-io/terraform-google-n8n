@@ -50,15 +50,12 @@ resource "google_redis_instance" "n8n" {
 
   # Opt-in RDB persistence (redis_persistence_enabled): Memorystore's own
   # automatic last-snapshot recovery, not a numbered backup-retention count.
-  # Omitted entirely when disabled, leaving persistence off (Memorystore's own
-  # default) rather than emitting an explicit DISABLED block.
-  dynamic "persistence_config" {
-    for_each = var.redis_persistence_enabled ? [1] : []
-    content {
-      persistence_mode        = "RDB"
-      rdb_snapshot_period     = var.redis_rdb_snapshot_period
-      rdb_snapshot_start_time = var.redis_rdb_snapshot_start_time
-    }
+  # Explicit DISABLED is required to turn off previously enabled persistence:
+  # omitting this optional/computed block preserves the provider's prior state.
+  persistence_config {
+    persistence_mode        = var.redis_persistence_enabled ? "RDB" : "DISABLED"
+    rdb_snapshot_period     = var.redis_persistence_enabled ? var.redis_rdb_snapshot_period : null
+    rdb_snapshot_start_time = var.redis_persistence_enabled ? var.redis_rdb_snapshot_start_time : null
   }
 
   # Depending on the time_sleep (not the connection directly) also delays the

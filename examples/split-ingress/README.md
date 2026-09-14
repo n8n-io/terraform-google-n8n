@@ -77,7 +77,11 @@ routing the same way it changes the module's built-in managed ingress.
   Google-managed certificates; it consumes a Kubernetes TLS Secret instead.
   Supply `internal_tls_cert_pem`/`internal_tls_key_pem` covering `n8n_fqdn`
   (e.g. issued by an internal CA). This example never generates or
-  self-signs a certificate for you.
+  self-signs a certificate for you. The private Ingress explicitly disables
+  HTTP, so clients must use HTTPS; there is no HTTP-to-HTTPS redirect.
+  Serving both protocols on one internal address would require reserving it
+  with `purpose = "SHARED_LOADBALANCER_VIP"`. See
+  [GKE internal Ingress TLS requirements](https://docs.cloud.google.com/kubernetes-engine/docs/how-to/internal-load-balance-ingress#https_between_client_and_load_balancer).
 
 ## Usage
 

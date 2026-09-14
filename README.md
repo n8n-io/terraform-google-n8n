@@ -177,6 +177,13 @@ Cloud SQL, Memorystore, node-pool sizing, autoscaling bounds, pruning, and OpenT
 
 ## Operations (day-2)
 
+**Upgrade warning:** module-managed GKE now uses Dataplane V2. Upgrading a
+`LEGACY_DATAPATH` cluster forces cluster replacement and workload downtime
+with Google provider 6.x. This is a minor-release breaking change, not an
+in-place network update. Read the
+[GKE migration procedure](./docs/upgrading-n8n.md#gke-dataplane-v2-requires-cluster-replacement)
+before applying to existing state.
+
 Upgrading an existing deployment onto a newer module version? See
 [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md) for topology transitions,
 newly reserved environment variables, reference-only configuration that needs
@@ -397,6 +404,7 @@ all now supported, see
 | [google_sql_user.n8n](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_user) | resource |
 | [google_storage_bucket.n8n](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket) | resource |
 | [google_storage_bucket.n8n_access_logs](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket) | resource |
+| [google_storage_bucket_iam_member.n8n_access_logs](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket_iam_member) | resource |
 | [google_storage_bucket_iam_member.storage](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket_iam_member) | resource |
 | [google_storage_hmac_key.n8n](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_hmac_key) | resource |
 | [helm_release.n8n](https://registry.terraform.io/providers/hashicorp/helm/latest/docs/resources/release) | resource |

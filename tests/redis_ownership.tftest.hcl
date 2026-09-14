@@ -512,12 +512,16 @@ run "persistence_enabled_accepts_all_documented_periods" {
   }
 }
 
-run "persistence_disabled_by_default_emits_no_persistence_config" {
+# Omitting the optional/computed block retains RDB on an existing instance.
+# Assert an explicit DISABLED mode, not an empty block. Plan-only mocks cannot
+# prove the API transition; verify true -> false -> true on a disposable
+# instance using docs/manual-verification-checklist.md, item 11.
+run "persistence_disabled_by_default_emits_disabled_mode" {
   command = plan
 
   assert {
-    condition     = length(google_redis_instance.n8n[0].persistence_config) == 0
-    error_message = "redis_persistence_enabled defaults to false and must emit no persistence_config block."
+    condition     = google_redis_instance.n8n[0].persistence_config[0].persistence_mode == "DISABLED"
+    error_message = "The default must explicitly disable persistence, including on an instance that previously used RDB."
   }
 }
 
@@ -563,13 +567,15 @@ run "redis_persistence_schedule_tuning_ignored_when_disabled_triggers_warning" {
   command = plan
 
   variables {
-    redis_rdb_snapshot_period = "ONE_HOUR"
+    redis_persistence_enabled     = false
+    redis_rdb_snapshot_period     = "ONE_HOUR"
+    redis_rdb_snapshot_start_time = "2024-01-01T03:00:00Z"
   }
 
   expect_failures = [check.redis_persistence_tuning_ignored_when_disabled]
 
   assert {
-    condition     = length(google_redis_instance.n8n[0].persistence_config) == 0
-    error_message = "redis_persistence_enabled = false must still emit no persistence_config block even when the schedule inputs are set."
+    condition     = google_redis_instance.n8n[0].persistence_config[0].persistence_mode == "DISABLED"
+    error_message = "Explicit false must disable persistence even when a previously configured snapshot schedule is left set."
   }
 }

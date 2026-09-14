@@ -190,6 +190,11 @@ run "split_ingress_produces_valid_plan" {
   }
 
   assert {
+    condition     = kubernetes_ingress_v1.private.metadata[0].annotations["kubernetes.io/ingress.allow-http"] == "false"
+    error_message = "The private TLS ingress must disable HTTP because its static IP is not reserved for shared HTTP/HTTPS forwarding rules."
+  }
+
+  assert {
     condition     = kubernetes_ingress_v1.private.spec[0].rule[0].host == var.n8n_fqdn
     error_message = "the private ingress must serve the private editor host."
   }

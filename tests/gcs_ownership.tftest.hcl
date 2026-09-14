@@ -63,6 +63,15 @@ run "defaults_create_managed_gcs_resources" {
   }
 
   assert {
+    condition = (
+      google_storage_bucket_iam_member.n8n_access_logs[0].bucket == google_storage_bucket.n8n_access_logs[0].name &&
+      google_storage_bucket_iam_member.n8n_access_logs[0].role == "roles/storage.objectCreator" &&
+      google_storage_bucket_iam_member.n8n_access_logs[0].member == "group:cloud-storage-analytics@google.com"
+    )
+    error_message = "Cloud Storage's logging identity must have objectCreator access scoped to the log destination bucket."
+  }
+
+  assert {
     condition     = google_storage_bucket.n8n_access_logs[0].versioning[0].enabled == true
     error_message = "The access-log bucket must also enable versioning (CKV_GCP_78)."
   }
@@ -106,6 +115,11 @@ run "existing_bucket_with_managed_hmac_identity_creates_no_bucket" {
   assert {
     condition     = length(google_storage_bucket.n8n_access_logs) == 0
     error_message = "create_gcs_bucket = false must not create the module-managed access-log bucket; an existing bucket's own access logging is the caller's responsibility."
+  }
+
+  assert {
+    condition     = length(google_storage_bucket_iam_member.n8n_access_logs) == 0
+    error_message = "An existing bucket must receive no module-managed logging IAM grant."
   }
 }
 
@@ -172,6 +186,11 @@ run "managed_bucket_with_byo_hmac_creates_only_bucket_and_iam" {
   assert {
     condition     = length(google_storage_hmac_key.n8n) == 0
     error_message = "BYO HMAC mode must not create an HMAC key, even for a module-managed bucket."
+  }
+
+  assert {
+    condition     = length(google_storage_bucket_iam_member.n8n_access_logs) == 1
+    error_message = "A managed bucket needs log-delivery IAM even when the caller supplies the HMAC identity."
   }
 }
 
