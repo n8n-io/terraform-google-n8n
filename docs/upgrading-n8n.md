@@ -199,8 +199,23 @@ original election-disabled revision. Rollback can also remove ConfigMap keys
 still referenced by multi-main pods and prevent them from restarting; it is
 not automatically safe or availability-preserving.
 
+During stage three, expect Kubernetes to scale the *previous* ReplicaSet (the
+stage-one template) to the new count first and then replace it with the new
+template. Live testing observed this on both ownership paths. It is harmless
+only because stage one already made that template election-enabled; it is the
+same mechanism that made the one-step conversion unsafe.
+
+On n8n 2.38.7, the main that takes over leadership at stage three logs
+`EntityMetadataNotFoundError: No metadata for "Agent" was found` from
+`AgentTaskService.reconnectAll`. The process keeps running and scheduling
+continues, but treat it as an application issue to report upstream (it occurs
+with the default module set: Instance AI enabled, Agents disabled). Do not
+change `N8N_ENABLED_MODULES`/`N8N_DISABLED_MODULES` as an untested workaround.
+
 The configuration and render tests cover these states, not transition timing
-or duplicate scheduling. The required live regression is documented in
+or duplicate scheduling. Live runs of the idle procedure passed on both
+ownership paths; the active-schedule regression remains incomplete because of
+the error above. See
 [manual verification, item 2](./manual-verification-checklist.md#2-return-to-multi-main).
 
 ## Replica-floor reset on every Helm upgrade

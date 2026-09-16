@@ -8,7 +8,10 @@ automated suites at the module root, in `modules/controllers`, and in every
 `examples/*` directory.
 
 **Status of every item below is "Not run" until an operator actually performs
-it against a real deployment.** Implementation of
+it against a real deployment.** Items marked otherwise were run on a disposable
+`examples/small` deployment (n8n 2.38.7, chart 1.10.1, Terraform 1.9.8) on
+2026-09-15/16; the result column states what was and was not covered. Evidence
+stays with the change record, not in this repository. Implementation of
 `add-google-parity-through-aws-0-4-0` does not require running this
 checklist; delivering it, with every item explicitly marked not run, is what
 gates completion (see `openspec/changes/add-google-parity-through-aws-0-4-0/tasks.md`,
@@ -31,8 +34,8 @@ changes) against a production deployment.
 
 | # | Item | Status |
 | --- | --- | --- |
-| 1 | Single-main rollout and drain | Not run |
-| 2 | Return to multi-main | Not run |
+| 1 | Single-main rollout and drain | Partial (see section) |
+| 2 | Return to multi-main | Partial (see section) |
 | 3 | Credentials-overwrite Secret rotation | Not run |
 | 4 | Task-runner custom launcher ConfigMap rotation | Not run |
 | 5 | Restored/cloned database encryption-key continuity | Not run |
@@ -41,10 +44,10 @@ changes) against a production deployment.
 | 8 | Split-ingress public/private route isolation | Not run |
 | 9 | Redis command/Bull prefix isolation transition | Not run |
 | 10 | Redis exporter TLS and metrics | Not run |
-| 11 | Memorystore RDB persistence recovery | Not run |
-| 12 | n8n Enterprise license activation and single-main entitlement | Not run |
+| 11 | Memorystore RDB persistence recovery | Partial (see section) |
+| 12 | n8n Enterprise license activation and single-main entitlement | Partial (see section) |
 | 13 | GKE Dataplane V2 migration | Not run |
-| 14 | GCS access-log delivery | Not run |
+| 14 | GCS access-log delivery | Passed (see section) |
 
 ## 1. Single-main rollout and drain
 
@@ -65,6 +68,15 @@ edition that supports single-main.
    during the recreate, then recover.
 5. Confirm scheduled triggers still fire once the single main pod is ready
    again.
+
+**Status: partial.** Steps 1 to 3 passed twice on a disposable deployment:
+once through `n8n_main_hpa_min_replicas = 1` (Recreate, PDB 0, HPA clamped to
+1/1) and once through `n8n_main_hpa_enabled = false` with
+`n8n_main_fixed_replicas = 1` (no main HPA rendered). The Recreate swap
+produced about 22 to 36 seconds of editor/API unavailability in each run;
+worker and webhook-processor pods were unaffected when only the main template
+changed. Step 4 (`rollout restart`) and node drains were not run. Step 5 was
+observed only as a side effect of the scheduling test in item 2.
 
 ## 2. Return to multi-main
 
@@ -104,9 +116,29 @@ harmless test schedule; other submissions and queues must remain idle.
    and fixed-replica ownership. Delete the test workflow and its executions and
    verify cleanup. Do not use production node drains or failover for this test.
 
-**Status: Not run for the new two-stage procedure.** Render and mocked tests do
-not prove ordering or schedule safety. The standard smoke test checks the final
-multi-main state only, not the election-enabled one-replica intermediate state.
+**Status: partial.** The two-stage procedure passed with an idle workload on
+both ownership paths (managed HPA 1/1 to 2/20, and fixed replicas 1 to 2 with
+the HPA disabled). In every run the old election-disabled process exited before
+its replacement started, exactly one election-enabled main became Ready at stage
+one (all three roles rolled once because the literal flag is emitted through
+`config.extraEnv`), and no election-disabled pod existed during the scale-up.
+Observed detail worth knowing: during the stage-two scale-up Kubernetes first
+scaled the *previous* ReplicaSet (the stage-one, election-enabled template) to
+two before the new ReplicaSet took over. That controller behaviour is exactly
+what made the old one-step conversion unsafe; with stage one applied first it is
+harmless, which is why the two stages must not be combined.
+
+Not established: the active-schedule regression (step 4) was run three times on
+the managed-HPA path. Baseline and stage-one windows showed no duplicate or
+missing ticks apart from the Recreate gap, but the stage-two window was stopped
+each time under the anomaly rule because the new leader logged
+`EntityMetadataNotFoundError: No metadata for "Agent" was found` from
+`AgentTaskService.reconnectAll` during leader takeover on n8n 2.38.7 (reproduced
+again on the fixed-replica path). Ordinary scheduling continued, but a clean
+continuous pass was not collected. This is an application issue with the
+default module set (Instance AI enabled, Agents disabled), not a Terraform
+behaviour; report it upstream rather than working around it here. Step 5
+(capacity pressure) was not run.
 
 ## 3. Credentials-overwrite Secret rotation
 
@@ -281,6 +313,15 @@ duplicate queued jobs. Do not run against a deployment with real user data.
    persistence and the configured schedule return. This tests both
    transitions, which fresh-state mocked plans cannot prove.
 
+**Status: partial.** Steps 1, 5, and 6 passed: each direction was a single
+in-place `google_redis_instance` update (`DISABLED` to `RDB`/`ONE_HOUR` and
+back) with no Helm or pod change and no HTTPS disruption. One hourly snapshot
+was confirmed complete through Cloud Monitoring (`rdb/snapshot/last_success_age`
+resetting, `attempt_count` 1, `in_progress` false), with the caveat that this
+is service-reported completion, not a restored-contents check. Steps 2 to 4
+(queued jobs plus an actual restart/failover recovery) were not run. Disabling
+persistence deletes the managed snapshots; accept that explicitly.
+
 ## 12. n8n Enterprise license activation and single-main entitlement
 
 **Safety prerequisite:** needs a real n8n Enterprise license key.
@@ -301,6 +342,13 @@ duplicate queued jobs. Do not run against a deployment with real user data.
    and that single-main entitlement alone does not unlock External Secrets,
    log streaming, the custom package registry, or object-storage
    entitlements, which depend on the edition's other features.
+
+**Status: partial.** With one Enterprise key: the key reached the pods only
+through the managed `n8n-license-secret` reference (no literal in Helm values
+or pod env), activation succeeded, multi-main and single-main both ran, and the
+floating seat survived every main restart with
+`N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN=false`. Step 3 (an edition without
+single-main entitlement) and the other entitlement boundaries were not tested.
 
 ## 13. GKE Dataplane V2 migration
 
@@ -337,3 +385,13 @@ use a non-sensitive test object.
    configured logging block or passing IAM assertion alone is not proof of
    delivery. With `create_gcs_bucket = false`, confirm the plan creates no
    logging bucket or log-delivery IAM grant.
+
+**Status: passed** for the module-managed bucket path. A 1024-byte webhook
+upload was stored through the S3-compatible driver, read back by a queue
+worker, and verified byte-for-byte from the bucket. Usage-log objects arrived
+in the dedicated destination within about a day, and five distinct requests
+(SDK PUT and GET, operator generation-pinned GET, metadata GET, DELETE) were
+matched to the exact test object by bucket and object name. The delivered CSV
+carries an extra trailing `cached_response_size` column beyond the published v0
+schema; parsers should tolerate it. The `create_gcs_bucket = false` negative
+check was not run.

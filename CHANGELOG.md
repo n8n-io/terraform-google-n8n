@@ -25,8 +25,10 @@ this project adheres to the stability contract in
   Null preserves existing count-based defaults; false is rejected above one
   selected replica. This supports a staged procedure, not automatic ordering:
   an un-staged replica increase can still scale the old single-main revision.
-  Added plan/render coverage and an operator verification procedure; the new
-  two-stage live regression has not yet been run.
+  Added plan/render coverage and an operator verification procedure. The
+  two-stage procedure was run live with an idle workload on both the managed
+  HPA and fixed-replica paths (see `docs/manual-verification-checklist.md`);
+  the active-schedule regression remains incomplete.
 - Added `n8n_additional_domains` and `ingress_annotations`
   (`add-google-parity-through-aws-0-4-0`, section 20.1): `n8n_additional_domains`
   (default `[]`) declares extra hostnames that will get the full main/webhook
