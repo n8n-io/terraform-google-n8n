@@ -629,6 +629,14 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- Documented that `n8n_worker_concurrency` is not the effective worker
+  concurrency with the defaults. Live testing on n8n 2.38.7 showed the worker
+  logs `Concurrency: 100`: n8n replaces the `--concurrency` flag with
+  `N8N_CONCURRENCY_PRODUCTION_LIMIT` whenever that variable is not -1, and the
+  module emits it from `n8n_execution_concurrency_limit` (default 100) on every
+  role. KEDA still scales workers on queue depth, but additional workers only
+  receive jobs once the first holds 100. Both variable descriptions now state
+  this; behaviour is unchanged pending a decision on per-role emission.
 - Explicitly set Memorystore persistence to `DISABLED` when
   `redis_persistence_enabled = false`. Previously, omitting the
   optional/computed block retained RDB persistence on an existing instance.

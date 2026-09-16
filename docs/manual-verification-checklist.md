@@ -48,6 +48,7 @@ changes) against a production deployment.
 | 12 | n8n Enterprise license activation and single-main entitlement | Partial (see section) |
 | 13 | GKE Dataplane V2 migration | Not run |
 | 14 | GCS access-log delivery | Passed (see section) |
+| 15 | KEDA worker scale-out and scale-in | Passed (see section) |
 
 ## 1. Single-main rollout and drain
 
@@ -395,3 +396,35 @@ matched to the exact test object by bucket and object name. The delivered CSV
 carries an extra trailing `cached_response_size` column beyond the published v0
 schema; parsers should tolerate it. The `create_gcs_bucket = false` negative
 check was not run.
+
+## 15. KEDA worker scale-out and scale-in
+
+**Safety prerequisite:** disposable environment with an idle queue; a few
+dozen short jobs only. Needs an API key for the disposable workflow and exact
+cleanup of the workflow and its executions.
+
+1. Create a disposable webhook workflow whose body keeps the Bull job active
+   for about two minutes, for example three `Wait` nodes of 40 seconds each
+   (waits under 65 seconds run in-process; longer waits suspend the execution
+   and leave the active list, which would not exercise the scaler).
+2. Submit one calibration job and confirm `bull:jobs:active` stays at 1 for
+   its duration and the execution succeeds. Then submit enough jobs to exceed
+   `n8n_worker_keda_jobs_per_replica` (default 5) two to three times over,
+   for example 12, while recording queue depths, the KEDA HPA's desired and
+   current replicas, and worker pod identities every few seconds.
+3. **Expected result:** desired worker replicas follow `ceil(active / 5)`
+   within one polling interval (15 seconds); new workers become Ready on
+   existing nodes; every submission maps to exactly one successful execution;
+   after the queue drains, replicas return to `n8n_worker_keda_min_replicas`
+   after the Kubernetes HPA default 300-second downscale stabilization (KEDA's
+   `cooldownPeriod` only governs scale-to-zero).
+4. Note whether the additional workers processed any jobs. With the defaults
+   they will not: effective worker concurrency is 100 (see
+   `n8n_worker_concurrency`), so one worker absorbs the whole test load.
+5. Delete the workflow and its executions and verify both are absent.
+
+**Status: passed** on a disposable deployment with n8n 2.38.7: 13 jobs drove
+desired replicas 1 -> 2 -> 3 within 25 seconds of load, three workers Ready,
+13/13 successful executions with no duplicates, scale-in to one worker 285
+seconds after the queue drained, no restarts, no cluster autoscaling, and the
+original worker processed every job (the two extra workers took none).

@@ -745,7 +745,7 @@ variable "n8n_webhook_memory_limit" {
 # ── Execution settings ────────────────────────────────────────────────────────
 
 variable "n8n_worker_concurrency" {
-  description = "Number of jobs each worker pod can process simultaneously"
+  description = "Number of jobs each worker pod can process simultaneously, passed to the chart as the worker --concurrency flag. Verified against n8n 2.38.7: the worker ignores this flag whenever N8N_CONCURRENCY_PRODUCTION_LIMIT is set to anything other than -1, and the module always sets that variable from n8n_execution_concurrency_limit (default 100) on every role. With the defaults the effective worker concurrency is therefore 100, not 10, and KEDA-scaled additional workers only receive jobs once the first worker holds 100. To make this input effective, set n8n_execution_concurrency_limit = -1 or align both values deliberately."
   type        = number
   default     = 10
   nullable    = false
@@ -769,7 +769,7 @@ variable "n8n_execution_timeout_max" {
 }
 
 variable "n8n_execution_concurrency_limit" {
-  description = "Maximum concurrent production executions (-1 to disable)"
+  description = "Maximum concurrent production executions (-1 to disable). Emitted as N8N_CONCURRENCY_PRODUCTION_LIMIT on main, worker, and webhook-processor pods. On n8n 2.38.7 a value other than -1 also replaces the worker --concurrency flag (n8n_worker_concurrency), so this value is the effective per-worker concurrency. See n8n_worker_concurrency."
   type        = number
   default     = 100
 }
