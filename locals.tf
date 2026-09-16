@@ -329,11 +329,22 @@ locals {
   n8n_effective_webhook_replica_count = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
 
   # ── Single-main / multi-main topology (main-topology capability) ──────────
-  # Single-main is selected whenever the effective starting main count above
-  # is exactly one, whichever scaler owns it (module HPA at minReplicas=1, or
-  # a caller-fixed count of 1 with the HPA disabled). Larger selected counts
-  # keep the module's existing multi-main default and behavior.
+  # This count-based flag owns rollout, PDB, and scaling safeguards, not the
+  # election override. Staging election at one replica must retain all three.
   n8n_single_main = local.n8n_effective_main_replica_count == 1
+
+  # Enable election before increasing replicas in a separate apply. Null
+  # preserves the existing count-derived default. False above one is rejected
+  # by the input validation; never scale an election-disabled old revision.
+  n8n_main_leader_election_enabled = var.n8n_main_leader_election_enabled == null ? !local.n8n_single_main : var.n8n_main_leader_election_enabled
+
+  # Chart 1.10.1 requires >=2 replicas for multiMain.enabled. Stage runtime
+  # election through the module-owned environment instead, retaining the
+  # chart's one-replica layout and validation. config.extraEnv reaches all
+  # n8n roles, so staging also rolls workers and webhook processors.
+  n8n_main_election_staging_env = local.n8n_single_main && local.n8n_main_leader_election_enabled ? [
+    { name = "N8N_MULTI_MAIN_SETUP_ENABLED", value = "true" },
+  ] : []
 
   # A module-owned main HPA never scales a single-main deployment past its
   # licensed ceiling of one main: single-main clamps the effective maximum to
@@ -342,9 +353,9 @@ locals {
   # one main pod. capacity.tf's estimate consumes this same effective ceiling.
   n8n_effective_main_hpa_max_replicas = local.n8n_single_main ? 1 : var.n8n_main_hpa_max_replicas
 
-  # Recreate guarantees the old main pod fully terminates before a new one
-  # starts, required because n8n's floating license seat and a single main's
-  # scheduler/SQLite assumptions expect at most one main running at a time.
+  # At a fixed count of one, Recreate stops the old main before starting its
+  # replacement, including when staging election. It does not order a replica
+  # increase against a template change; conversion needs separate applies.
   # {} (the chart's own default) leaves multi-main's existing rollout
   # behavior untouched; this does not change worker or webhook strategy.
   n8n_main_strategy = local.n8n_single_main ? { type = "Recreate" } : {}

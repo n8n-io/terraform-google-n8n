@@ -283,8 +283,8 @@ else
 fi
 
 # ── Single-main topology (task 3.1/3.3) ─────────────────────────────────────
-# A second render with the exact fragments locals.tf computes for single-main
-# (n8n_single_main=true): multiMain.enabled=false, top-level replicaCount=1,
+# A second render with the default fragments locals.tf computes for single-main
+# (n8n_single_main=true, election override null): multiMain.enabled=false, replicaCount=1,
 # strategy={type: Recreate}, and pdb.minAvailable=0. Proves the chart actually
 # turns those fragments into a Recreate main Deployment and a permissive main
 # PDB, and leaves worker/webhook replicas and strategy untouched.
@@ -439,13 +439,74 @@ else
   else
     fail "single-main fixture's Deployment/n8n-worker replicas: expected 3, got '${SM_WORKER_REPLICAS:-<not found>}'"
   fi
+
+  # Stage one changes election only, retaining the one-replica safeguards.
+  # This is a render assertion, not proof of upgrade ordering or runtime safety.
+  cat >"$WORKDIR/fixture-election-staging.yaml" <<'EOF'
+config:
+  extraEnv:
+    - name: N8N_MULTI_MAIN_SETUP_ENABLED
+      value: "true"
+EOF
+  if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+    --version "${CHART_VERSION}" \
+    --namespace n8n-chart-check \
+    -f "$WORKDIR/fixture-single-main.yaml" \
+    -f "$WORKDIR/fixture-election-staging.yaml" \
+    --set keda.enabled=true \
+    >"$WORKDIR/rendered-election-staging.yaml" 2>"$WORKDIR/helm-stderr-election-staging.log"; then
+    cat "$WORKDIR/helm-stderr-election-staging.log" >&2
+    fail "helm template (election staging) exited non-zero"
+  else
+    DEFAULT_RENDERED="$RENDERED"
+    RENDERED="$WORKDIR/rendered-election-staging.yaml"
+    SM_RENDERED="$RENDERED"
+    assert_deployment_replicas "n8n-main" "1"
+    assert_deployment_replicas "n8n-worker" "3"
+    assert_deployment_replicas "n8n-webhook-processor" "1"
+    assert_deployment_strategy "n8n-main" "Recreate"
+    assert_deployment_strategy "n8n-worker" ""
+    assert_deployment_strategy "n8n-webhook-processor" ""
+    assert_pdb_min_available "0"
+
+    STAGING_HPA="$(awk '
+      /^kind: HorizontalPodAutoscaler$/ { in_hpa = 1; next }
+      in_hpa && /^  name: n8n-main$/ { main = 1 }
+      in_hpa && main && /^  (minReplicas|maxReplicas):/ { print $1, $2 }
+      /^---$/ { in_hpa = 0; main = 0 }
+    ' "$RENDERED")"
+    if [ "$(printf '%s\n' "$STAGING_HPA" | sort)" = "$(printf 'maxReplicas: 1\nminReplicas: 1')" ]; then
+      pass "election staging main HPA min/max == 1/1"
+    else
+      fail "election staging main HPA must have min/max 1/1: $STAGING_HPA"
+    fi
+
+    # Chart multiMain stays disabled; runtime election is a literal on all
+    # three n8n roles via extraEnv. No ConfigMap election reference is emitted.
+    assert_env_count "N8N_MULTI_MAIN_SETUP_ENABLED" "3" "true"
+    STAGING_MAIN_ELECTION="$(awk '
+      /^kind: Deployment$/ { in_deploy = 1; next }
+      in_deploy && /^  name: n8n-main$/ { main = 1 }
+      in_deploy && main && /- name: N8N_MULTI_MAIN_SETUP_ENABLED$/ {
+        getline
+        if ($1 == "value:" && $2 == "\"true\"") print "enabled"
+      }
+      /^---$/ { in_deploy = 0; main = 0 }
+    ' "$RENDERED")"
+    if [ "$STAGING_MAIN_ELECTION" = "enabled" ] && ! grep -q 'key: N8N_MULTI_MAIN_SETUP_ENABLED' "$RENDERED"; then
+      pass "election staging main has literal election enabled without chart multiMain references"
+    else
+      fail "election staging must use the literal flag in the main pod, not chart multiMain"
+    fi
+    RENDERED="$DEFAULT_RENDERED"
+    SM_RENDERED="$WORKDIR/rendered-single-main.yaml"
+  fi
 fi
 
 # ── Return to multi-main (task 3.3) ─────────────────────────────────────────
-# Confirms the main Deployment's/PDB's rendering reverts once multiMain is
-# re-enabled with a count above one, proving topology is not sticky: this is
-# the exact fixture-values.yaml fixture above (replicas: 2), so reuse
-# $RENDERED rather than rendering a third time.
+# Confirms the final main Deployment rendering at two replicas and normal
+# chart election references. Reusing the independent default render does NOT
+# test an upgrade or prove that the old ReplicaSet was replaced before scaling.
 assert_deployment_strategy_absent_in_default() {
   local actual
   actual="$(awk '
@@ -462,6 +523,29 @@ assert_deployment_strategy_absent_in_default() {
   fi
 }
 assert_deployment_strategy_absent_in_default
+
+MM_MAIN_ELECTION_REF="$(awk '
+  /^kind: Deployment$/ { in_deploy = 1; next }
+  in_deploy && /^  name: n8n-main$/ { main = 1 }
+  in_deploy && main && /- name: N8N_MULTI_MAIN_SETUP_ENABLED$/ {
+    for (i = 0; i < 4; i++) {
+      getline
+      if ($1 == "valueFrom:") value_from = 1
+      if ($1 == "configMapKeyRef:") ref = 1
+      if ($1 == "name:" && $2 == "n8n") name = 1
+      if ($1 == "key:" && $2 == "N8N_MULTI_MAIN_SETUP_ENABLED") key = 1
+    }
+    if (value_from && ref && name && key) print "referenced"
+  }
+  /^---$/ { in_deploy = 0; main = 0 }
+' "$RENDERED")"
+if [ "$MM_MAIN_ELECTION_REF" = "referenced" ] &&
+  [ "$(grep -c -- '- name: N8N_MULTI_MAIN_SETUP_ENABLED$' "$RENDERED" || true)" = "1" ] &&
+  [ "$(grep -c '^  N8N_MULTI_MAIN_SETUP_ENABLED: "true"$' "$RENDERED" || true)" = "1" ]; then
+  pass "multi-main uses the chart election ConfigMap reference on main only"
+else
+  fail "multi-main must use the chart election ConfigMap reference on main only, without staging literals"
+fi
 
 # ── Redis command/Bull prefix synchronization (task 7.1) ───────────────────
 # A third render with redis.prefix set (the chart's Bull-queue prefix) and

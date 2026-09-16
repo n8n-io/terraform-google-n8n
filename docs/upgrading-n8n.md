@@ -95,12 +95,27 @@ addresses changed in this release.
 Section 3 derives the initial main-pod count, once, from whichever scaler owns
 it: `n8n_main_hpa_min_replicas` when `n8n_main_hpa_enabled = true` (the
 default), otherwise `n8n_main_fixed_replicas`. A selected count of `1` is
-**single-main**; any larger count keeps the module's **multi-main** default.
+**single-main** by default; any larger count keeps the module's **multi-main**
+default. `n8n_main_leader_election_enabled` can override election independently:
+`null` preserves this inference, `true` enables election even at one replica,
+and `false` is rejected above one selected replica. At a selected count of one,
+`Recreate`, PDB minimum 0, and the managed HPA maximum of 1 remain in effect
+regardless of election mode.
+
+Chart `1.10.1` rejects `multiMain.enabled = true` below two replicas. During
+staging, that chart setting stays false and the module injects the literal
+`N8N_MULTI_MAIN_SETUP_ENABLED=true` through `config.extraEnv` instead. That
+list reaches main, worker, and webhook containers, so all three roles roll and
+receive the flag. Verify non-main role health too. Above one replica, the module
+removes this staging entry and uses the chart's normal main-only ConfigMap
+reference. No chart validation is bypassed. Runtime election with one replica
+and the supplied license must still be verified in the rehearsal.
 
 ### Moving to single-main
 
 Set `n8n_main_hpa_min_replicas = 1` (HPA-owned) or `n8n_main_fixed_replicas =
-1` (HPA disabled), then `terraform apply`. This:
+1` (HPA disabled), with `n8n_main_leader_election_enabled = null`, then review
+and apply the plan during a quiet maintenance window. This:
 
 - Requires an n8n Enterprise license edition that supports single-main; it
   does not by itself grant External Secrets, log streaming, the custom
@@ -120,11 +135,73 @@ Set `n8n_main_hpa_min_replicas = 1` (HPA-owned) or `n8n_main_fixed_replicas =
 
 ### Returning to multi-main
 
-Raise `n8n_main_hpa_min_replicas` (or `n8n_main_fixed_replicas`) back above 1
-and `terraform apply`. This restores the chart's default rollout strategy,
-`minAvailable = 1` on the main PodDisruptionBudget, and re-enables
-`multiMain`/leader election. Confirm your license edition supports multi-main
-before switching back if you downgraded editions while on single-main.
+**Use two separate applies.** Raising replicas and enabling election in the
+same apply can scale the old election-disabled ReplicaSet before replacing it.
+Live testing observed two old single mains running concurrently and a new main
+reporting three instances claiming leadership. Final-state health checks do
+not detect this transition hazard. Setting `Recreate` alone does not order a
+simultaneous replica increase against replacement.
+
+Confirm the license supports multi-main, keep
+`n8n_license_detach_floating_on_shutdown = false`, and rehearse the procedure
+in a disposable environment first. Pause schedules, triggers, and new
+submissions; let queued and active executions finish before starting. Keep the
+same scaling owner throughout both stages and prevent any caller-owned scaler
+from changing replicas. Pin application and runner images so this is not also
+an image upgrade. Use an explicitly verified Kubernetes context and namespace
+for every inspection.
+
+1. **Enable election without increasing replicas.** Set these arguments on
+   your existing module call for a managed HPA:
+
+   ```hcl
+   n8n_main_hpa_enabled             = true
+   n8n_main_hpa_min_replicas        = 1
+   n8n_main_leader_election_enabled = true
+   ```
+
+   For fixed replicas, keep `n8n_main_hpa_enabled = false` and
+   `n8n_main_fixed_replicas = 1` instead. These are module arguments; an example
+   root must explicitly forward the new input before it can be set in that
+   example's `terraform.tfvars`.
+
+   Review the plan: election changes, but the main replica count remains one,
+   strategy remains `Recreate`, PDB minimum remains 0, and a managed main HPA
+   remains min/max 1/1 even if its configured maximum is higher. Apply only
+   this stage. Expect editor/API downtime; the environment changes also roll
+   workers and webhook processors.
+
+2. **Verify the intermediate state before proceeding.** Observe the rollout
+   from before the apply. Confirm the old main process exits before its
+   replacement starts, no election-disabled main remains (including terminating
+   pods), and exactly one replacement main is Ready with
+   `N8N_MULTI_MAIN_SETUP_ENABLED=true` in its running environment. Confirm
+   license validity, election/leadership health, worker and webhook recovery,
+   and successful queue execution. A plan with the stage-one settings must
+   converge. Do not infer these facts solely from Helm values or exit status.
+
+3. **Increase replicas in a separately reviewed apply.** Keep
+   `n8n_main_leader_election_enabled = true` and raise the selected minimum or
+   fixed count to two or more. This restores the chart-default main rollout
+   strategy and PDB minimum 1; a managed HPA uses its configured maximum again.
+   Confirm all surviving and newly started mains have election enabled, one
+   leader is active, HTTPS and queue execution work, and the final plan has no
+   unexpected changes before resuming production work.
+
+The nullable default preserves compatibility; it does **not** enforce this
+sequence. Terraform does not verify the previous pods' runtime state across
+applies. Do not skip the intermediate verification, disable election while
+scaling up, or use a stale plan from another stage. If either stage fails or
+Helm rolls back, keep work paused, inspect the actual pod and election state,
+and review a new recovery plan rather than automatically applying stage two.
+Prefer recovery toward the verified election-enabled one-replica state, not the
+original election-disabled revision. Rollback can also remove ConfigMap keys
+still referenced by multi-main pods and prevent them from restarting; it is
+not automatically safe or availability-preserving.
+
+The configuration and render tests cover these states, not transition timing
+or duplicate scheduling. The required live regression is documented in
+[manual verification, item 2](./manual-verification-checklist.md#2-return-to-multi-main).
 
 ## Replica-floor reset on every Helm upgrade
 

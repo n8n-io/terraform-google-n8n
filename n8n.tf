@@ -245,10 +245,9 @@ resource "helm_release" "n8n" {
     # replica count at the scaler's own minimum, which the HPA/KEDA
     # ScaledObject immediately takes over (D9).
     #
-    # Single-main (local.n8n_single_main) disables multiMain leader election;
-    # the chart then reads top-level replicaCount instead (both locals equal
-    # 1 whenever single-main is selected). Multi-main (the default) is
-    # unchanged.
+    # The chart rejects multiMain.enabled with fewer than two replicas.
+    # At one replica, stage runtime election via the module-owned extraEnv
+    # fragment below instead. Both chart replica fields keep the same count.
     multiMain = {
       enabled  = !local.n8n_single_main
       replicas = local.n8n_effective_main_replica_count
@@ -258,8 +257,8 @@ resource "helm_release" "n8n" {
     }
     replicaCount = local.n8n_effective_main_replica_count
 
-    # Main-only rollout strategy: Recreate for single-main, chart default ({})
-    # for multi-main. Does not affect worker or webhook-processor Deployments.
+    # Main-only rollout strategy: Recreate at one selected replica, including
+    # election staging; chart default ({}) above one. Other roles are unchanged.
     strategy = local.n8n_main_strategy
 
     queueMode = {
@@ -570,6 +569,9 @@ resource "helm_release" "n8n" {
           # because the module default deliberately overrides n8n's own default.
           { name = "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN", value = tostring(var.n8n_license_detach_floating_on_shutdown) },
         ],
+        # One-replica election staging. At higher counts the chart supplies
+        # the flag through its main-only ConfigMap reference instead.
+        local.n8n_main_election_staging_env,
         # Redis command-channel prefix, synchronized with the Bull queue-key
         # prefix (redis.prefix above) and the KEDA/exporter queue key names
         # (local.effective_redis_queue_keys) so all three consumers agree on

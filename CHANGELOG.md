@@ -18,6 +18,15 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added nullable `n8n_main_leader_election_enabled` for explicit two-stage
+  single-main to multi-main conversion. Enable election at one replica first,
+  retaining Recreate, PDB minimum 0, and managed HPA maximum 1; verify the old
+  election-disabled process has exited before separately increasing replicas.
+  Null preserves existing count-based defaults; false is rejected above one
+  selected replica. This supports a staged procedure, not automatic ordering:
+  an un-staged replica increase can still scale the old single-main revision.
+  Added plan/render coverage and an operator verification procedure; the new
+  two-stage live regression has not yet been run.
 - Added `n8n_additional_domains` and `ingress_annotations`
   (`add-google-parity-through-aws-0-4-0`, section 20.1): `n8n_additional_domains`
   (default `[]`) declares extra hostnames that will get the full main/webhook

@@ -68,15 +68,45 @@ edition that supports single-main.
 
 ## 2. Return to multi-main
 
-**Safety prerequisite:** none beyond item 1's disposable environment.
+**Safety prerequisite:** disposable environment, multi-main license, pinned
+images, explicit context/namespace verification, and separate approval for each
+apply. No real workflows, traffic, or data. Do not combine election activation
+and a replica increase. For the scheduling regression, separately authorize one
+harmless test schedule; other submissions and queues must remain idle.
 
-1. From the single-main state above, raise `n8n_main_hpa_min_replicas` (or
-   `n8n_main_fixed_replicas`) back above 1 and `terraform apply`.
-2. **Expected result:** `multiMain.enabled` returns to `true`, main
-   PodDisruptionBudget `minAvailable` returns to `1`, rollout strategy returns
-   to the chart default, and `N8N_MULTI_MAIN_SETUP_ENABLED=true` appears on
-   main pod environments with leader-election log lines
-   (`tests/scripts/smoke-test.sh` covers this automatically post-apply).
+1. Follow the [two-stage procedure](./upgrading-n8n.md#returning-to-multi-main).
+   Start with a converged election-disabled single main. Record pod UIDs,
+   process start/stop timestamps, ReplicaSet counts, election flags, leadership
+   logs, and HTTPS health throughout both applies, not only afterward.
+2. Stage one: set `n8n_main_leader_election_enabled = true` while holding the
+   selected count at one. **Expected result:** old process exits before the
+   replacement starts, exactly one election-enabled main becomes Ready, strategy
+   remains `Recreate`, PDB minimum remains 0, and a managed main HPA remains
+   min/max 1/1. Chart `multiMain.enabled` stays false; the literal election flag
+   comes from module-owned `config.extraEnv` on all three n8n roles. Verify
+   worker/webhook health and role behavior, the license, queue execution, and
+   convergence. Above one replica, verify that the staging literal disappears
+   and the chart's main-only ConfigMap election reference takes over.
+3. Stage two: keep election explicitly true and separately increase replicas.
+   **Expected result:** no election-disabled pod exists before scaling begins;
+   every main started during scaling is election-enabled. PDB minimum returns
+   to 1, strategy returns to the chart default, and managed HPA limits return
+   to their configured values. Both mains, workers, webhooks, and queue
+   execution must recover; final Terraform plan must converge.
+4. In an approved scheduling regression, use one harmless schedule with a unique
+   test identifier and persist each scheduled tick's timestamp and execution ID.
+   Compare executions per tick before, during, and after both stages. Record
+   downtime-related missed ticks separately; do not infer exactly-once behavior
+   from a successful final execution. Any duplicate tick or concurrent
+   election-disabled main fails the transition test.
+5. Repeat under separately approved scheduling/capacity pressure in the
+   disposable environment to expose delayed replacement. Repeat for managed HPA
+   and fixed-replica ownership. Delete the test workflow and its executions and
+   verify cleanup. Do not use production node drains or failover for this test.
+
+**Status: Not run for the new two-stage procedure.** Render and mocked tests do
+not prove ordering or schedule safety. The standard smoke test checks the final
+multi-main state only, not the election-enabled one-replica intermediate state.
 
 ## 3. Credentials-overwrite Secret rotation
 

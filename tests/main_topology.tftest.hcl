@@ -42,8 +42,8 @@ run "managed_hpa_min_one_selects_single_main" {
   }
 
   assert {
-    condition     = local.n8n_single_main == true
-    error_message = "n8n_main_hpa_min_replicas=1 must select single-main topology."
+    condition     = local.n8n_single_main && !local.n8n_main_leader_election_enabled && length(local.n8n_main_election_staging_env) == 0
+    error_message = "n8n_main_hpa_min_replicas=1 must select single-main with election disabled by default."
   }
 
   assert {
@@ -168,9 +168,130 @@ run "defaults_remain_multi_main" {
   command = plan
 
   assert {
-    condition     = local.n8n_single_main == false
-    error_message = "Unmodified defaults must retain multi-main (n8n_main_hpa_min_replicas defaults to 2)."
+    condition     = var.n8n_main_leader_election_enabled == null && local.n8n_main_leader_election_enabled && !local.n8n_single_main && length(local.n8n_main_election_staging_env) == 0
+    error_message = "Unmodified defaults must retain inferred multi-main election at two replicas."
   }
+}
+
+# These are independent plans, not sequential upgrades. Real ordering and
+# schedule duplication require docs/manual-verification-checklist.md item 2.
+run "stage_election_with_managed_hpa" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas        = 1
+    n8n_main_leader_election_enabled = true
+  }
+
+  assert {
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && length(local.n8n_main_election_staging_env) == 1
+    error_message = "Stage one must enable election without raising the selected count (ignoring fixed replicas while HPA is enabled)."
+  }
+
+  assert {
+    condition     = try(local.n8n_main_election_staging_env[0].name, null) == "N8N_MULTI_MAIN_SETUP_ENABLED" && try(local.n8n_main_election_staging_env[0].value, null) == "true"
+    error_message = "Staging must emit a literal runtime election flag while chart multiMain remains disabled at one replica."
+  }
+
+  assert {
+    condition     = local.n8n_effective_main_hpa_max_replicas == 1 && local.capacity_main_max_replicas == 1
+    error_message = "Election staging must preserve the managed HPA and capacity ceilings of one despite the configured maximum of 20."
+  }
+
+  assert {
+    condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1 && local.n8n_main_pdb_min_available == 0
+    error_message = "Election staging must retain Recreate and PDB minimum 0."
+  }
+}
+
+run "stage_election_with_fixed_replicas" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_enabled             = false
+    n8n_main_fixed_replicas          = 1
+    n8n_main_leader_election_enabled = true
+  }
+
+  assert {
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && local.capacity_main_max_replicas == 1 && length(local.n8n_main_election_staging_env) == 1
+    error_message = "Fixed staging must enable election at one replica, ignoring the HPA minimum of two."
+  }
+
+  assert {
+    condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1 && local.n8n_main_pdb_min_available == 0
+    error_message = "Fixed staging must retain Recreate and PDB minimum 0."
+  }
+}
+
+run "stage_two_retains_explicit_election" {
+  command = plan
+
+  variables {
+    n8n_main_leader_election_enabled = true
+  }
+
+  assert {
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 2 && local.n8n_effective_main_hpa_max_replicas == 20 && length(local.n8n_main_election_staging_env) == 0
+    error_message = "Stage two must keep election enabled while restoring the default HPA limits."
+  }
+
+  assert {
+    condition     = length(keys(local.n8n_main_strategy)) == 0 && local.n8n_main_pdb_min_available == 1
+    error_message = "Stage two must restore the chart strategy and PDB minimum 1."
+  }
+}
+
+run "explicit_election_disabled_at_one" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas        = 1
+    n8n_main_leader_election_enabled = false
+  }
+
+  assert {
+    condition     = !local.n8n_main_leader_election_enabled && local.n8n_effective_main_hpa_max_replicas == 1 && length(local.n8n_main_election_staging_env) == 0
+    error_message = "Explicit false must remain supported at one replica with a clamped HPA."
+  }
+}
+
+run "staging_cannot_be_overridden_by_extra_env" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas        = 1
+    n8n_main_leader_election_enabled = true
+    n8n_extra_env = [{
+      name  = "N8N_MULTI_MAIN_SETUP_ENABLED"
+      value = "false"
+    }]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "reject_election_disabled_above_one_with_hpa" {
+  command = plan
+
+  variables {
+    n8n_main_fixed_replicas          = 1
+    n8n_main_leader_election_enabled = false
+  }
+
+  expect_failures = [var.n8n_main_leader_election_enabled]
+}
+
+run "reject_election_disabled_above_one_with_fixed_replicas" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_enabled             = false
+    n8n_main_hpa_min_replicas        = 1
+    n8n_main_leader_election_enabled = false
+  }
+
+  expect_failures = [var.n8n_main_leader_election_enabled]
 }
 
 # ── capacity.tf consumes the same effective, clamped ceiling ────────────────

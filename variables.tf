@@ -1285,15 +1285,28 @@ variable "n8n_execution_data_storage_mode" {
 
 # ── HPA: main pods ────────────────────────────────────────────────────────────
 
+variable "n8n_main_leader_election_enabled" {
+  description = "Override runtime main leader election (N8N_MULTI_MAIN_SETUP_ENABLED). Null preserves count-based selection: disabled at one selected replica, enabled above one. Set true while holding the selected count at one to stage a single-main to multi-main conversion; Recreate, PDB minimum 0, and the managed HPA maximum of 1 remain in effect. Apply and verify that every election-disabled main has exited before separately increasing replicas. False is accepted only at one selected replica. At one replica, the chart keeps multiMain.enabled=false because it requires at least two replicas; the module instead injects the election flag through config.extraEnv on all n8n roles, rolling mains, workers, and webhook processors. Above one, the chart supplies its normal main-only election reference. Requires a license supporting multi-main when true. This input does not enforce ordering across applies; see docs/upgrading-n8n.md#returning-to-multi-main."
+  type        = bool
+  default     = null
+
+  validation {
+    condition = var.n8n_main_leader_election_enabled == false ? (
+      (var.n8n_main_hpa_enabled ? var.n8n_main_hpa_min_replicas : var.n8n_main_fixed_replicas) == 1
+    ) : true
+    error_message = "n8n_main_leader_election_enabled may be false only when the selected main replica count is 1 (HPA minimum when enabled, fixed replicas otherwise)."
+  }
+}
+
 variable "n8n_main_hpa_enabled" {
-  description = "When true (the default), the module creates and manages the HPA for n8n main pods. Set to false to let the caller own main-pod scaling (or run a fixed replica count); no n8n main HPA is rendered. n8n_main_fixed_replicas sets the replica count while disabled. Topology follows the selected count either way: n8n_main_hpa_min_replicas=1 (with this enabled) or n8n_main_fixed_replicas=1 (with this disabled) selects single-main; any larger selected count keeps the module's multi-main default. Single-main requires an n8n Enterprise license edition that supports it (not community edition) and interrupts the editor, REST API, and scheduled triggers during maintenance; it does not by itself grant External Secrets, log streaming, the custom package registry, or object-storage entitlements, and Recreate does not guarantee at-most-one execution after a manual pod deletion, node failure, or network partition. A caller-owned main scaler (this disabled) must not exceed one main until deliberately switching back to multi-main with the appropriate entitlement."
+  description = "When true (the default), the module creates and manages the HPA for n8n main pods. Set to false to let the caller own main-pod scaling (or run a fixed replica count); no n8n main HPA is rendered. n8n_main_fixed_replicas sets the replica count while disabled. Unless n8n_main_leader_election_enabled overrides election, topology follows the selected count either way: n8n_main_hpa_min_replicas=1 (with this enabled) or n8n_main_fixed_replicas=1 (with this disabled) selects single-main; any larger selected count keeps the module's multi-main default. Single-main requires an n8n Enterprise license edition that supports it (not community edition) and interrupts the editor, REST API, and scheduled triggers during maintenance; it does not by itself grant External Secrets, log streaming, the custom package registry, or object-storage entitlements, and Recreate does not guarantee at-most-one execution after a manual pod deletion, node failure, or network partition. A caller-owned main scaler (this disabled) must not exceed one main until deliberately switching back to multi-main with the appropriate entitlement."
   type        = bool
   default     = true
   nullable    = false
 }
 
 variable "n8n_main_fixed_replicas" {
-  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled. A value of 1 selects single-main topology; see n8n_main_hpa_enabled for the licensing and maintenance implications."
+  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled. A value of 1 selects single-main topology by default; n8n_main_leader_election_enabled can stage election at this count without changing Recreate or PDB behavior. See n8n_main_hpa_enabled for licensing and maintenance implications."
   type        = number
   default     = 2
 
@@ -1304,7 +1317,7 @@ variable "n8n_main_fixed_replicas" {
 }
 
 variable "n8n_main_hpa_min_replicas" {
-  description = "Minimum replicas for n8n main pods. HPA will not scale below this. A value of 1 selects single-main topology; see n8n_main_hpa_enabled for the licensing and maintenance implications."
+  description = "Minimum replicas for n8n main pods. HPA will not scale below this. A value of 1 selects single-main topology by default; n8n_main_leader_election_enabled can stage election at this count while retaining Recreate, PDB minimum 0, and HPA maximum 1. See n8n_main_hpa_enabled for licensing and maintenance implications."
   type        = number
   default     = 2
   nullable    = false
@@ -1316,7 +1329,7 @@ variable "n8n_main_hpa_min_replicas" {
 }
 
 variable "n8n_main_hpa_max_replicas" {
-  description = "Maximum replicas for n8n main pods. HPA will not scale above this. Ignored (effectively clamped to 1) while n8n_main_hpa_min_replicas=1 selects single-main topology, so a module-owned main HPA never scales a single-main deployment past its licensed ceiling of one main; raise n8n_main_hpa_min_replicas above 1 to return to multi-main and use this maximum."
+  description = "Maximum replicas for n8n main pods. Effectively clamped to 1 while n8n_main_hpa_min_replicas=1, even when leader election is explicitly enabled for staging. Before raising the minimum above 1 on an existing single-main deployment, separately apply and verify n8n_main_leader_election_enabled=true at one replica; see docs/upgrading-n8n.md#returning-to-multi-main. Ignored when n8n_main_hpa_enabled=false."
   type        = number
   default     = 20
   nullable    = false
