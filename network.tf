@@ -131,38 +131,27 @@ resource "google_compute_global_address" "psa" {
   network       = local.effective_network_id
 }
 
+# deletion_policy = ABANDON: never call the servicenetworking connections.delete
+# API on destroy. That API enforces a producer-side check ("Producer services
+# ... are still using this connection") that lags actual Cloud SQL/Memorystore
+# deletion by anywhere from minutes to days, and GCP exposes no signal for when
+# the release completes, so no fixed destroy-time pause could make it reliable
+# (terraform-provider-google#16275). Abandoning drops the connection from state
+# so destroy proceeds to the address range and, on the module-managed path, the
+# network; deleting a VPC tears its servicenetworking peering down at the
+# compute layer, which is not subject to that producer check, leaving nothing
+# behind. On a customer-managed network (create_network = false) the peering is
+# left in place on the caller's VPC, which the module does not own; see
+# docs/destroy-cleanup.md.
+#
+# Cloud SQL / Memorystore depend on this resource directly (cloudsql.tf,
+# memorystore.tf) so creation still waits for the peering to exist.
 resource "google_service_networking_connection" "psa" {
   count = var.create_psa ? 1 : 0
 
   network                 = local.effective_network_id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.psa[0].name]
-}
 
-# ── Destroy-time pause ────────────────────────────────────────────────────────
-# GCP's backend takes longer to release Cloud SQL/Redis's use of the PSA peering
-# than the delete API calls for those resources take to return. Deleting the
-# peering connection immediately after Cloud SQL/Redis report "destroyed" fails
-# with "Producer services ... are still using this connection" every time. This
-# pause gives the backend time to catch up before Terraform deletes the peering.
-#
-# The lag is not fixed: it has been observed anywhere from a few minutes to well
-# over an hour, and GCP exposes no signal for when the release completes, so no
-# single default is guaranteed. var.psa_cleanup_destroy_duration lets operators
-# raise the pause; if a teardown still stalls, the reliable unblock is the
-# compute-level peering delete documented in README.md ("Teardown").
-#
-# Dependency chain (create order, reversed for destroy):
-#   psa -> time_sleep -> cloudsql/redis
-# Destroy order (reversed):
-#   1. google_sql_database_instance.n8n / google_redis_instance.n8n (destroyed)
-#   2. time_sleep.wait_for_psa_cleanup                               (pauses)
-#   3. google_service_networking_connection.psa                     (destroyed)
-
-resource "time_sleep" "wait_for_psa_cleanup" {
-  count = var.create_psa ? 1 : 0
-
-  destroy_duration = var.psa_cleanup_destroy_duration
-
-  depends_on = [google_service_networking_connection.psa]
+  deletion_policy = "ABANDON"
 }

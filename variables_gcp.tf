@@ -1066,9 +1066,3 @@ variable "gke_node_disk_type" {
   type        = string
   default     = "pd-balanced"
 }
-
-variable "psa_cleanup_destroy_duration" {
-  description = "How long to pause on destroy after Cloud SQL/Memorystore are deleted before deleting the Private Services Access peering, giving GCP's backend time to release its hold on the connection. GCP does not report when the release completes, and the observed lag varies widely (minutes to well over an hour). If destroy still fails with 'Producer services ... are still using this connection', either raise this or use the compute-level peering-delete escape hatch documented in README.md ('Teardown'). Accepts Go duration syntax (e.g. \"3m\", \"15m\", \"1h\")."
-  type        = string
-  default     = "3m"
-}

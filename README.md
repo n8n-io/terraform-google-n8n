@@ -254,25 +254,15 @@ Learnings from the first live deploy:
   `DROP USER`, which otherwise fail on live connections and the user-owned schema
   objects.
 
-  Finally, the Private Services Access connection often refuses to delete with
+  The Private Services Access connection is **abandoned, not deleted** on destroy
+  (`deletion_policy = "ABANDON"`). GCP's `connections.delete` API refuses with
   `Producer services (e.g. CloudSQL, Cloud Memstore, ...) are still using this
-  connection`, even after the Cloud SQL and Memorystore instances are gone. This can
-  persist for 20+ minutes, and re-running `destroy` (or `gcloud services vpc-peerings
-  delete`) does not clear it. The reliable unblock is to delete the peering at the
-  **compute** level, then re-run `destroy`:
-
-  ```bash
-  gcloud compute networks peerings delete servicenetworking-googleapis-com \
-    --network=<friendly_name_prefix>-n8n-vpc --project=<project_id>
-  terraform destroy -auto-approve \
-    -var gke_deletion_protection=false \
-    -var postgres_deletion_protection=false \
-    -var gcs_force_destroy=true   # now clears the PSA connection + address + VPC
-  ```
-
-  The pause before the peering delete is configurable via
-  `psa_cleanup_destroy_duration` (default `3m`); raise it if teardowns stall. See
-  [`docs/destroy-cleanup.md`](./docs/destroy-cleanup.md) for the full guide.
+  connection` for anywhere from minutes to days after the Cloud SQL and Memorystore
+  instances are actually gone, so the module never calls it. On the module-managed
+  network path this leaves nothing behind: deleting the VPC tears the peering down
+  at the compute layer. On a customer-managed network (`create_network = false`)
+  the peering stays on your VPC; remove it yourself if no other producer uses it.
+  See [`docs/destroy-cleanup.md`](./docs/destroy-cleanup.md) for the full guide.
 
 ## Stability & versioning
 
@@ -430,7 +420,6 @@ all now supported, see
 | [random_password.db_password](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [random_password.task_runner_token](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) | resource |
 | [time_sleep.wait_for_lb_cleanup](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
-| [time_sleep.wait_for_psa_cleanup](https://registry.terraform.io/providers/hashicorp/time/latest/docs/resources/sleep) | resource |
 | [tls_private_key.self_signed](https://registry.terraform.io/providers/hashicorp/tls/latest/docs/resources/private_key) | resource |
 | [tls_self_signed_cert.self_signed](https://registry.terraform.io/providers/hashicorp/tls/latest/docs/resources/self_signed_cert) | resource |
 | [google_compute_machine_types.gke](https://registry.terraform.io/providers/hashicorp/google/latest/docs/data-sources/compute_machine_types) | data source |
@@ -636,7 +625,6 @@ all now supported, see
 | <a name="input_postgres_transaction_log_retention_days"></a> [postgres\_transaction\_log\_retention\_days](#input\_postgres\_transaction\_log\_retention\_days) | Days of transaction logs Cloud SQL retains for point-in-time recovery (settings.backup\_configuration.transaction\_log\_retention\_days). Null (the default) preserves the provider's existing default. Valid range depends on postgres\_edition: 1-7 for ENTERPRISE, 1-35 for ENTERPRISE\_PLUS. Ignored when create\_postgres\_instance = false. | `number` | `null` | no |
 | <a name="input_postgres_version"></a> [postgres\_version](#input\_postgres\_version) | Cloud SQL Postgres version. | `string` | `"POSTGRES_16"` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID to deploy into. | `string` | n/a | yes |
-| <a name="input_psa_cleanup_destroy_duration"></a> [psa\_cleanup\_destroy\_duration](#input\_psa\_cleanup\_destroy\_duration) | How long to pause on destroy after Cloud SQL/Memorystore are deleted before deleting the Private Services Access peering, giving GCP's backend time to release its hold on the connection. GCP does not report when the release completes, and the observed lag varies widely (minutes to well over an hour). If destroy still fails with 'Producer services ... are still using this connection', either raise this or use the compute-level peering-delete escape hatch documented in README.md ('Teardown'). Accepts Go duration syntax (e.g. "3m", "15m", "1h"). | `string` | `"3m"` | no |
 | <a name="input_psa_prefix_length"></a> [psa\_prefix\_length](#input\_psa\_prefix\_length) | Prefix length for the Private Services Access range that Cloud SQL / Memorystore peer into. | `number` | `16` | no |
 | <a name="input_redis_auth_enabled"></a> [redis\_auth\_enabled](#input\_redis\_auth\_enabled) | Enable Redis AUTH on the module-managed Memorystore instance. If true, the KEDA worker trigger gets a TriggerAuthentication CRD referencing the generated AUTH string. | `bool` | `false` | no |
 | <a name="input_redis_exporter_enabled"></a> [redis\_exporter\_enabled](#input\_redis\_exporter\_enabled) | When true, creates a single-replica Redis exporter Deployment and a ClusterIP metrics Service (port 9121) that reads Bull queue depth and other metrics from the effective Redis connection (module-managed Memorystore or external). Independent of n8n\_metrics\_enabled and worker KEDA. Installs no Prometheus or Grafana resources; pair with a cluster Prometheus that discovers pods by the scrape annotations this module sets, or a ServiceMonitor pointed at redis\_exporter\_service\_name. Defaults to false. | `bool` | `false` | no |

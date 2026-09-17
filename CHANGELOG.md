@@ -711,6 +711,27 @@ this project adheres to the stability contract in
 
 ### Changed
 
+- **Breaking:** the Private Services Access connection
+  (`google_service_networking_connection.psa`) is now abandoned on destroy
+  (`deletion_policy = "ABANDON"`) instead of deleted, and the destroy-time
+  pause that tried to make that delete succeed is removed:
+  `time_sleep.wait_for_psa_cleanup` and the `psa_cleanup_destroy_duration`
+  input are gone. GCP's `connections.delete` API rejects the call with
+  `Producer services ... are still using this connection` for anywhere from
+  minutes to days after Cloud SQL and Memorystore are actually deleted
+  (terraform-provider-google#16275), with no signal for when the release
+  completes, so no fixed pause could make it reliable; a live `examples/small`
+  teardown on 2026-09-17 still stalled there after the 3-minute default. On
+  the module-managed network path nothing is left behind, since deleting the
+  VPC tears the peering down at the compute layer (verified against a
+  throwaway VPC: the network delete succeeds with only the servicenetworking
+  peering remaining). On `create_network = false` the peering remains on the
+  caller's VPC; see `docs/destroy-cleanup.md`. Cloud SQL and Memorystore now
+  depend on the connection directly, so creation ordering is unchanged. A
+  caller passing `psa_cleanup_destroy_duration` must drop it; an existing
+  deployment sees `time_sleep.wait_for_psa_cleanup[0]` destroyed on its next
+  apply, which is a no-op resource.
+
 - **Breaking, minor release only:** managed GKE now uses Dataplane V2
   (`datapath_provider = "ADVANCED_DATAPATH"`). With Google provider 6.x,
   upgrading a `LEGACY_DATAPATH` cluster forces replacement and workload

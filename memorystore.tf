@@ -58,11 +58,12 @@ resource "google_redis_instance" "n8n" {
     rdb_snapshot_start_time = var.redis_persistence_enabled ? var.redis_rdb_snapshot_start_time : null
   }
 
-  # Depending on the time_sleep (not the connection directly) also delays the
-  # peering's destruction until after this instance is gone; see network.tf.
-  # Also wait for the module-created key's IAM grant (kms.tf).
+  # Private IP requires the PSA peering to exist first (network.tf; the
+  # connection is abandoned rather than deleted on destroy, so no ordering
+  # against its teardown is needed). Also wait for the module-created key's
+  # IAM grant (kms.tf).
   depends_on = [
-    time_sleep.wait_for_psa_cleanup,
+    google_service_networking_connection.psa,
     google_kms_crypto_key_iam_member.redis,
   ]
 }

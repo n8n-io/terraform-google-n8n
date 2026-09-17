@@ -76,9 +76,12 @@ run "defaults_create_managed_network_resources" {
     error_message = "create_psa defaults to true and must create the PSA connection."
   }
 
+  # The connection is abandoned, never deleted through the servicenetworking
+  # API, on destroy; see network.tf for why. A regression here reintroduces the
+  # "Producer services ... are still using this connection" teardown stall.
   assert {
-    condition     = length(time_sleep.wait_for_psa_cleanup) == 1
-    error_message = "create_psa defaults to true and must create the PSA cleanup delay."
+    condition     = google_service_networking_connection.psa[0].deletion_policy == "ABANDON"
+    error_message = "The PSA connection must use deletion_policy = ABANDON so destroy is not blocked by GCP's lagging producer-side release check."
   }
 }
 
@@ -153,11 +156,6 @@ run "existing_psa_creates_no_psa_resources" {
     error_message = "create_psa = false must not create a PSA connection."
   }
 
-  assert {
-    condition     = length(time_sleep.wait_for_psa_cleanup) == 0
-    error_message = "create_psa = false must not create the PSA cleanup delay."
-  }
-
   # The module still owns the VPC by default.
   assert {
     condition     = length(google_compute_network.n8n) == 1
@@ -187,8 +185,7 @@ run "existing_network_and_existing_psa_creates_no_network_or_psa_resources" {
       length(google_compute_router.n8n) == 0 &&
       length(google_compute_router_nat.n8n) == 0 &&
       length(google_compute_global_address.psa) == 0 &&
-      length(google_service_networking_connection.psa) == 0 &&
-      length(time_sleep.wait_for_psa_cleanup) == 0
+      length(google_service_networking_connection.psa) == 0
     )
     error_message = "A fully customer-managed network and PSA must create none of the module's network or PSA resources."
   }

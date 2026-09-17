@@ -79,39 +79,24 @@ Module-created Cloud KMS CryptoKeys carry `lifecycle { prevent_destroy = true }`
 
 ## Troubleshooting
 
-### Private Service Access peering deletion stalls
+### Private Service Access peering is abandoned, not deleted
 
-**Symptom:** `terraform destroy` fails on `google_service_networking_connection.psa` with:
+`terraform destroy` does not delete `google_service_networking_connection.psa` through the servicenetworking API; the resource sets `deletion_policy = "ABANDON"`, so Terraform drops it from state and moves on.
 
-```
-Error: Unable to remove Service Networking Connection ... Producer services
-(e.g. CloudSQL, Cloud Memstore, etc.) are still using this connection.
-```
+**Why:** that API enforces a producer-side check that fails with `Producer services (e.g. CloudSQL, Cloud Memstore, etc.) are still using this connection` for anywhere from a few minutes to several days after the Cloud SQL and Memorystore instances are actually gone. Google exposes no signal for when the release completes, so no destroy-time pause or retry can make the delete reliable.
 
-**Cause:** Cloud SQL and Memorystore report deletion complete before Google's backend finishes releasing their hold on the PSA peering. The lag is not fixed and has been observed from a few minutes to well over an hour, and Google exposes no signal for when it completes.
+**What happens instead:**
 
-**Built-in mitigation:** the module pauses on destroy (`time_sleep.wait_for_psa_cleanup`) between deleting Cloud SQL / Memorystore and deleting the peering. Raise the pause if your teardowns still stall:
+- `create_network = true` (default): Terraform deletes the PSA address range, then the VPC. Deleting a VPC tears down its `servicenetworking-googleapis-com` peering at the compute layer, which is not subject to the producer check. Nothing is left behind.
+- `create_network = false`: the peering stays on your VPC, which the module does not own. If no other producer (another Cloud SQL or Memorystore instance) still uses that network, remove it yourself once GCP's release has caught up:
 
-```bash
-terraform destroy -auto-approve \
-  -var gke_deletion_protection=false \
-  -var postgres_deletion_protection=false \
-  -var gcs_force_destroy=true \
-  -var psa_cleanup_destroy_duration=15m
-```
+  ```bash
+  gcloud compute networks peerings delete servicenetworking-googleapis-com \
+    --network="<your-network>" \
+    --project="$PROJECT"
+  ```
 
-**Escape hatch (reliable):** if a teardown is already blocked, delete the peering at the compute layer, then re-run destroy:
-
-```bash
-gcloud compute networks peerings delete servicenetworking-googleapis-com \
-  --network="${CLUSTER}-vpc" \
-  --project="$PROJECT"
-
-terraform destroy -auto-approve \
-  -var gke_deletion_protection=false \
-  -var postgres_deletion_protection=false \
-  -var gcs_force_destroy=true
-```
+  The reserved PSA address range (`google_compute_global_address.psa`) is still module-owned and deleted normally on this path.
 
 ### Namespace stuck in Terminating
 
