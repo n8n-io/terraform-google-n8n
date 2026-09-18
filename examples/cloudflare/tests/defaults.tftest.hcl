@@ -46,3 +46,16 @@ run "defaults_produce_valid_plan" {
     error_message = "the module must serve n8n at https://<n8n_fqdn>"
   }
 }
+
+run "single_main_floor_produces_valid_plan" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas = 1
+  }
+
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
+    error_message = "n8n_main_hpa_min_replicas=1 (single-main) must still produce a valid plan through this example's passthrough."
+  }
+}

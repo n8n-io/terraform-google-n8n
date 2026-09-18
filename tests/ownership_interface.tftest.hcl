@@ -297,8 +297,7 @@ run "fully_customer_managed_stack_creates_no_owned_infrastructure" {
       length(google_compute_router.n8n) == 0 &&
       length(google_compute_router_nat.n8n) == 0 &&
       length(google_compute_global_address.psa) == 0 &&
-      length(google_service_networking_connection.psa) == 0 &&
-      length(time_sleep.wait_for_psa_cleanup) == 0
+      length(google_service_networking_connection.psa) == 0
     )
     error_message = "The fully customer-managed stack must create no network or PSA resources."
   }

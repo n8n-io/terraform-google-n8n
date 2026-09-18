@@ -33,10 +33,22 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_image_tag" {
+  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's floating `stable` tag, which resolves to whatever n8n version is current when each pod starts. Pin a concrete version (for example \"2.39.7\") for reproducible deployments and controlled upgrades."
+  type        = string
+  default     = null
+}
+
 variable "cloud_dns_zone_name" {
   description = "Google Cloud DNS managed-zone name for n8n_fqdn. Empty means you manage the A-record yourself against the static_ip output."
   type        = string
   default     = ""
+}
+
+variable "n8n_main_hpa_min_replicas" {
+  description = "Minimum replica count for n8n main pods, passed straight through to the module's own n8n_main_hpa_min_replicas. Leave null (the default) to use the module's default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n_main_hpa_enabled description for the required license edition and maintenance implications."
+  type        = number
+  default     = null
 }
 
 variable "manage_sa_key_org_policy" {

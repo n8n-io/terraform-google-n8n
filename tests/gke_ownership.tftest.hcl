@@ -65,6 +65,42 @@ run "defaults_create_managed_gke_resources" {
     condition     = length(data.google_container_cluster.existing) == 0
     error_message = "create_gke defaults to true and must not read an existing cluster."
   }
+
+  # Explicit GKE hardening defaults curated for this change's Checkov
+  # baseline (see the security baseline report): client-certificate auth
+  # disabled, intranode visibility on, Dataplane V2 with the legacy
+  # network-policy add-on left off, and Shielded-node Secure Boot/Integrity
+  # Monitoring on both the (removed) default node pool template and the
+  # actual managed node pool.
+  assert {
+    condition     = google_container_cluster.n8n[0].master_auth[0].client_certificate_config[0].issue_client_certificate == false
+    error_message = "Client certificate authentication must stay disabled."
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].enable_intranode_visibility == true
+    error_message = "Intranode visibility must be enabled."
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].datapath_provider == "ADVANCED_DATAPATH"
+    error_message = "Dataplane V2 must be enabled."
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].network_policy[0].enabled == false
+    error_message = "The legacy Calico network-policy add-on must stay disabled alongside Dataplane V2."
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].node_config[0].shielded_instance_config[0].enable_secure_boot == true && google_container_cluster.n8n[0].node_config[0].shielded_instance_config[0].enable_integrity_monitoring == true
+    error_message = "The cluster's default node pool template must enable Secure Boot and Integrity Monitoring, matching the managed node pool."
+  }
+
+  assert {
+    condition     = google_container_node_pool.n8n[0].node_config[0].shielded_instance_config[0].enable_secure_boot == true && google_container_node_pool.n8n[0].node_config[0].shielded_instance_config[0].enable_integrity_monitoring == true
+    error_message = "The managed node pool must enable Secure Boot and Integrity Monitoring."
+  }
 }
 
 # ── Existing GKE creates no cluster-only resources ────────────────────────────

@@ -127,6 +127,13 @@ variable "psa_prefix_length" {
   default     = 16
 }
 
+variable "psa_connection_abandon_on_destroy" {
+  description = "When true (the default), the module-managed Private Services Access connection is dropped from Terraform state on destroy (deletion_policy = ABANDON) instead of calling the servicenetworking delete API, which GCP refuses with 'Producer services ... are still using this connection' for minutes to days after Cloud SQL and Memorystore are gone. Set false to attempt the API delete instead; it may stall. Read docs/destroy-cleanup.md before changing this, and run terraform apply once after changing it so the policy is recorded in state before the next destroy. Ignored when create_psa = false."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 # ── Cloud SQL ─────────────────────────────────────────────────────────────────
 
 variable "postgres_version" {
@@ -168,6 +175,50 @@ variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true
+}
+
+# ── Cloud SQL backup and query-logging tuning (managed instance only) ────────
+# Google Cloud Storage semantics (a retained backup COUNT and a
+# transaction-log retention window), not AWS's retention-days model. Backups
+# and point-in-time recovery stay enabled unconditionally (see the
+# backup_configuration block in cloudsql.tf); these only tune how much history
+# is kept. Ignored (and warned) for external PostgreSQL; see the
+# postgres_tuning_ignored_when_external check in checks.tf.
+
+variable "postgres_backup_retained_backups" {
+  description = "Number of automated backups Cloud SQL retains (settings.backup_configuration.backup_retention_settings.retained_backups, retention_unit=COUNT). Null (the default) preserves the provider's existing default retention. Ignored when create_postgres_instance = false."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.postgres_backup_retained_backups == null ? true : (var.postgres_backup_retained_backups >= 1 && var.postgres_backup_retained_backups <= 365 && floor(var.postgres_backup_retained_backups) == var.postgres_backup_retained_backups)
+    error_message = "postgres_backup_retained_backups must be a whole number from 1 to 365, or null to keep the provider's default retention."
+  }
+}
+
+variable "postgres_transaction_log_retention_days" {
+  description = "Days of transaction logs Cloud SQL retains for point-in-time recovery (settings.backup_configuration.transaction_log_retention_days). Null (the default) preserves the provider's existing default. Valid range depends on postgres_edition: 1-7 for ENTERPRISE, 1-35 for ENTERPRISE_PLUS. Ignored when create_postgres_instance = false."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.postgres_transaction_log_retention_days == null ? true : floor(var.postgres_transaction_log_retention_days) == var.postgres_transaction_log_retention_days
+    error_message = "postgres_transaction_log_retention_days must be a whole number, or null to keep the provider's default retention."
+  }
+
+  validation {
+    condition = var.postgres_transaction_log_retention_days == null ? true : (
+      var.postgres_edition == "ENTERPRISE_PLUS" ? (var.postgres_transaction_log_retention_days >= 1 && var.postgres_transaction_log_retention_days <= 35) : (var.postgres_transaction_log_retention_days >= 1 && var.postgres_transaction_log_retention_days <= 7)
+    )
+    error_message = "postgres_transaction_log_retention_days must be 1-7 for ENTERPRISE, or 1-35 for ENTERPRISE_PLUS (postgres_edition)."
+  }
+}
+
+variable "postgres_query_logging_enabled" {
+  description = "When true, adds PostgreSQL database_flags to log DDL statements (log_statement=ddl) and statements taking at least 1000 ms (log_min_duration_statement=1000). Defaults to false (Query Insights' aggregate statistics remain enabled either way; this is unrelated all-statement text logging). Logged slow-statement text may include literal query parameter values; review your organization's data-handling policy before enabling. Ignored when create_postgres_instance = false."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 variable "n8n_database_name" {
@@ -398,7 +449,7 @@ variable "redis_password_secret_ref" {
 }
 
 variable "redis_key_prefix" {
-  description = "Optional prefix n8n applies to its Bull queue Redis keys (the chart's redis.prefix, chart default \"bull\"), synchronized with the corresponding KEDA queue list names (\"<prefix>:jobs:wait\" / \"<prefix>:jobs:active\"). Leave null (the default) to use the chart's own default prefix. Changing this value on a deployment with in-flight or queued jobs strands them under the old prefix; drain the queue first (see docs/customer-managed-infrastructure.md)."
+  description = "Optional prefix n8n applies to both its command channel (N8N_REDIS_KEY_PREFIX, n8n default \"n8n\") and its Bull queue Redis keys (the chart's redis.prefix, chart default \"bull\"), synchronized with the corresponding KEDA queue list names (\"<prefix>:jobs:wait\" / \"<prefix>:jobs:active\") and, when enabled, the Redis exporter's queue-key checks. Leave null (the default) to use n8n's and the chart's own distinct default prefixes. Changing this value on a deployment with in-flight or queued jobs strands them under the old prefix; drain the queue first (see docs/customer-managed-infrastructure.md)."
   type        = string
   default     = null
 
@@ -417,6 +468,44 @@ variable "n8n_redis_timeout_threshold_ms" {
   validation {
     condition     = !(var.create_redis_instance && var.redis_tier == "STANDARD_HA") || var.n8n_redis_timeout_threshold_ms >= 30000
     error_message = "n8n_redis_timeout_threshold_ms must be at least 30000 (30s) when redis_tier = STANDARD_HA, matching Memorystore's documented average failover unavailability window; a lower value risks n8n exiting mid-failover."
+  }
+}
+
+variable "n8n_queue_worker_lock_duration" {
+  description = "Milliseconds a worker holds an execution lease before it is considered stalled and eligible for another worker to pick up (the chart's redis.worker.lockDuration). Null (the default) omits the override so the chart's own default (60000) applies. Wired alongside n8n_queue_worker_lock_renew_time and n8n_queue_worker_stalled_interval into one nested redis.worker chart map so partial overrides do not discard the others' values."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_queue_worker_lock_duration == null ? true : (var.n8n_queue_worker_lock_duration >= 1000 && floor(var.n8n_queue_worker_lock_duration) == var.n8n_queue_worker_lock_duration)
+    error_message = "n8n_queue_worker_lock_duration must be a whole number of milliseconds of at least 1000, or null to omit the override."
+  }
+}
+
+variable "n8n_queue_worker_lock_renew_time" {
+  description = "Milliseconds between a worker's automatic renewals of its execution lease (the chart's redis.worker.lockRenewTime). Null (the default) omits the override so the chart's own default (10000) applies. Must resolve to strictly less than the effective lock duration (this input, or the chart's 60000 default when n8n_queue_worker_lock_duration is also null); otherwise the lease would expire before a renewal could ever land."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_queue_worker_lock_renew_time == null ? true : (var.n8n_queue_worker_lock_renew_time >= 1000 && floor(var.n8n_queue_worker_lock_renew_time) == var.n8n_queue_worker_lock_renew_time)
+    error_message = "n8n_queue_worker_lock_renew_time must be a whole number of milliseconds of at least 1000, or null to omit the override."
+  }
+
+  validation {
+    condition     = coalesce(var.n8n_queue_worker_lock_renew_time, 10000) < coalesce(var.n8n_queue_worker_lock_duration, 60000)
+    error_message = "n8n_queue_worker_lock_renew_time must resolve to strictly less than the effective n8n_queue_worker_lock_duration (falling back to the chart's 10000/60000 defaults for whichever is null); otherwise the lease can expire before a renewal lands."
+  }
+}
+
+variable "n8n_queue_worker_stalled_interval" {
+  description = "Milliseconds between checks for stalled jobs (jobs whose lease expired without renewal) (the chart's redis.worker.stalledInterval). Null (the default) omits the override so the chart's own default (30000) applies."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_queue_worker_stalled_interval == null ? true : (var.n8n_queue_worker_stalled_interval >= 1000 && floor(var.n8n_queue_worker_stalled_interval) == var.n8n_queue_worker_stalled_interval)
+    error_message = "n8n_queue_worker_stalled_interval must be a whole number of milliseconds of at least 1000, or null to omit the override; the pinned chart schema also forbids a stalled interval below 1000."
   }
 }
 
@@ -456,6 +545,70 @@ variable "redis_transit_encryption_enabled" {
   type        = bool
   default     = false
   nullable    = false
+}
+
+# ── Opt-in Memorystore RDB persistence (managed instance only) ───────────────
+# Memorystore's own automatic last-snapshot recovery (persistence_config),
+# not AWS ElastiCache's numbered snapshot-retention count: enabling this keeps
+# at most one RDB snapshot that Memorystore replays on an unplanned restart,
+# not a history of restore points. Disabled by default; see docs guidance
+# before enabling on a memory- or latency-sensitive workload. Ignored (and
+# warned) for external Redis; see the redis_tuning_ignored_when_existing and
+# redis_persistence_tuning_ignored_when_disabled checks in checks.tf.
+
+variable "redis_persistence_enabled" {
+  description = "When true, enables Memorystore RDB persistence (persistence_config.persistence_mode = RDB) on the module-managed instance, keeping one automatically-replayed snapshot for unplanned restarts. This is NOT a historical backup or a substitute for a separate export; see redis_rdb_snapshot_period/redis_rdb_snapshot_start_time and docs/post-deployment.md for recovery, memory, and latency guidance. Ignored when create_redis_instance = false. Defaults to false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "redis_rdb_snapshot_period" {
+  description = "Memorystore RDB snapshot schedule period (persistence_config.rdb_snapshot_period). One of ONE_HOUR, SIX_HOURS, TWELVE_HOURS, or TWENTY_FOUR_HOURS. Ignored when redis_persistence_enabled = false or create_redis_instance = false. Defaults to TWENTY_FOUR_HOURS."
+  type        = string
+  default     = "TWENTY_FOUR_HOURS"
+  nullable    = false
+
+  validation {
+    condition     = contains(["ONE_HOUR", "SIX_HOURS", "TWELVE_HOURS", "TWENTY_FOUR_HOURS"], var.redis_rdb_snapshot_period)
+    error_message = "redis_rdb_snapshot_period must be one of ONE_HOUR, SIX_HOURS, TWELVE_HOURS, or TWENTY_FOUR_HOURS."
+  }
+}
+
+variable "redis_rdb_snapshot_start_time" {
+  description = "RFC3339 UTC timestamp (e.g. \"2024-01-01T03:00:00Z\") that the first RDB snapshot was/will be attempted, and to which future snapshots align (persistence_config.rdb_snapshot_start_time). Null (the default) lets Memorystore use the current time. Ignored when redis_persistence_enabled = false or create_redis_instance = false."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.redis_rdb_snapshot_start_time == null || can(formatdate("YYYY", var.redis_rdb_snapshot_start_time))
+    error_message = "redis_rdb_snapshot_start_time must be null or a valid RFC3339 UTC timestamp (e.g. \"2024-01-01T03:00:00Z\")."
+  }
+}
+
+# ── Opt-in Redis exporter (observability.tf) ───────────────────────────────────
+# Independent of n8n_metrics_enabled, KEDA installation, and scaler ownership;
+# see locals.tf's effective_redis_* / effective_redis_queue_keys, which the
+# exporter shares with n8n and KEDA so all three consumers watch the same
+# connection and queue keys.
+
+variable "redis_exporter_enabled" {
+  description = "When true, creates a single-replica Redis exporter Deployment and a ClusterIP metrics Service (port 9121) that reads Bull queue depth and other metrics from the effective Redis connection (module-managed Memorystore or external). Independent of n8n_metrics_enabled and worker KEDA. Installs no Prometheus or Grafana resources; pair with a cluster Prometheus that discovers pods by the scrape annotations this module sets, or a ServiceMonitor pointed at redis_exporter_service_name. Defaults to false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "redis_exporter_image" {
+  description = "Container image (repository:tag) for the Redis exporter. Defaults to the pinned, verified \"oliver006/redis_exporter:v1.90.0\". Must include an explicit tag; an unpinned floating tag is not accepted. Ignored when redis_exporter_enabled = false. A custom image runs as the module-set UID 59000, matching the default image's own non-root user."
+  type        = string
+  default     = "oliver006/redis_exporter:v1.90.0"
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*(/[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9._-]*$", var.redis_exporter_image))
+    error_message = "redis_exporter_image must be a bare image reference including an explicit tag (e.g. \"oliver006/redis_exporter:v1.90.0\"): lowercase path components, no scheme, no whitespace, and a tag after the final colon."
+  }
 }
 
 # ── Memorystore customer-managed encryption (Cloud KMS) ───────────────────────
@@ -664,7 +817,7 @@ variable "tls_mode" {
 }
 
 variable "tls_cert_pem" {
-  description = "PEM certificate chain (tls_mode = custom), e.g. a Cloudflare Origin CA cert."
+  description = "PEM certificate chain (tls_mode = custom), e.g. a Cloudflare Origin CA cert. Must cover every hostname in n8n_ingress_hosts (n8n_fqdn plus every n8n_additional_domains entry), e.g. via SANs or a wildcard; the module uploads this PEM as-is to google_compute_ssl_certificate and does not parse or validate its coverage."
   type        = string
   default     = ""
   sensitive   = true
@@ -678,7 +831,7 @@ variable "tls_key_pem" {
 }
 
 variable "tls_secret_name" {
-  description = "Name of an existing Kubernetes TLS Secret the Ingress should use (tls_mode = secret). Populated by an external issuer such as cert-manager in examples/cloudflare."
+  description = "Name of an existing Kubernetes TLS Secret the Ingress should use (tls_mode = secret). Populated by an external issuer such as cert-manager in examples/cloudflare. The referenced Secret's certificate must cover every hostname in n8n_ingress_hosts (n8n_fqdn plus every n8n_additional_domains entry); the module declares all of them on the Ingress's spec.tls.hosts but does not read the external Secret to confirm its certificate actually covers them."
   type        = string
   default     = "n8n-tls"
 }
@@ -695,9 +848,65 @@ variable "https_redirect" {
 # against the module's static IP output (examples/cloudflare, examples/godaddy).
 
 variable "cloud_dns_zone_name" {
-  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does)."
+  description = "Google Cloud DNS managed-zone name to create the A record in. Empty string means the module does not manage DNS (you point n8n_fqdn at the static IP output yourself, as examples/cloudflare does). This single zone must cover every hostname in n8n_ingress_hosts (n8n_fqdn plus every n8n_additional_domains entry); the module creates one A record per hostname in this zone and does not split records across zones. An alias whose DNS lives in a different zone or provider is the caller's responsibility to create against the static_ip output, the same way examples/cloudflare and examples/godaddy manage the canonical record."
   type        = string
   default     = ""
+}
+
+# ── Additional ingress hosts and annotations ───────────────────────────────
+# Both are rendered into the module-managed Ingress (n8n.tf's
+# kubernetes_ingress_v1.n8n) and its supporting DNS/certificate resources
+# (dns.tf/crds.tf; task 20.2). n8n_ingress_hosts (outputs.tf) exposes the
+# effective host list unconditionally, so a customer-managed ingress can
+# route the same hostnames the module would.
+
+variable "n8n_additional_domains" {
+  description = "Additional hostnames to give the full main/webhook route set alongside n8n_fqdn, e.g. for a second public domain pointed at the same deployment. Compared case-insensitively everywhere the module uses them (duplicate detection, Cloud DNS records, ManagedCertificate/self-signed/Secret TLS coverage); see n8n_ingress_hosts for the effective lowercase-normalized list. Wildcards are not accepted. Adds no DNS, certificate, or ingress resource when create_ingress = false, but n8n_ingress_hosts still reports these hostnames for a caller-managed ingress to route."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for d in var.n8n_additional_domains : can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", d))
+    ])
+    error_message = "Every n8n_additional_domains entry must be a valid fully qualified domain name (e.g. alt.example.com); wildcards (e.g. *.example.com) are not accepted."
+  }
+
+  validation {
+    condition     = length(distinct([for d in var.n8n_additional_domains : lower(d)])) == length(var.n8n_additional_domains)
+    error_message = "n8n_additional_domains must not contain duplicate hostnames (comparison is case-insensitive)."
+  }
+
+  validation {
+    condition     = !contains([for d in var.n8n_additional_domains : lower(d)], lower(var.n8n_fqdn))
+    error_message = "n8n_additional_domains must not repeat the canonical n8n_fqdn hostname."
+  }
+
+  validation {
+    condition     = var.tls_mode != "google_managed" || (length(var.n8n_additional_domains) + 1) <= 100
+    error_message = "tls_mode = google_managed supports at most 100 domains per ManagedCertificate (n8n_fqdn plus n8n_additional_domains). Reduce n8n_additional_domains or switch tls_mode."
+  }
+}
+
+variable "ingress_annotations" {
+  description = "Additional annotations merged onto the module-managed Ingress (kubernetes_ingress_v1.n8n in n8n.tf), e.g. for a third-party integration compatible with GKE's native gce Ingress controller. Must not set a module-owned key; use the dedicated tls_mode, ingress_ssl_policy_name, cloud_dns_zone_name, or ingress_source_cidrs inputs for TLS, SSL policy, DNS, and source-restriction ownership instead. Ignored (with a warning) when create_ingress = false."
+  type        = map(string)
+  default     = {}
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for k in keys(var.ingress_annotations) : !contains([
+        "kubernetes.io/ingress.class",
+        "kubernetes.io/ingress.global-static-ip-name",
+        "networking.gke.io/v1beta1.FrontendConfig",
+        "networking.gke.io/managed-certificates",
+        "ingress.gcp.kubernetes.io/pre-shared-cert",
+      ], k)
+    ])
+    error_message = "ingress_annotations must not set a module-owned annotation key (kubernetes.io/ingress.class, kubernetes.io/ingress.global-static-ip-name, networking.gke.io/v1beta1.FrontendConfig, networking.gke.io/managed-certificates, or ingress.gcp.kubernetes.io/pre-shared-cert). Use tls_mode, ingress_ssl_policy_name, cloud_dns_zone_name, or ingress_source_cidrs instead."
+  }
 }
 
 # ── Managed-ingress security controls ─────────────────────────────────────
@@ -822,28 +1031,45 @@ variable "gke_node_min_per_zone" {
   description = "Autoscaling minimum nodes PER ZONE. A regional cluster spans ~3 zones, so total min is roughly this x3."
   type        = number
   default     = 1
+  nullable    = false
+
+  validation {
+    condition     = var.gke_node_min_per_zone >= 0 && floor(var.gke_node_min_per_zone) == var.gke_node_min_per_zone
+    error_message = "gke_node_min_per_zone must be a whole number of at least 0."
+  }
 }
 
 variable "gke_node_max_per_zone" {
-  description = "Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones)."
+  description = "Autoscaling maximum nodes PER ZONE. GKE places a regional node pool in three zones by default, so the pool's ceiling is roughly three times this value. The default of 4 (12 e2-standard-4 nodes, 48 vCPUs) is the smallest ceiling whose estimated allocatable capacity covers the module's default main, worker, webhook, and task-runner replica maxima (see the capacity check blocks); it is a ceiling only, baseline cost is set by gke_node_min_per_zone. Reaching it needs at least 48 vCPUs of regional Compute Engine quota plus headroom for surge upgrades; new projects often start at 24."
   type        = number
-  default     = 2
+  default     = 4
+  nullable    = false
+
+  validation {
+    condition     = var.gke_node_max_per_zone >= 1 && floor(var.gke_node_max_per_zone) == var.gke_node_max_per_zone
+    error_message = "gke_node_max_per_zone must be a whole number of at least 1."
+  }
+
+  validation {
+    condition     = var.gke_node_max_per_zone >= var.gke_node_min_per_zone
+    error_message = "gke_node_max_per_zone must be greater than or equal to gke_node_min_per_zone."
+  }
 }
 
 variable "gke_node_disk_size_gb" {
   description = "Node boot disk size in GB."
   type        = number
   default     = 100
+  nullable    = false
+
+  validation {
+    condition     = var.gke_node_disk_size_gb >= 10 && floor(var.gke_node_disk_size_gb) == var.gke_node_disk_size_gb
+    error_message = "gke_node_disk_size_gb must be a whole number of at least 10, Google Cloud's minimum node boot-disk size."
+  }
 }
 
 variable "gke_node_disk_type" {
   description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd)."
   type        = string
   default     = "pd-balanced"
-}
-
-variable "psa_cleanup_destroy_duration" {
-  description = "How long to pause on destroy after Cloud SQL/Memorystore are deleted before deleting the Private Services Access peering, giving GCP's backend time to release its hold on the connection. GCP does not report when the release completes, and the observed lag varies widely (minutes to well over an hour). If destroy still fails with 'Producer services ... are still using this connection', either raise this or use the compute-level peering-delete escape hatch documented in README.md ('Teardown'). Accepts Go duration syntax (e.g. \"3m\", \"15m\", \"1h\")."
-  type        = string
-  default     = "3m"
 }

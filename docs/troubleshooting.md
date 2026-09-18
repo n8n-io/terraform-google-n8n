@@ -2,6 +2,10 @@
 
 Issues observed in real deployments and how to resolve them. If you hit something not covered here, open an issue.
 
+Upgrading from an earlier interface (topology transitions, newly reserved
+environment variables, corrected URLs, Redis prefix changes)? See
+[`docs/upgrading-n8n.md`](./upgrading-n8n.md) first.
+
 ## `terraform apply`: `no cached repo found ... hashicorp-index.yaml`
 
 **Symptom**
@@ -161,23 +165,31 @@ See also
 [Workload Identity: pods can't reach Cloud SQL or GCS](#workload-identity-pods-cant-reach-cloud-sql-or-gcs)
 above for the general annotation/ServiceAccount-mismatch case.
 
-## Referenced Secret errors (PostgreSQL, Redis, GCS HMAC, license, core)
+## Referenced Secret errors (PostgreSQL, Redis, GCS HMAC, license, core, credential overwrites)
 
 **Symptom**
 
 The n8n Helm release fails at install/upgrade with a Kubernetes error like
 `secret "<name>" not found`, or n8n pods start but immediately fail to
-authenticate to the database, Redis, or GCS.
+authenticate to the database, Redis, or GCS. For
+`n8n_credentials_overwrite_secret_ref` specifically, pods instead fail to
+*schedule* at all: `kubectl describe pod` shows `MountVolume.SetUp failed for
+volume "credentials-overwrite"` with either `secret "<name>" not found` (the
+Secret itself is missing) or `references non-existent secret key` (the
+Secret exists but not the referenced `key`), because mounting a single Secret
+key as a file is a kubelet-level operation that happens before the n8n
+process ever starts.
 
 **Cause**
 
 A `*_secret_ref` input (`n8n_database_password_secret_ref`,
 `redis_password_secret_ref`, `n8n_license_key_secret_ref`,
-`existing_n8n_core_secret_name`, `gcs_hmac_secret_name`) only passes a
-*reference* through to the chart; the module never creates, reads, or
-validates the referenced Secret's existence or contents. A typo in the name,
-a wrong key inside the Secret, or a Secret created in the wrong namespace all
-surface only once the chart tries to mount it.
+`existing_n8n_core_secret_name`, `gcs_hmac_secret_name`,
+`n8n_credentials_overwrite_secret_ref`) only passes a *reference* through to
+the chart; the module never creates, reads, or validates the referenced
+Secret's existence or contents. A typo in the name, a wrong key inside the
+Secret, or a Secret created in the wrong namespace all surface only once the
+chart tries to mount it.
 
 **Fix**
 
@@ -185,10 +197,86 @@ surface only once the chart tries to mount it.
    `kubectl get secret <name> -n <n8n_kube_namespace>`.
 2. Confirm the key matches what you referenced (default `password` for
    database/Redis, `license-key` for the license, `accessSecret` for GCS
-   HMAC): `kubectl get secret <name> -n <n8n_kube_namespace> -o jsonpath='{.data}'`.
+   HMAC; there is no default key for `n8n_credentials_overwrite_secret_ref`,
+   both `name` and `key` are required):
+   `kubectl get secret <name> -n <n8n_kube_namespace> -o jsonpath='{.data}'`.
 3. Re-create the Secret with the correct name/key, then re-run
    `terraform apply` (Helm re-reconciles the release; Terraform itself holds
    no state for a Secret it never created).
+
+## Credential-overwrite Secret content changes need a manual restart
+
+**Symptom**
+
+You updated the contents of the Secret referenced by
+`n8n_credentials_overwrite_secret_ref` (e.g. rotated a prefilled OAuth
+client secret), but n8n keeps using the old overwrite values.
+
+**Cause**
+
+The module mounts the selected key read-only at
+`/etc/n8n/credentials-overwrite/overwrites.json` on every n8n role and sets
+`CREDENTIALS_OVERWRITE_DATA_FILE` to that path; it never reads, hashes, or
+copies the Secret's contents, so there is nothing for Terraform or the chart
+to diff and no automatic Secret-hash-triggered rollout happens when only the
+Secret's data changes (unlike a `terraform apply` that changes the Secret
+*reference* itself, which does trigger a Helm upgrade). n8n also only reads
+`CREDENTIALS_OVERWRITE_DATA_FILE` at process startup, so an already-running
+pod keeps its old in-memory overwrites even after the mounted file's
+contents update via kubelet's periodic Secret sync.
+
+**Fix**
+
+After changing the Secret's data (not its name/key reference), manually
+restart all three n8n deployments so every pod re-reads the file on startup:
+
+```bash
+kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker n8n-webhook-processor
+```
+
+## Task-runner custom launcher configuration needs a matching image and a manual restart
+
+**Symptom**
+
+You set `n8n_task_runner_custom_config` to allowlist an additional package for
+the Code node, but the task runner still rejects the package, ignores your
+changes, or the sidecar container fails to start with a config-parsing error.
+
+**Cause**
+
+`n8n_task_runner_custom_config` only passes a ConfigMap name/key reference to
+the chart's `taskRunners.customConfig`; the module never reads, validates, or
+merges the referenced file's contents. Two behaviors follow directly from
+that:
+
+- **Whole-file replacement, not a merge.** The mounted file entirely replaces
+  the task runner launcher's built-in configuration; it is not layered on top
+  of, or merged with, the image's default allowlist. A config that omits the
+  packages the built-in default normally allows loses access to those
+  packages too.
+- **Image-version alignment.** The launcher configuration file's schema and
+  supported keys are defined by the exact task-runner image in use
+  (`n8n_task_runner_image_tag`, or the n8n application image's tag when that
+  is left null). A config written for one runner version can fail to parse,
+  or silently ignore fields, on a different version.
+- **No automatic rollout on content changes**, for the same reason as
+  `n8n_credentials_overwrite_secret_ref` above: the module never reads the
+  ConfigMap's data, so a `terraform apply` that only changes the ConfigMap's
+  contents (not the `n8n_task_runner_custom_config` reference itself) gives
+  Terraform and the chart nothing to diff.
+
+**Fix**
+
+1. Confirm the ConfigMap's contents match the schema the running task-runner
+   image expects; check the image's own release notes for the version named
+   by `n8n_task_runner_image_tag` (or the n8n application image tag).
+2. After changing the ConfigMap's data, manually restart the two deployments
+   that run the task-runner sidecar so every pod re-reads the file on
+   startup:
+
+   ```bash
+   kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker
+   ```
 
 ## Disruptive Redis transitions (prefix change, ownership switch)
 

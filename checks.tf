@@ -76,7 +76,7 @@ check "gke_tuning_ignored_when_existing" {
       var.gke_enable_private_nodes == true &&
       var.gke_node_type == "e2-standard-4" &&
       var.gke_node_min_per_zone == 1 &&
-      var.gke_node_max_per_zone == 2 &&
+      var.gke_node_max_per_zone == 4 &&
       var.gke_node_disk_size_gb == 100 &&
       var.gke_node_disk_type == "pd-balanced"
     )
@@ -92,9 +92,12 @@ check "postgres_tuning_ignored_when_external" {
       var.postgres_machine_type == "db-g1-small" &&
       var.postgres_availability_type == "REGIONAL" &&
       var.postgres_disk_size == 50 &&
-      var.postgres_deletion_protection == true
+      var.postgres_deletion_protection == true &&
+      var.postgres_backup_retained_backups == null &&
+      var.postgres_transaction_log_retention_days == null &&
+      var.postgres_query_logging_enabled == false
     )
-    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
+    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection, postgres_backup_retained_backups, postgres_transaction_log_retention_days, postgres_query_logging_enabled) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
   }
 }
 
@@ -120,13 +123,20 @@ check "postgres_kms_ignored_when_external" {
 }
 
 # Not a hard failure (D4's restore requirement only warns): when the module
-# manages the core Secret it generates a brand-new n8n encryption key, so any
-# restored/cloned credentials need the original key restored out of band. An
-# existing core Secret already provides that continuity and needs no warning.
+# manages the core Secret without a caller-supplied direct key, it generates a
+# brand-new n8n encryption key, so any restored/cloned credentials need the
+# original key restored out of band. A caller-supplied direct n8n_encryption_key
+# or an existing (customer-managed) core Secret already provides that
+# continuity and needs no warning; this only proves a continuity path was
+# supplied, not that the key actually matches the restored/cloned database.
 check "postgres_restore_without_encryption_key_continuity" {
   assert {
-    condition     = !local.manage_core_secret || (var.postgres_clone_source_instance_name == null && var.postgres_restore_backup_run_id == null)
-    error_message = "A restore or clone source is set for the module-managed Cloud SQL instance, but this module always generates a new random n8n encryption key rather than accepting an existing one. Any n8n credentials already encrypted in the restored/cloned database will be unreadable with the new key unless you manually restore the original deployment's n8n_encryption_key output into the new instance's encryptionKey Secret before starting n8n."
+    condition = (
+      !local.manage_core_secret ||
+      var.n8n_encryption_key != null ||
+      (var.postgres_clone_source_instance_name == null && var.postgres_restore_backup_run_id == null)
+    )
+    error_message = "A restore or clone source is set for the module-managed Cloud SQL instance, but this module would generate a new random n8n encryption key rather than accepting an existing one. Any n8n credentials already encrypted in the restored/cloned database will be unreadable with the new key unless you supply the original deployment's key via n8n_encryption_key or existing_n8n_core_secret_name before starting n8n."
   }
 }
 
@@ -137,9 +147,26 @@ check "redis_tuning_ignored_when_existing" {
       var.redis_memory_size_gb == 1 &&
       var.redis_version == "REDIS_7_2" &&
       var.redis_auth_enabled == false &&
-      var.redis_transit_encryption_enabled == false
+      var.redis_transit_encryption_enabled == false &&
+      var.redis_persistence_enabled == false &&
+      var.redis_rdb_snapshot_period == "TWENTY_FOUR_HOURS" &&
+      var.redis_rdb_snapshot_start_time == null
     )
-    error_message = "create_redis_instance is false, but one or more managed-Memorystore tuning variables (redis_tier, redis_memory_size_gb, redis_version, redis_auth_enabled, redis_transit_encryption_enabled) differ from their defaults. These are ignored when using an external Redis host; configure the external service out of band instead."
+    error_message = "create_redis_instance is false, but one or more managed-Memorystore tuning variables (redis_tier, redis_memory_size_gb, redis_version, redis_auth_enabled, redis_transit_encryption_enabled, redis_persistence_enabled, redis_rdb_snapshot_period, redis_rdb_snapshot_start_time) differ from their defaults. These are ignored when using an external Redis host; configure the external service out of band instead."
+  }
+}
+
+# redis_persistence_enabled itself is covered by redis_tuning_ignored_when_existing
+# above; this check separately flags snapshot-schedule tuning left set while
+# persistence is disabled on a module-managed instance (RDB is off either way,
+# so the schedule inputs are ignored).
+check "redis_persistence_tuning_ignored_when_disabled" {
+  assert {
+    condition = var.redis_persistence_enabled || (
+      var.redis_rdb_snapshot_period == "TWENTY_FOUR_HOURS" &&
+      var.redis_rdb_snapshot_start_time == null
+    )
+    error_message = "redis_persistence_enabled is false, but redis_rdb_snapshot_period or redis_rdb_snapshot_start_time differs from its default. These are ignored while Memorystore RDB persistence is disabled."
   }
 }
 
@@ -201,5 +228,19 @@ check "ingress_tuning_ignored_when_existing" {
       var.existing_cloud_armor_policy_name == null
     )
     error_message = "create_ingress is false, but one or more managed-ingress tuning variables (tls_mode, https_redirect, cloud_dns_zone_name, ingress_ssl_policy_name, ingress_source_cidrs, existing_cloud_armor_policy_name) differ from their defaults. These are ignored when the caller owns ingress, DNS, and TLS; configure them on the caller-managed ingress out of band instead."
+  }
+}
+
+# Opposite-path diagnostic for section 20.1 (guarded ingress annotations):
+# ingress_annotations only ever merges onto kubernetes_ingress_v1.n8n
+# (n8n.tf), which does not exist when the caller owns ingress out of band.
+# n8n_additional_domains is intentionally not included here: its effective
+# host list (n8n_ingress_hosts output) stays meaningful for a
+# customer-managed ingress even though the module creates no DNS/certificate
+# resources for it on this path (design.md, decision 7).
+check "ingress_annotations_ignored_when_existing" {
+  assert {
+    condition     = var.create_ingress || length(var.ingress_annotations) == 0
+    error_message = "create_ingress is false, but ingress_annotations is set. These annotations only apply to the module-managed Ingress; they are ignored when the caller owns ingress out of band."
   }
 }

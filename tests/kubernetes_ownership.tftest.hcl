@@ -89,6 +89,35 @@ run "existing_namespace_creates_no_namespace_resource" {
 
 # ── License Secret reference ──────────────────────────────────────────────────
 
+# helm_release.values is unknown at plan time under the mock provider (see
+# AGENTS.md's "Known mock provider limitations"); tests/scripts/check-n8n-chart.sh
+# renders the real chart and asserts license.activationKey/existingSecret there.
+# These plan-time assertions cover the effective locals and the managed
+# Secret's own data instead.
+run "direct_license_key_creates_managed_secret_no_literal_in_helm_values" {
+  command = plan
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 1
+    error_message = "A direct n8n_license_key must create a dedicated module-managed license Secret."
+  }
+
+  assert {
+    condition     = kubernetes_secret.n8n_license[0].data["license-key"] == "test-license-key-not-real"
+    error_message = "The managed license Secret must carry the exact supplied key."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == "n8n-license-secret"
+    error_message = "The effective license Secret name must point at the managed Secret."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_key == "license-key"
+    error_message = "The managed license Secret's key must be license-key."
+  }
+}
+
 run "license_key_secret_ref_wires_into_helm_values" {
   command = plan
 
@@ -103,6 +132,21 @@ run "license_key_secret_ref_wires_into_helm_values" {
   assert {
     condition     = helm_release.n8n.namespace == "n8n"
     error_message = "A license Secret reference must still plan cleanly."
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 0
+    error_message = "A caller-managed license Secret reference must not create a duplicate managed license Secret."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == "n8n-license"
+    error_message = "The caller-supplied license Secret name must be used as-is."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_key == "activation-key"
+    error_message = "The caller-supplied license Secret key must be used as-is."
   }
 }
 
@@ -168,6 +212,92 @@ run "existing_core_secret_without_license_secret_ref_fails_validation" {
   }
 
   expect_failures = [var.existing_n8n_core_secret_name]
+}
+
+# ── Direct encryption-key continuity ──────────────────────────────────────────
+
+run "default_generates_encryption_key" {
+  command = plan
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 1
+    error_message = "With no direct key and no existing core Secret, the module must generate the encryption key."
+  }
+
+  assert {
+    condition     = contains(keys(kubernetes_secret.n8n[0].data), "N8N_ENCRYPTION_KEY")
+    error_message = "The managed core Secret must carry a generated encryption key."
+  }
+}
+
+run "direct_encryption_key_replaces_generation" {
+  command = plan
+
+  variables {
+    n8n_encryption_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 0
+    error_message = "A supplied direct key must replace generation; no random key should be created."
+  }
+
+  assert {
+    condition     = kubernetes_secret.n8n[0].data["N8N_ENCRYPTION_KEY"] == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    error_message = "The managed core Secret must carry the exact supplied key, unchanged."
+  }
+
+  assert {
+    condition     = output.n8n_encryption_key == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    error_message = "The sensitive output must return the supplied key."
+  }
+}
+
+run "encryption_key_ignored_when_existing_core_secret_unread" {
+  command = plan
+
+  variables {
+    existing_n8n_core_secret_name = "existing-core-secrets"
+    n8n_license_key               = null
+    n8n_license_key_secret_ref = {
+      name = "n8n-license"
+    }
+  }
+
+  assert {
+    condition     = length(random_id.n8n_encryption_key) == 0
+    error_message = "An unread external core Secret must never trigger key generation."
+  }
+
+  assert {
+    condition     = output.n8n_encryption_key == null
+    error_message = "The sensitive output must stay null for an unread external core Secret."
+  }
+}
+
+run "encryption_key_rejects_malformed_value" {
+  command = plan
+
+  variables {
+    n8n_encryption_key = "not-a-valid-hex-key"
+  }
+
+  expect_failures = [var.n8n_encryption_key]
+}
+
+run "encryption_key_and_existing_core_secret_are_mutually_exclusive" {
+  command = plan
+
+  variables {
+    n8n_encryption_key            = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    existing_n8n_core_secret_name = "existing-core-secrets"
+    n8n_license_key               = null
+    n8n_license_key_secret_ref = {
+      name = "n8n-license"
+    }
+  }
+
+  expect_failures = [var.n8n_encryption_key]
 }
 
 # ── Existing Secret references (PostgreSQL, Redis, GCS) plan cleanly together ─
@@ -263,5 +393,94 @@ run "workload_identity_uses_effective_pool_for_existing_gke" {
   assert {
     condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:other-project.svc.id.goog[n8n/n8n]"
     error_message = "The Workload Identity binding must use the existing cluster's cross-project pool."
+  }
+}
+
+# ── Canonical editor and webhook URLs (section 19) ──────────────────────────
+# The rendered config.extraEnv WEBHOOK_URL/N8N_WEBHOOK_URL/N8N_EDITOR_BASE_URL
+# entries live inside helm_release.n8n.values (unknown at plan time under the
+# mock provider - see AGENTS.md's known mock-provider limitations), so these
+# assert directly on local.effective_webhook_url (which n8n.tf's extraEnv
+# block sources both webhook names from) and on n8n_fqdn/n8n_webhook_url
+# themselves. End-to-end wiring is covered by tests/scripts/check-n8n-chart.sh.
+
+run "webhook_url_defaults_to_canonical_fqdn" {
+  command = plan
+
+  assert {
+    condition     = local.effective_webhook_url == "https://n8n.test.example.com"
+    error_message = "The default effective webhook URL must be https://<n8n_fqdn> when n8n_webhook_url is not set."
+  }
+}
+
+run "webhook_url_split_from_editor_host" {
+  command = plan
+
+  variables {
+    n8n_fqdn        = "editor.example.com"
+    n8n_webhook_url = "https://hooks.example.com"
+  }
+
+  assert {
+    condition     = local.effective_webhook_url == "https://hooks.example.com"
+    error_message = "An explicit n8n_webhook_url must be used as the effective webhook URL."
+  }
+
+  assert {
+    condition     = local.n8n_fqdn == "editor.example.com"
+    error_message = "The editor base URL host (N8N_EDITOR_BASE_URL) is always derived from n8n_fqdn, independent of n8n_webhook_url."
+  }
+}
+
+run "webhook_url_rejects_embedded_credentials" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://user:pass@hooks.example.com"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_rejects_query_string" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://hooks.example.com/?foo=bar"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_rejects_fragment" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://hooks.example.com/#section"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_rejects_non_https_scheme" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "http://hooks.example.com"
+  }
+
+  expect_failures = [var.n8n_webhook_url]
+}
+
+run "webhook_url_accepts_path" {
+  command = plan
+
+  variables {
+    n8n_webhook_url = "https://hooks.example.com/n8n"
+  }
+
+  assert {
+    condition     = local.effective_webhook_url == "https://hooks.example.com/n8n"
+    error_message = "A valid https base URL with a path and no query/fragment/credentials must be accepted."
   }
 }

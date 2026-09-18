@@ -1,10 +1,12 @@
 # ── Encryption key ────────────────────────────────────────────────────────────
 # Skipped when the caller references an existing core Secret
 # (existing_n8n_core_secret_name); the generated key would never be used, see
-# locals.tf's manage_core_secret / effective_core_secret_name (D7).
+# locals.tf's manage_core_secret / effective_core_secret_name (D7). Also
+# skipped when the caller supplies a direct key to reuse (n8n_encryption_key);
+# see locals.tf's effective_encryption_key, which prefers that direct value.
 
 resource "random_id" "n8n_encryption_key" {
-  count = local.manage_core_secret ? 1 : 0
+  count = local.manage_core_secret && var.n8n_encryption_key == null ? 1 : 0
 
   byte_length = 32
 }
@@ -51,11 +53,10 @@ resource "kubernetes_secret" "n8n" {
   }
 
   data = {
-    N8N_ENCRYPTION_KEY = random_id.n8n_encryption_key[0].hex
+    N8N_ENCRYPTION_KEY = local.effective_encryption_key
     N8N_HOST           = local.n8n_fqdn
     N8N_PORT           = "5678"
     N8N_PROTOCOL       = "http"
-    WEBHOOK_URL        = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
   }
 
   depends_on = [kubernetes_namespace.n8n]
@@ -64,6 +65,25 @@ resource "kubernetes_secret" "n8n" {
 # Skipped when the caller references an existing Secret for the external
 # database password (n8n_database_password_secret_ref); see
 # locals.tf's manage_db_secret / effective_db_password_secret_*.
+# Wraps a direct license value (n8n_license_key) so the chart never renders
+# the literal activation key into Helm values/pod specs. Skipped when the
+# caller supplies an existing Secret instead (n8n_license_key_secret_ref,
+# used as-is); see locals.tf's manage_license_secret / effective_license_secret_*.
+resource "kubernetes_secret" "n8n_license" {
+  count = local.manage_license_secret ? 1 : 0
+
+  metadata {
+    name      = "n8n-license-secret"
+    namespace = local.effective_namespace
+  }
+
+  data = {
+    "license-key" = var.n8n_license_key
+  }
+
+  depends_on = [kubernetes_namespace.n8n]
+}
+
 resource "kubernetes_secret" "n8n_db" {
   count = local.manage_db_secret ? 1 : 0
 
@@ -204,20 +224,18 @@ resource "helm_release" "n8n" {
   cleanup_on_fail = true
 
   values = [yamlencode(merge({
-    # Ownership-neutral (D7): a direct license value (activationKey) or an
-    # existing Secret reference (existingSecret), never both (enforced by
-    # n8n_license_key_secret_ref's mutual-exclusivity validation). Exactly one
-    # of the two is ever non-empty; the chart ignores activationKey once
-    # existingSecret.name is set.
+    # Ownership-neutral (D7): the license is always delivered through
+    # existingSecret, never activationKey, so no literal activation key ever
+    # renders into Helm values or pod specs. A direct n8n_license_key wraps
+    # into the module-managed kubernetes_secret.n8n_license; a caller-supplied
+    # n8n_license_key_secret_ref is referenced as-is and creates no managed
+    # Secret (mutually exclusive, enforced by variables.tf's validation).
     license = {
       enabled       = true
-      activationKey = var.n8n_license_key_secret_ref != null ? "" : var.n8n_license_key
-      existingSecret = var.n8n_license_key_secret_ref != null ? {
-        name = var.n8n_license_key_secret_ref.name
-        key  = var.n8n_license_key_secret_ref.key
-        } : {
-        name = ""
-        key  = "license-key"
+      activationKey = ""
+      existingSecret = {
+        name = local.effective_license_secret_name
+        key  = local.effective_license_secret_key
       }
     }
 
@@ -226,23 +244,32 @@ resource "helm_release" "n8n" {
     # n8n_worker_keda_enabled = false); otherwise they seed the initial
     # replica count at the scaler's own minimum, which the HPA/KEDA
     # ScaledObject immediately takes over (D9).
+    #
+    # The chart rejects multiMain.enabled with fewer than two replicas.
+    # At one replica, stage runtime election via the module-owned extraEnv
+    # fragment below instead. Both chart replica fields keep the same count.
     multiMain = {
-      enabled  = true
-      replicas = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_min_replicas : var.n8n_main_fixed_replicas
+      enabled  = !local.n8n_single_main
+      replicas = local.n8n_effective_main_replica_count
       antiAffinity = {
         type = "preferred"
       }
     }
+    replicaCount = local.n8n_effective_main_replica_count
+
+    # Main-only rollout strategy: Recreate at one selected replica, including
+    # election staging; chart default ({}) above one. Other roles are unchanged.
+    strategy = local.n8n_main_strategy
 
     queueMode = {
       enabled            = true
-      workerReplicaCount = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_min_replicas : var.n8n_worker_fixed_replicas
+      workerReplicaCount = local.n8n_effective_worker_replica_count
       workerConcurrency  = var.n8n_worker_concurrency
     }
 
     webhookProcessor = {
       enabled                                = true
-      replicaCount                           = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
+      replicaCount                           = local.n8n_effective_webhook_replica_count
       disableProductionWebhooksOnMainProcess = true
     }
 
@@ -290,28 +317,46 @@ resource "helm_release" "n8n" {
         name = local.effective_redis_password_secret_name
         key  = local.effective_redis_password_secret_key
       }
+      } : {}, length(local.n8n_queue_worker_chart_overrides) > 0 ? {
+      # Queue lock/stall tuning (task 5.1): one nested map so an omitted
+      # sibling value falls through to the chart's own redis.worker default
+      # instead of being reset by this override.
+      worker = local.n8n_queue_worker_chart_overrides
     } : {})
 
     # Trust the private service CA exposed by module-managed Memorystore when
-    # transit encryption is enabled. These top-level chart values apply to the
-    # main, worker, and webhook-processor pods.
-    extraVolumes = local.manage_redis_tls_ca ? [{
-      name = "redis-ca"
-      secret = {
-        secretName = kubernetes_secret.n8n_redis_tls[0].metadata[0].name
-        items = [{
-          key  = "ca.crt"
-          path = "ca.crt"
-        }]
-      }
-    }] : []
+    # transit encryption is enabled, plus any caller-managed ConfigMap/Secret/PVC
+    # mounts (n8n_extra_volumes/n8n_extra_volume_mounts, task 10). These
+    # top-level chart values apply to the main, worker, and webhook-processor
+    # pods. The Redis CA entry comes first so it always exists regardless of
+    # what the caller declares; local.n8n_caller_extra_volumes/
+    # n8n_caller_extra_volume_mounts (locals.tf) already reject the reserved
+    # "redis-ca" volume name, so the two lists cannot collide.
+    extraVolumes = concat(
+      local.manage_redis_tls_ca ? [{
+        name = "redis-ca"
+        secret = {
+          secretName = kubernetes_secret.n8n_redis_tls[0].metadata[0].name
+          items = [{
+            key  = "ca.crt"
+            path = "ca.crt"
+          }]
+        }
+      }] : [],
+      local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_volume] : [],
+      local.n8n_caller_extra_volumes,
+    )
 
-    extraVolumeMounts = local.manage_redis_tls_ca ? [{
-      name      = "redis-ca"
-      mountPath = "/etc/n8n-certs/redis-ca.crt"
-      subPath   = "ca.crt"
-      readOnly  = true
-    }] : []
+    extraVolumeMounts = concat(
+      local.manage_redis_tls_ca ? [{
+        name      = "redis-ca"
+        mountPath = "/etc/n8n-certs/redis-ca.crt"
+        subPath   = "ca.crt"
+        readOnly  = true
+      }] : [],
+      local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_mount] : [],
+      local.n8n_caller_extra_volume_mounts,
+    )
 
     # GCS via the S3-compatible endpoint. n8n's binary-data driver is
     # S3-compatible; point it at storage.googleapis.com (s3.bucket.host) with the
@@ -379,9 +424,12 @@ resource "helm_release" "n8n" {
 
     hpa = {
       main = {
-        enabled                        = var.n8n_main_hpa_enabled
-        minReplicas                    = var.n8n_main_hpa_min_replicas
-        maxReplicas                    = var.n8n_main_hpa_max_replicas
+        enabled     = var.n8n_main_hpa_enabled
+        minReplicas = var.n8n_main_hpa_min_replicas
+        # Clamped to 1 for single-main (local.n8n_effective_main_hpa_max_replicas),
+        # so a module-owned main HPA never scales past its licensed ceiling of
+        # one main even when the caller left a higher maximum configured.
+        maxReplicas                    = local.n8n_effective_main_hpa_max_replicas
         targetCPUUtilizationPercentage = var.n8n_main_hpa_cpu_threshold
       }
       # Independent of n8n_webhook_hpa_enabled: the chart never creates a
@@ -415,8 +463,8 @@ resource "helm_release" "n8n" {
         # ref name is not valid, so the key is omitted when neither applies.
         triggers = [
           for queue in [
-            "${local.effective_redis_key_prefix}:jobs:wait",
-            "${local.effective_redis_key_prefix}:jobs:active",
+            local.effective_redis_queue_keys.waiting,
+            local.effective_redis_queue_keys.active,
             ] : merge(
             {
               type = "redis"
@@ -458,12 +506,7 @@ resource "helm_release" "n8n" {
       timeout     = var.n8n_execution_timeout
       timeoutMax  = var.n8n_execution_timeout_max
       concurrency = { productionLimit = var.n8n_execution_concurrency_limit }
-      data = {
-        saveOnError          = "all"
-        saveOnSuccess        = "all"
-        saveOnProgress       = false
-        saveManualExecutions = true
-      }
+      data        = local.n8n_executions_data
       pruning = {
         enabled            = true
         maxAge             = var.n8n_pruning_max_age
@@ -496,9 +539,22 @@ resource "helm_release" "n8n" {
           # the actual logs are silently dropped. See variable description.
           { name = "N8N_LOG_OUTPUT", value = var.n8n_log_output },
           { name = "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS", value = "true" },
-          # Override the internally computed http://host:5678 URL so webhooks show the correct HTTPS address.
-          { name = "WEBHOOK_URL", value = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}") },
+          # One effective webhook base URL (local.effective_webhook_url:
+          # explicit n8n_webhook_url, otherwise https://<n8n_fqdn>), emitted
+          # under both the legacy WEBHOOK_URL name (overriding the internally
+          # computed http://host:5678 URL so webhooks show the correct HTTPS
+          # address) and n8n's current N8N_WEBHOOK_URL name, so callers on
+          # either n8n release see the corrected value.
+          { name = "WEBHOOK_URL", value = local.effective_webhook_url },
+          { name = "N8N_WEBHOOK_URL", value = local.effective_webhook_url },
+          # Editor/OAuth base URL, always the canonical n8n_fqdn host (not the
+          # effective webhook URL): the editor and its OAuth callback are
+          # served from the ingress host, even when webhooks are split to a
+          # separate n8n_webhook_url host. Previously reserved (see
+          # n8n_managed_env_names) but never emitted; this is the fix.
+          { name = "N8N_EDITOR_BASE_URL", value = "https://${local.n8n_fqdn}" },
           { name = "N8N_RUNNERS_TASK_REQUEST_TIMEOUT", value = tostring(var.n8n_task_runner_request_timeout) },
+          { name = "N8N_RUNNERS_TASK_TIMEOUT", value = tostring(var.n8n_task_runner_timeout) },
           # Keeps Memorystore from dropping idle Redis subscriber connections under sustained load.
           # Without this, Bull detects dropped connections, emits queue errors, and pods crash.
           { name = "QUEUE_BULL_REDIS_KEEP_ALIVE", value = "true" },
@@ -513,6 +569,65 @@ resource "helm_release" "n8n" {
           # because the module default deliberately overrides n8n's own default.
           { name = "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN", value = tostring(var.n8n_license_detach_floating_on_shutdown) },
         ],
+        # One-replica election staging. At higher counts the chart supplies
+        # the flag through its main-only ConfigMap reference instead.
+        local.n8n_main_election_staging_env,
+        # Redis command-channel prefix, synchronized with the Bull queue-key
+        # prefix (redis.prefix above) and the KEDA/exporter queue key names
+        # (local.effective_redis_queue_keys) so all three consumers agree on
+        # one namespace. Null omits the env var entirely, leaving n8n's own
+        # "n8n" command-channel default in place alongside the chart's own
+        # "bull" Bull-queue default (redis.prefix = "" above).
+        var.redis_key_prefix != null ? [
+          { name = "N8N_REDIS_KEY_PREFIX", value = var.redis_key_prefix },
+        ] : [],
+        # Database health-check and connection-acquisition tuning. Each value
+        # is null by default and omitted entirely so n8n's own default
+        # applies; these apply identically for managed Cloud SQL and external
+        # PostgreSQL (config.extraEnv does not distinguish infrastructure
+        # ownership).
+        var.db_ping_timeout_ms != null ? [
+          { name = "DB_PING_TIMEOUT_MS", value = tostring(var.db_ping_timeout_ms) },
+        ] : [],
+        var.db_ping_interval_seconds != null ? [
+          { name = "DB_PING_INTERVAL_SECONDS", value = tostring(var.db_ping_interval_seconds) },
+        ] : [],
+        var.db_ping_max_failures_before_recovery != null ? [
+          { name = "DB_PING_MAX_FAILURES_BEFORE_RECOVERY", value = tostring(var.db_ping_max_failures_before_recovery) },
+        ] : [],
+        var.db_postgresdb_connection_timeout_ms != null ? [
+          { name = "DB_POSTGRESDB_CONNECTION_TIMEOUT", value = tostring(var.db_postgresdb_connection_timeout_ms) },
+        ] : [],
+        # V8 old-space heap ceiling, applied identically to every n8n
+        # container (not the task-runner sidecar, a separate process outside
+        # config.extraEnv). Null omits the override so Node's own heuristic
+        # applies; NODE_OPTIONS stays available through n8n_extra_env in that
+        # case, and is reserved against it (see n8n_node_max_old_space_size_mb
+        # in variables.tf) only while this is set.
+        var.n8n_node_max_old_space_size_mb != null ? [
+          { name = "NODE_OPTIONS", value = "--max-old-space-size=${var.n8n_node_max_old_space_size_mb}" },
+        ] : [],
+        # Community registry and security-related runtime controls. Each is
+        # null by default and omitted entirely so n8n's own upstream default
+        # applies and can evolve without this module pinning it.
+        var.n8n_community_packages_registry != null ? [
+          { name = "N8N_COMMUNITY_PACKAGES_REGISTRY", value = var.n8n_community_packages_registry },
+        ] : [],
+        var.n8n_unverified_packages_enabled != null ? [
+          { name = "N8N_UNVERIFIED_PACKAGES_ENABLED", value = tostring(var.n8n_unverified_packages_enabled) },
+        ] : [],
+        var.n8n_compression_max_decompressed_size_bytes != null ? [
+          { name = "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES", value = tostring(var.n8n_compression_max_decompressed_size_bytes) },
+        ] : [],
+        var.n8n_compression_max_zip_entries != null ? [
+          { name = "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES", value = tostring(var.n8n_compression_max_zip_entries) },
+        ] : [],
+        # Points at the single key mounted read-only from
+        # n8n_credentials_overwrite_secret_ref above; the module never reads
+        # or renders the Secret's own JSON payload, only this file path.
+        local.n8n_credentials_overwrite_enabled ? [
+          { name = "CREDENTIALS_OVERWRITE_DATA_FILE", value = local.n8n_credentials_overwrite_mount.mountPath },
+        ] : [],
         local.manage_redis_tls_ca ? [
           { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
         ] : [],
@@ -692,13 +807,26 @@ resource "helm_release" "n8n" {
           var.n8n_task_runner_image_repository == null ? {} : { repository = var.n8n_task_runner_image_repository },
           var.n8n_task_runner_image_tag == null ? {} : { tag = var.n8n_task_runner_image_tag },
         )
+      },
+      # Caller-managed launcher configuration (n8n_task_runner_custom_config):
+      # the module only passes through the ConfigMap name/key, never reads or
+      # generates the file's contents. Omitted entirely when null so the
+      # chart's own customConfig.enabled=false default applies.
+      var.n8n_task_runner_custom_config == null ? {} : {
+        customConfig = {
+          enabled       = true
+          configMapName = var.n8n_task_runner_custom_config.config_map_name
+          configMapKey  = var.n8n_task_runner_custom_config.config_map_key
+        }
     })
 
     # ── Pod Disruption Budget ─────────────────────────────────────────────────
-    # Ensures at least one main pod stays running during node drains or rollouts.
+    # Ensures at least one main pod stays running during node drains or
+    # rollouts, except single-main, where minAvailable=0 permits evicting the
+    # sole main replica (local.n8n_main_pdb_min_available).
     pdb = {
       enabled      = true
-      minAvailable = 1
+      minAvailable = local.n8n_main_pdb_min_available
     }
     },
     # Override the app image only where the caller asks for it; otherwise the
@@ -714,6 +842,17 @@ resource "helm_release" "n8n" {
         var.n8n_image_pull_policy == null ? {} : { pullPolicy = var.n8n_image_pull_policy },
       )
     },
+
+    # Pod DNS (task 13). Omitted entirely unless n8n_dns_config is set, so this
+    # is a no-op by default. Applies to the main, worker, and
+    # webhook-processor pods: the chart's top-level dnsConfig is rendered into
+    # all three pod specs.
+    #
+    # local.n8n_dns_config, not var.n8n_dns_config: the variable's optional()
+    # attributes materialize as nulls when unset, and yamlencode would emit
+    # `nameservers: null` into the chart's `{{- toYaml . }}`, which the API
+    # server rejects as an invalid pod spec. The local strips unset keys.
+    local.n8n_dns_config == null ? {} : { dnsConfig = local.n8n_dns_config },
   ))]
 
   depends_on = [
@@ -757,43 +896,58 @@ resource "kubernetes_ingress_v1" "n8n" {
       local.tls_preshared ? {
         "ingress.gcp.kubernetes.io/pre-shared-cert" = google_compute_ssl_certificate.n8n[0].name
       } : {},
+      # Caller-supplied non-conflicting annotations (variables_gcp.tf's own
+      # validation already rejects any of the module-owned keys above), so a
+      # straight merge here never lets a caller value win over an ownership
+      # key.
+      var.ingress_annotations,
     )
   }
 
   spec {
-    rule {
-      host = local.n8n_fqdn
-      http {
-        # Webhook, webhook-waiting, form, form-waiting, and mcp traffic must go
-        # to the dedicated webhook-processor (local.effective_webhook_route_
-        # prefixes, the same list the n8n_webhook_route_prefixes output
-        # exposes for a customer-managed ingress). Production webhooks are
-        # disabled on main pods (disableProductionWebhooksOnMainProcess=true).
-        dynamic "path" {
-          for_each = local.effective_webhook_route_prefixes
-          iterator = route
-          content {
-            path      = route.value
-            path_type = "Prefix"
-            backend {
-              service {
-                name = local.effective_webhook_service_name
-                port { number = local.effective_service_port }
+    # One rule per effective ingress host (task 20.2): the canonical n8n_fqdn
+    # plus every configured n8n_additional_domains entry
+    # (local.n8n_effective_ingress_hosts, variables_gcp.tf), each getting the
+    # identical webhook/main route set so an alias behaves exactly like the
+    # canonical host.
+    dynamic "rule" {
+      for_each = local.n8n_effective_ingress_hosts
+      iterator = host
+      content {
+        host = host.value
+        http {
+          # Webhook, webhook-waiting, form, form-waiting, and mcp traffic must
+          # go to the dedicated webhook-processor (local.effective_webhook_
+          # route_prefixes, the same list the n8n_webhook_route_prefixes
+          # output exposes for a customer-managed ingress). Production
+          # webhooks are disabled on main pods
+          # (disableProductionWebhooksOnMainProcess=true).
+          dynamic "path" {
+            for_each = local.effective_webhook_route_prefixes
+            iterator = route
+            content {
+              path      = route.value
+              path_type = "Prefix"
+              backend {
+                service {
+                  name = local.effective_webhook_service_name
+                  port { number = local.effective_service_port }
+                }
               }
             }
           }
-        }
 
-        dynamic "path" {
-          for_each = local.effective_main_route_prefixes
-          iterator = route
-          content {
-            path      = route.value
-            path_type = "Prefix"
-            backend {
-              service {
-                name = local.effective_main_service_name
-                port { number = local.effective_service_port }
+          dynamic "path" {
+            for_each = local.effective_main_route_prefixes
+            iterator = route
+            content {
+              path      = route.value
+              path_type = "Prefix"
+              backend {
+                service {
+                  name = local.effective_main_service_name
+                  port { number = local.effective_service_port }
+                }
               }
             }
           }
@@ -803,11 +957,14 @@ resource "kubernetes_ingress_v1" "n8n" {
 
     # tls_mode = secret: the gce Ingress consumes an external k8s TLS Secret
     # (e.g. cert-manager output in examples/cloudflare). Other modes attach the
-    # cert via the annotations above, so no spec.tls block.
+    # cert via the annotations above, so no spec.tls block. The caller-supplied
+    # Secret must cover every host in local.n8n_effective_ingress_hosts
+    # (documented on tls_secret_name); the module does not inspect the
+    # external Secret's certificate to confirm that coverage.
     dynamic "tls" {
       for_each = var.tls_mode == "secret" ? [1] : []
       content {
-        hosts       = [local.n8n_fqdn]
+        hosts       = local.n8n_effective_ingress_hosts
         secret_name = var.tls_secret_name
       }
     }
@@ -978,10 +1135,15 @@ check "task_runner_image_repository_requires_task_runners" {
 }
 
 # Nothing in this module puts files at n8n_custom_extensions_path unless a
-# custom image bakes them in.
+# custom image bakes them in, OR a caller-managed volume (n8n_extra_volumes/
+# n8n_extra_volume_mounts, task 10) is mounted exactly there, covering the
+# path with files from a ConfigMap, Secret, or PVC instead of the image.
 check "custom_extensions_path_requires_a_custom_image" {
   assert {
-    condition     = var.n8n_custom_extensions_path != null ? var.n8n_image_repository != null : true
-    error_message = "n8n_custom_extensions_path is set, but n8n_image_repository is null, so the pods run the chart's stock image. n8n will scan an empty or missing directory and load no nodes, silently. Point n8n_image_repository at an image with the compiled nodes baked in at this path, or clear the path to silence this warning."
+    condition = var.n8n_custom_extensions_path != null ? (
+      var.n8n_image_repository != null ||
+      contains([for m in var.n8n_extra_volume_mounts : m.mount_path], var.n8n_custom_extensions_path)
+    ) : true
+    error_message = "n8n_custom_extensions_path is set, but n8n_image_repository is null and no n8n_extra_volume_mounts entry covers that exact path, so the pods run the chart's stock image with nothing providing files there. n8n will scan an empty or missing directory and load no nodes, silently. Point n8n_image_repository at an image with the compiled nodes baked in at this path, mount a caller-managed volume at that exact path via n8n_extra_volumes/n8n_extra_volume_mounts, or clear the path to silence this warning."
   }
 }

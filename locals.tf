@@ -8,6 +8,12 @@ locals {
   name_prefix = "${var.friendly_name_prefix}-n8n"
   n8n_fqdn    = var.n8n_fqdn
 
+  # One effective webhook base URL (task 19.1): explicit n8n_webhook_url,
+  # otherwise https://<n8n_fqdn>. Shared by both the legacy WEBHOOK_URL and
+  # current N8N_WEBHOOK_URL environment names in n8n.tf's config.extraEnv, so
+  # the two never drift apart.
+  effective_webhook_url = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
+
   # (GCP labels live in local.gcp_labels, network.tf.)
 
   # ── n8n_extra_env collision guard ──────────────────────────────────────────
@@ -33,6 +39,7 @@ locals {
     "N8N_REINSTALL_MISSING_PACKAGES",
     "N8N_COMMUNITY_PACKAGES_PREVENT_LOADING",
     "WEBHOOK_URL",
+    "N8N_WEBHOOK_URL",
     "N8N_TEMPLATES_ENABLED",
     "N8N_PERSONALIZATION_ENABLED",
     "N8N_OTEL_ENABLED",
@@ -51,6 +58,27 @@ locals {
     "N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN",
     "N8N_EXECUTION_DATA_STORAGE_MODE",
     "NODE_EXTRA_CA_CERTS",
+    # Redis command-channel prefix (task 7.1), synchronized with the chart's
+    # redis.prefix (Bull queue keys, set unconditionally as "" or the
+    # supplied value in n8n.tf) via var.redis_key_prefix. Emitted only when
+    # var.redis_key_prefix is non-null (see the extraEnv block in n8n.tf).
+    "N8N_REDIS_KEY_PREFIX",
+    # Community registry and security-related runtime controls (task 15),
+    # emitted only when their respective input is non-null (see the
+    # extraEnv block in n8n.tf).
+    "N8N_COMMUNITY_PACKAGES_REGISTRY",
+    "N8N_UNVERIFIED_PACKAGES_ENABLED",
+    "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES",
+    "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES",
+    # Rendered by the chart from executions.data (n8n_executions_data_save_*
+    # in variables.tf via local.n8n_executions_data). Reserved even though
+    # the module already sets a value for each (rather than leaving them
+    # unset when at their default), since config.extraEnv would otherwise
+    # silently override the caller's chosen save policy.
+    "EXECUTIONS_DATA_SAVE_ON_SUCCESS",
+    "EXECUTIONS_DATA_SAVE_ON_ERROR",
+    "EXECUTIONS_DATA_SAVE_ON_PROGRESS",
+    "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS",
     # Rendered by the chart from module values (identity, topology, storage,
     # license). DB_*, QUEUE_*, N8N_RUNNERS_*, N8N_EXTERNAL_STORAGE_S3_*,
     # N8N_MULTI_MAIN_*, and AWS_* are covered by n8n_managed_env_prefixes.
@@ -169,6 +197,23 @@ locals {
   manage_core_secret         = var.existing_n8n_core_secret_name == null
   effective_core_secret_name = local.manage_core_secret ? kubernetes_secret.n8n[0].metadata[0].name : var.existing_n8n_core_secret_name
 
+  # effective_encryption_key: the direct var.n8n_encryption_key when supplied,
+  # else the generated random_id (n8n.tf only creates that resource when
+  # manage_core_secret is true and no direct key was supplied), else null for
+  # an unread external core Secret.
+  effective_encryption_key = local.manage_core_secret ? coalesce(var.n8n_encryption_key, try(random_id.n8n_encryption_key[0].hex, null)) : null
+
+  # License (D7 continued): a direct n8n_license_key wraps into a dedicated
+  # module-managed Secret (n8n.tf's kubernetes_secret.n8n_license) instead of
+  # rendering the literal activation key into Helm values; a caller-supplied
+  # n8n_license_key_secret_ref is used as-is and creates no managed Secret.
+  # The two sources remain mutually exclusive (variables.tf's validation), so
+  # exactly one of these branches is ever active.
+  manage_license_secret = var.n8n_license_key != null
+
+  effective_license_secret_name = local.manage_license_secret ? kubernetes_secret.n8n_license[0].metadata[0].name : var.n8n_license_key_secret_ref.name
+  effective_license_secret_key  = local.manage_license_secret ? "license-key" : var.n8n_license_key_secret_ref.key
+
   # Redis. ACL usernames are meaningful only on the external path; managed
   # Memorystore has no concept of one. manage_redis_secret/
   # effective_redis_password_secret_* mirror PostgreSQL's D7 password-source
@@ -206,6 +251,28 @@ locals {
   manage_redis_username_secret = local.effective_redis_username != null
   effective_redis_key_prefix   = coalesce(var.redis_key_prefix, "bull")
 
+  # Bull queue key names KEDA (n8n.tf) and the opt-in Redis exporter
+  # (observability.tf, section 16) both watch, sharing the same prefix as
+  # n8n's own Bull queue and command-channel keys (redis.prefix /
+  # N8N_REDIS_KEY_PREFIX below) so all three consumers agree on which lists
+  # hold queued and in-flight jobs.
+  effective_redis_queue_keys = {
+    waiting = "${local.effective_redis_key_prefix}:jobs:wait"
+    active  = "${local.effective_redis_key_prefix}:jobs:active"
+  }
+
+  # Queue lock/stall tuning (redis.worker in the chart): built as one nested
+  # map, not three independent top-level merge() calls in n8n.tf, so setting
+  # only one of the three values cannot shallow-merge over and discard the
+  # chart's own defaults for the other two (each key is present in this map
+  # only when its corresponding variable is non-null; Helm still supplies its
+  # own default for any key absent here).
+  n8n_queue_worker_chart_overrides = merge(
+    var.n8n_queue_worker_lock_duration != null ? { lockDuration = var.n8n_queue_worker_lock_duration } : {},
+    var.n8n_queue_worker_lock_renew_time != null ? { lockRenewTime = var.n8n_queue_worker_lock_renew_time } : {},
+    var.n8n_queue_worker_stalled_interval != null ? { stalledInterval = var.n8n_queue_worker_stalled_interval } : {},
+  )
+
   # GCS bucket. HMAC identity/key ownership (gcs.tf) is independent of bucket
   # ownership and already exposes its own locals (hmac_sa_email, etc.).
   # effective_gcs_kms_key_id lives in kms.tf next to the key resources it
@@ -228,4 +295,184 @@ locals {
     "/form-waiting",
     "/mcp",
   ]
+
+  # Additional ingress hosts: canonical hostname first, then every configured
+  # n8n_additional_domains entry, normalized to lowercase (the variable's own
+  # validation already rejects duplicates and a repeat of n8n_fqdn
+  # case-insensitively). n8n_fqdn itself is passed through unchanged,
+  # matching every other consumer of local.n8n_fqdn. Consumed by the managed
+  # Ingress rules/TLS, Cloud DNS records, ManagedCertificate domains, and
+  # self-signed cert SANs (n8n.tf/dns.tf/crds.tf), and exposed unconditionally
+  # via the n8n_ingress_hosts output so a customer-managed ingress can route
+  # the same effective list.
+  n8n_effective_additional_domains = [for d in var.n8n_additional_domains : lower(d)]
+  n8n_effective_ingress_hosts      = concat([local.n8n_fqdn], local.n8n_effective_additional_domains)
+}
+
+# ── n8n Helm chart value fragments ───────────────────────────────────────────
+# Input-derived fragments of helm_release.n8n's values (n8n.tf), factored out
+# so this change's chart-rendering script (tests/scripts/check-n8n-chart.sh)
+# and later sections (topology-aware main behavior, execution-save controls)
+# consume the exact same computed values the release does, rather than a
+# second copy of the same formula. Keep this to fragments this change actually
+# touches; do not pre-extract chart values unrelated to this change's scope.
+
+locals {
+  # Fixed replica counts fall back to n8n_*_fixed_replicas when the caller owns
+  # that pod's scaling (n8n_main_hpa_enabled / n8n_webhook_hpa_enabled /
+  # n8n_worker_keda_enabled = false); otherwise they seed the initial replica
+  # count at the scaler's own minimum, which the HPA/KEDA ScaledObject
+  # immediately takes over (D9). n8n_effective_main_replica_count also drives
+  # single-main/multi-main topology selection below.
+  n8n_effective_main_replica_count    = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_min_replicas : var.n8n_main_fixed_replicas
+  n8n_effective_worker_replica_count  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_min_replicas : var.n8n_worker_fixed_replicas
+  n8n_effective_webhook_replica_count = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
+
+  # ── Single-main / multi-main topology (main-topology capability) ──────────
+  # This count-based flag owns rollout, PDB, and scaling safeguards, not the
+  # election override. Staging election at one replica must retain all three.
+  n8n_single_main = local.n8n_effective_main_replica_count == 1
+
+  # Enable election before increasing replicas in a separate apply. Null
+  # preserves the existing count-derived default. False above one is rejected
+  # by the input validation; never scale an election-disabled old revision.
+  n8n_main_leader_election_enabled = var.n8n_main_leader_election_enabled == null ? !local.n8n_single_main : var.n8n_main_leader_election_enabled
+
+  # Chart 1.10.1 requires >=2 replicas for multiMain.enabled. Stage runtime
+  # election through the module-owned environment instead, retaining the
+  # chart's one-replica layout and validation. config.extraEnv reaches all
+  # n8n roles, so staging also rolls workers and webhook processors.
+  n8n_main_election_staging_env = local.n8n_single_main && local.n8n_main_leader_election_enabled ? [
+    { name = "N8N_MULTI_MAIN_SETUP_ENABLED", value = "true" },
+  ] : []
+
+  # A module-owned main HPA never scales a single-main deployment past its
+  # licensed ceiling of one main: single-main clamps the effective maximum to
+  # one regardless of the configured n8n_main_hpa_max_replicas, so raising
+  # that bound later (without changing the minimum) cannot silently grow past
+  # one main pod. capacity.tf's estimate consumes this same effective ceiling.
+  n8n_effective_main_hpa_max_replicas = local.n8n_single_main ? 1 : var.n8n_main_hpa_max_replicas
+
+  # At a fixed count of one, Recreate stops the old main before starting its
+  # replacement, including when staging election. It does not order a replica
+  # increase against a template change; conversion needs separate applies.
+  # {} (the chart's own default) leaves multi-main's existing rollout
+  # behavior untouched; this does not change worker or webhook strategy.
+  n8n_main_strategy = local.n8n_single_main ? { type = "Recreate" } : {}
+
+  # A single main's PDB must allow its own (only) replica to be evicted during
+  # a voluntary disruption (e.g. node drain); minAvailable=1 would block that
+  # eviction entirely. Multi-main keeps the existing minAvailable=1 floor.
+  n8n_main_pdb_min_available = local.n8n_single_main ? 0 : 1
+
+  # Execution-save policy: the single place both the Helm release
+  # (helm_release.n8n.values.executions.data in n8n.tf) and the
+  # chart-rendering script read the effective policy from.
+  n8n_executions_data = {
+    saveOnError          = var.n8n_executions_data_save_on_error
+    saveOnSuccess        = var.n8n_executions_data_save_on_success
+    saveOnProgress       = var.n8n_executions_data_save_on_progress
+    saveManualExecutions = var.n8n_executions_data_save_manual_executions
+  }
+
+  # ── Caller-managed volumes (task 10) ───────────────────────────────────────
+  # Transforms var.n8n_extra_volumes/n8n_extra_volume_mounts into the chart's
+  # raw Kubernetes extraVolumes/extraVolumeMounts shape (toYaml-passthrough,
+  # see templates/deployment-*.yaml), converting each octal default_mode
+  # string (e.g. "0440") to the decimal representation Kubernetes' defaultMode
+  # field expects (288). n8n.tf concats these after the module's own Redis CA
+  # volume/mount so caller mounts coexist with it rather than replacing it.
+  n8n_caller_extra_volumes = [
+    for v in var.n8n_extra_volumes : merge(
+      { name = v.name },
+      v.config_map != null ? {
+        configMap = merge(
+          { name = v.config_map.name },
+          v.config_map.items != null ? {
+            items = [for i in v.config_map.items : { key = i.key, path = i.path }]
+          } : {},
+          v.config_map.default_mode != null ? { defaultMode = parseint(v.config_map.default_mode, 8) } : {},
+        )
+      } : {},
+      v.secret != null ? {
+        secret = merge(
+          { secretName = v.secret.name },
+          v.secret.items != null ? {
+            items = [for i in v.secret.items : { key = i.key, path = i.path }]
+          } : {},
+          v.secret.default_mode != null ? { defaultMode = parseint(v.secret.default_mode, 8) } : {},
+        )
+      } : {},
+      v.persistent_volume_claim != null ? {
+        persistentVolumeClaim = { claimName = v.persistent_volume_claim.claim_name }
+      } : {},
+    )
+  ]
+
+  n8n_caller_extra_volume_mounts = [
+    for m in var.n8n_extra_volume_mounts : merge(
+      { name = m.name, mountPath = m.mount_path, readOnly = m.read_only },
+      m.sub_path != null ? { subPath = m.sub_path } : {},
+    )
+  ]
+
+  # ── Credential-overwrite Secret reference (task 11) ────────────────────────
+  # Mirrors the managed Redis CA volume's shape: a single-key Secret volume,
+  # mounted read-only as one file, added to helm_release.n8n's
+  # extraVolumes/extraVolumeMounts (n8n.tf) ahead of any caller-declared
+  # n8n_extra_volumes/n8n_extra_volume_mounts. The module never reads
+  # var.n8n_credentials_overwrite_secret_ref's Secret value, only its
+  # name/key reference.
+  n8n_credentials_overwrite_enabled = var.n8n_credentials_overwrite_secret_ref != null
+
+  n8n_credentials_overwrite_volume = local.n8n_credentials_overwrite_enabled ? {
+    name = "credentials-overwrite"
+    secret = {
+      secretName = var.n8n_credentials_overwrite_secret_ref.name
+      items = [{
+        key  = var.n8n_credentials_overwrite_secret_ref.key
+        path = "overwrites.json"
+      }]
+    }
+  } : null
+
+  n8n_credentials_overwrite_mount = local.n8n_credentials_overwrite_enabled ? {
+    name      = "credentials-overwrite"
+    mountPath = "/etc/n8n/credentials-overwrite/overwrites.json"
+    subPath   = "overwrites.json"
+    readOnly  = true
+  } : null
+
+  # ── Pod DNS (task 13) ─────────────────────────────────────────
+  # var.n8n_dns_config with unset keys removed.
+  #
+  # Necessary because the variable's optional() attributes materialize as null
+  # rather than being absent, and the chart renders dnsConfig with a bare
+  # `{{- toYaml . }}`. Passing the variable through directly would emit
+  # `nameservers: null` / `searches: null` into the pod spec, which the API
+  # server rejects (it expects a list, not null) with an error that names the
+  # pod rather than the Helm value, so it is slow to trace back to here.
+  #
+  # `options` is rebuilt element-by-element for the same reason: an option with
+  # no value is legal DNS (`options edns0` carries no value) and must render as
+  # `{name: edns0}`, not `{name: edns0, value: null}`.
+  n8n_dns_config_options = var.n8n_dns_config == null ? [] : [
+    for o in coalesce(var.n8n_dns_config.options, []) :
+    o.value == null ? { name = o.name } : { name = o.name, value = o.value }
+  ]
+
+  n8n_dns_config_stripped = var.n8n_dns_config == null ? {} : {
+    for k, v in {
+      nameservers = var.n8n_dns_config.nameservers
+      searches    = var.n8n_dns_config.searches
+      options     = length(local.n8n_dns_config_options) == 0 ? null : local.n8n_dns_config_options
+    } : k => v if v != null
+  }
+
+  # Collapsed to null when nothing survives the stripping, so a caller passing
+  # `n8n_dns_config = {}` (or all-null attributes) omits the dnsConfig key from
+  # the Helm values entirely rather than rendering `dnsConfig: {}`, keeping the
+  # variable's "null omits the block entirely" promise true for every
+  # equivalent-to-unset shape.
+  n8n_dns_config = length(local.n8n_dns_config_stripped) == 0 ? null : local.n8n_dns_config_stripped
 }

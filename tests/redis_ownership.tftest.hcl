@@ -324,6 +324,62 @@ run "redis_key_prefix_rejects_malformed_value" {
   expect_failures = [var.redis_key_prefix]
 }
 
+# ── N8N_REDIS_KEY_PREFIX command-channel prefix (task 7.1) ───────────────────
+
+# Default (null) omits both the command-channel override (N8N_REDIS_KEY_PREFIX)
+# and the Bull-prefix override (redis.prefix, asserted as "" above via the
+# existing chart-truthiness comment in n8n.tf), so n8n keeps its own distinct
+# "n8n" command-channel and "bull" Bull-queue defaults. helm_release.n8n's
+# values are unknown at plan time under the mock provider (see AGENTS.md), so
+# this only proves the default plans cleanly; the actual env-var omission is
+# covered by tests/scripts/check-n8n-chart.sh.
+run "redis_key_prefix_null_plans_cleanly" {
+  command = plan
+}
+
+# A caller-supplied n8n_extra_env entry named N8N_REDIS_KEY_PREFIX must be
+# rejected: config.extraEnv is appended last (Kubernetes last-wins) and would
+# otherwise silently override the module's own N8N_REDIS_KEY_PREFIX value
+# whenever redis_key_prefix is set.
+run "extra_env_rejects_n8n_redis_key_prefix_name" {
+  command = plan
+
+  variables {
+    redis_key_prefix = "myprefix"
+    n8n_extra_env = [
+      { name = "N8N_REDIS_KEY_PREFIX", value = "other" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+# Two independent configurations against the same external Redis endpoint
+# with different prefixes must plan cleanly on their own; the distinct
+# command-prefix, Bull-prefix, and queue-key coordinates each configuration
+# produces are asserted against the real rendered chart values in
+# tests/scripts/check-n8n-chart.sh (helm_release.n8n's values are unknown at
+# plan time under the mock provider, see AGENTS.md).
+run "redis_key_prefix_deployment_a_plans_cleanly" {
+  command = plan
+
+  variables {
+    create_redis_instance = false
+    redis_host            = "shared-redis.internal"
+    redis_key_prefix      = "deploy-a"
+  }
+}
+
+run "redis_key_prefix_deployment_b_plans_cleanly" {
+  command = plan
+
+  variables {
+    create_redis_instance = false
+    redis_host            = "shared-redis.internal"
+    redis_key_prefix      = "deploy-b"
+  }
+}
+
 # ── Cloud KMS create-or-reference ─────────────────────────────────────────────
 
 run "module_created_redis_key_wires_key_ring_and_iam" {
@@ -356,6 +412,12 @@ run "module_created_redis_key_wires_key_ring_and_iam" {
       google_project_service_identity.redis[0].service == "redis.googleapis.com"
     )
     error_message = "A module-created Redis key must materialize the target project's Redis service agent before granting IAM."
+  }
+
+  # CKV_GCP_43: every module-created CMEK key rotates within 90 days.
+  assert {
+    condition     = google_kms_crypto_key.redis[0].rotation_period == "7776000s"
+    error_message = "A module-created Memorystore CryptoKey must rotate every 90 days."
   }
 }
 
@@ -407,4 +469,113 @@ run "module_created_redis_key_without_ring_reference_fails" {
   }
 
   expect_failures = [var.existing_kms_key_ring_id]
+}
+
+# ── Opt-in Memorystore RDB persistence (section 18) ───────────────────────────
+
+run "persistence_enabled_wires_rdb_schedule" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled     = true
+    redis_rdb_snapshot_period     = "SIX_HOURS"
+    redis_rdb_snapshot_start_time = "2024-01-01T03:00:00Z"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].persistence_mode == "RDB"
+    error_message = "redis_persistence_enabled must set persistence_config.persistence_mode = RDB."
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].rdb_snapshot_period == "SIX_HOURS"
+    error_message = "redis_rdb_snapshot_period must set persistence_config.rdb_snapshot_period."
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].rdb_snapshot_start_time == "2024-01-01T03:00:00Z"
+    error_message = "redis_rdb_snapshot_start_time must set persistence_config.rdb_snapshot_start_time."
+  }
+}
+
+run "persistence_enabled_accepts_all_documented_periods" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled = true
+    redis_rdb_snapshot_period = "ONE_HOUR"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].rdb_snapshot_period == "ONE_HOUR"
+    error_message = "ONE_HOUR must be an accepted redis_rdb_snapshot_period value."
+  }
+}
+
+# Omitting the optional/computed block retains RDB on an existing instance.
+# Assert an explicit DISABLED mode, not an empty block. Plan-only mocks cannot
+# prove the API transition; verify true -> false -> true on a disposable
+# instance using docs/manual-verification-checklist.md, item 11.
+run "persistence_disabled_by_default_emits_disabled_mode" {
+  command = plan
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].persistence_mode == "DISABLED"
+    error_message = "The default must explicitly disable persistence, including on an instance that previously used RDB."
+  }
+}
+
+run "redis_rdb_snapshot_period_invalid_value_fails" {
+  command = plan
+
+  variables {
+    redis_rdb_snapshot_period = "TWO_HOURS"
+  }
+
+  expect_failures = [var.redis_rdb_snapshot_period]
+}
+
+run "redis_rdb_snapshot_start_time_malformed_fails" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled     = true
+    redis_rdb_snapshot_start_time = "not-a-timestamp"
+  }
+
+  expect_failures = [var.redis_rdb_snapshot_start_time]
+}
+
+run "redis_persistence_ignored_when_external_triggers_warning" {
+  command = plan
+
+  variables {
+    create_redis_instance     = false
+    redis_host                = "10.9.8.8"
+    redis_persistence_enabled = true
+  }
+
+  expect_failures = [check.redis_tuning_ignored_when_existing]
+
+  assert {
+    condition     = length(google_redis_instance.n8n) == 0
+    error_message = "External Redis (create_redis_instance = false) must remain untouched by redis_persistence_enabled; no Memorystore instance should be created."
+  }
+}
+
+run "redis_persistence_schedule_tuning_ignored_when_disabled_triggers_warning" {
+  command = plan
+
+  variables {
+    redis_persistence_enabled     = false
+    redis_rdb_snapshot_period     = "ONE_HOUR"
+    redis_rdb_snapshot_start_time = "2024-01-01T03:00:00Z"
+  }
+
+  expect_failures = [check.redis_persistence_tuning_ignored_when_disabled]
+
+  assert {
+    condition     = google_redis_instance.n8n[0].persistence_config[0].persistence_mode == "DISABLED"
+    error_message = "Explicit false must disable persistence even when a previously configured snapshot schedule is left set."
+  }
 }

@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and populate. Auth: gcloud auth application-default login.
+project_id           = "my-gcp-project-id"
+gcp_region           = "us-east4" # any region supporting GKE regional internal ALB; e.g. us-east4, europe-west3
+gcs_location         = "US"       # keep near gcp_region: US for us-*, EU for europe-*, or a specific region
+friendly_name_prefix = "split"
+
+# Private editor host (internal ingress only) and public webhook host (public
+# ingress only). Do not reuse the same hostname for both.
+n8n_fqdn             = "n8n-internal.example.com"
+public_webhook_fqdn  = "hooks.example.com"
+
+n8n_license_key = "your-enterprise-license-key"
+
+# Regional proxy-only subnet for the internal ALB's managed proxies. Must not
+# overlap the module's VPC ranges (module defaults: subnet 10.0.0.0/20, pods
+# 10.4.0.0/14, services 10.8.0.0/20).
+proxy_only_subnet_cidr = "10.129.0.0/23"
+
+# Caller-supplied TLS material for the private ingress (e.g. from an internal
+# CA); must cover n8n_fqdn. The public ingress uses a Google-managed
+# certificate instead (tls.tf), no PEM material needed for it.
+internal_tls_cert_pem = "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"
+internal_tls_key_pem  = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# Let Terraform disable iam.disableServiceAccountKeyCreation for the GCS HMAC key.
+# Requires org-policy admin rights; otherwise leave false and disable it manually.
+# manage_sa_key_org_policy = true

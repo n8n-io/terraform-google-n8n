@@ -21,6 +21,8 @@ module "n8n" {
 
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
 
+  n8n_main_hpa_min_replicas = var.n8n_main_hpa_min_replicas
+
   # ── Redis ownership: external Redis-compatible service ─────────────────────
   create_redis_instance = false
   redis_host            = var.redis_host

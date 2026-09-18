@@ -108,6 +108,7 @@ Status: preliminary / not scale-validated.
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. Point your own DNS/ingress at whatever address it resolves to; this example does not manage DNS or ingress. | `string` | n/a | yes |
 | <a name="input_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#input\_n8n\_kube\_namespace) | Name of the existing Kubernetes namespace to deploy n8n into. Create it out of band before applying. | `string` | `"n8n"` | no |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key (multi-main requires Enterprise). | `string` | n/a | yes |
+| <a name="input_n8n_main_fixed_replicas"></a> [n8n\_main\_fixed\_replicas](#input\_n8n\_main\_fixed\_replicas) | Fixed replica count for n8n main pods, passed straight through to the module's own n8n\_main\_fixed\_replicas (this example sets n8n\_main\_hpa\_enabled=false, so the caller's own scaler manages main pods and this input only seeds the replica count). Defaults to the module's own default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n\_main\_hpa\_enabled description for the required license edition and maintenance implications. | `number` | `2` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID. | `string` | n/a | yes |
 | <a name="input_redis_host"></a> [redis\_host](#input\_redis\_host) | External Redis-compatible host n8n and KEDA connect to. | `string` | n/a | yes |
 | <a name="input_redis_password_secret_name"></a> [redis\_password\_secret\_name](#input\_redis\_password\_secret\_name) | Name of an existing Kubernetes Secret (in n8n\_kube\_namespace) holding the external Redis password under key "password". Create this Secret out of band before applying; the module never reads its value. | `string` | n/a | yes |
@@ -120,6 +121,7 @@ Status: preliminary / not scale-validated.
 | <a name="output_gcs_bucket_name"></a> [gcs\_bucket\_name](#output\_gcs\_bucket\_name) | Effective GCS bucket; should equal var.existing\_gcs\_bucket\_name. |
 | <a name="output_gke_cluster_name"></a> [gke\_cluster\_name](#output\_gke\_cluster\_name) | Effective GKE cluster name; should equal var.existing\_gke\_cluster\_name. |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | n/a |
+| <a name="output_n8n_ingress_hosts"></a> [n8n\_ingress\_hosts](#output\_n8n\_ingress\_hosts) | Effective hostnames n8n serves (n8n\_fqdn plus n8n\_additional\_domains). |
 | <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | Effective namespace; should equal var.n8n\_kube\_namespace. |
 | <a name="output_n8n_main_route_prefixes"></a> [n8n\_main\_route\_prefixes](#output\_n8n\_main\_route\_prefixes) | n/a |
 | <a name="output_n8n_main_service_name"></a> [n8n\_main\_service\_name](#output\_n8n\_main\_service\_name) | n/a |
@@ -129,5 +131,7 @@ Status: preliminary / not scale-validated.
 | <a name="output_n8n_webhook_service_name"></a> [n8n\_webhook\_service\_name](#output\_n8n\_webhook\_service\_name) | n/a |
 | <a name="output_network_id"></a> [network\_id](#output\_network\_id) | Effective network ID; should resolve to var.existing\_network\_name. |
 | <a name="output_postgres_host"></a> [postgres\_host](#output\_postgres\_host) | Effective PostgreSQL host; should equal var.n8n\_database\_host. |
+| <a name="output_redis_exporter_service_name"></a> [redis\_exporter\_service\_name](#output\_redis\_exporter\_service\_name) | Redis exporter metrics Service name, or null when redis\_exporter\_enabled = false. |
 | <a name="output_redis_host"></a> [redis\_host](#output\_redis\_host) | Effective Redis host; should equal var.redis\_host. |
+| <a name="output_redis_tls_enabled"></a> [redis\_tls\_enabled](#output\_redis\_tls\_enabled) | Whether the effective Redis connection uses TLS. |
 <!-- END_TF_DOCS -->

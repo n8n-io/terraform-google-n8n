@@ -18,6 +18,230 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Every example now exposes the ownership-neutral outputs
+  `tests/scripts/smoke-test.sh` reads from `terraform output` in the example
+  directory (`redis_host`, `redis_tls_enabled`, `redis_exporter_service_name`,
+  `gcs_bucket_name`, `n8n_main_service_name`, `n8n_webhook_service_name`,
+  `n8n_service_port`, `n8n_webhook_route_prefixes`, `n8n_ingress_hosts`).
+  A live `examples/small` run on 2026-09-18 showed the smoke test's Redis,
+  GCS, ingress-route, and additional-hostname checks silently skipped
+  because the example roots did not pass these through.
+- `examples/small`, `examples/medium`, and `examples/large` accept
+  `n8n_image_tag` (default `null`) so a caller can pin the n8n version
+  without editing `main.tf`; `terraform.tfvars.example` shows the pin. The
+  chart's floating `stable` tag remains the default.
+- Added `psa_connection_abandon_on_destroy` (default `true`) so callers can
+  choose how the module-managed Private Services Access connection is torn
+  down. `true` keeps `deletion_policy = "ABANDON"`; `false` leaves the policy
+  unset so the provider attempts the servicenetworking API delete, which may
+  stall on GCP's producer-in-use check. Ignored when `create_psa = false`.
+  Changing it requires a `terraform apply` before the next `destroy` so the
+  policy is recorded in state. Plan-time coverage in
+  `tests/network_ownership.tftest.hcl`.
+- Added nullable `n8n_main_leader_election_enabled` for explicit two-stage
+  single-main to multi-main conversion. Enable election at one replica first,
+  retaining Recreate, PDB minimum 0, and managed HPA maximum 1; verify the old
+  election-disabled process has exited before separately increasing replicas.
+  Null preserves existing count-based defaults; false is rejected above one
+  selected replica. This supports a staged procedure, not automatic ordering:
+  an un-staged replica increase can still scale the old single-main revision.
+  Added plan/render coverage and an operator verification procedure. The
+  two-stage procedure was run live with an idle workload on both the managed
+  HPA and fixed-replica paths (see `docs/manual-verification-checklist.md`);
+  the active-schedule regression remains incomplete.
+- Added `n8n_additional_domains` and `ingress_annotations`
+  (`add-google-parity-through-aws-0-4-0`, section 20.1): `n8n_additional_domains`
+  (default `[]`) declares extra hostnames that will get the full main/webhook
+  route set alongside `n8n_fqdn`; entries are validated as non-wildcard FQDNs,
+  rejected on a case-insensitive duplicate or a repeat of `n8n_fqdn`, and
+  exposed (lowercase-normalized, canonical host first) through the new
+  `n8n_ingress_hosts` output regardless of `create_ingress`, so a
+  customer-managed ingress can consume the same list. Wiring these hostnames
+  into the module-managed Ingress, Cloud DNS records, and TLS certificate
+  coverage lands in a following section; today the input only validates and
+  reports the effective list. `ingress_annotations` (default `{}`) accepts
+  additional annotations for the module-managed Ingress, rejecting any
+  module-owned key (ingress class, static-IP name, FrontendConfig,
+  ManagedCertificate, or pre-shared-cert) and warning as ignored when
+  `create_ingress = false`.
+- Wired `n8n_additional_domains` and `ingress_annotations` into the
+  module-managed Ingress, Cloud DNS records, and TLS certificate coverage
+  (`add-google-parity-through-aws-0-4-0`, section 20.2): every hostname in the
+  effective `n8n_ingress_hosts` list (canonical `n8n_fqdn` plus every
+  `n8n_additional_domains` entry) now gets its own Ingress `rule` with the
+  identical webhook/main route set, its own Cloud DNS A-record (when
+  `cloud_dns_zone_name` is set), inclusion in the `google_managed`
+  `ManagedCertificate`'s domain list (capped at 100 total, enforced by a new
+  `n8n_additional_domains` validation), and inclusion in the `self_signed`
+  certificate's SANs and the `secret` mode's `spec.tls.hosts`. `custom`/
+  `secret` TLS coverage of every hostname remains a caller prerequisite; the
+  module does not inspect an external Secret's certificate. Non-conflicting
+  `ingress_annotations` entries are now merged onto the managed Ingress's
+  metadata. The Cloud DNS record resource moved from `count` to `for_each`
+  keyed by hostname so the canonical record keeps a stable per-hostname
+  address as aliases are added or removed; per this module's pre-release "no
+  automatic state migration" policy above, an existing deployment upgrading
+  onto this resource address change needs a manual `terraform state mv
+  'google_dns_record_set.n8n[0]' 'google_dns_record_set.n8n["<n8n_fqdn
+  value>"]'` before applying (documented in `docs/upgrading-n8n.md`).
+  Canonical `n8n_url`/`N8N_EDITOR_BASE_URL`/effective webhook URL outputs are
+  unaffected by aliases.
+- Documented the DNS-zone and caller-certificate prerequisites for
+  `n8n_additional_domains` (`add-google-parity-through-aws-0-4-0`, section
+  20.3): `cloud_dns_zone_name` is a single zone that must cover every
+  hostname the module creates a record for; an alias delegated to a different
+  zone or DNS provider is the caller's responsibility. `tls_cert_pem`/
+  `tls_secret_name` (custom/secret `tls_mode`) must already cover every
+  hostname in `n8n_ingress_hosts`; the module does not read or parse an
+  external Secret's certificate to confirm that coverage, so a mismatch
+  surfaces as a TLS handshake failure, not a Terraform-time error.
+- **Breaking:** every n8n role now emits `N8N_EDITOR_BASE_URL=https://<n8n_fqdn>`
+  (`add-google-parity-through-aws-0-4-0`, section 19): this environment name
+  was previously reserved (see `n8n_extra_env`'s collision guard) but never
+  actually set, leaving n8n to compute its own editor/OAuth base URL
+  internally. If any OAuth2 credential's redirect URI was registered against
+  that computed URL rather than `https://<n8n_fqdn>/rest/oauth2-credential/callback`,
+  re-register it with the provider using the callback host `n8n_fqdn` resolves
+  to. `n8n_webhook_url` (default `https://<n8n_fqdn>`) is now also emitted
+  under n8n's current `N8N_WEBHOOK_URL` name in addition to the legacy
+  `WEBHOOK_URL` name, both sourced from one effective value so the two can no
+  longer drift apart; `n8n_webhook_url` now validates as an `https://` base
+  URL with no embedded userinfo credentials, query string, or fragment.
+- Added `redis_persistence_enabled`, `redis_rdb_snapshot_period`, and
+  `redis_rdb_snapshot_start_time` (`add-google-parity-through-aws-0-4-0`,
+  section 18): opt-in Memorystore RDB persistence
+  (`persistence_config.persistence_mode = RDB`) on the module-managed
+  instance, defaulting to disabled. When enabled, `redis_rdb_snapshot_period`
+  selects one of Memorystore's own `ONE_HOUR`, `SIX_HOURS`, `TWELVE_HOURS`, or
+  `TWENTY_FOUR_HOURS` schedules (default `TWENTY_FOUR_HOURS`), and
+  `redis_rdb_snapshot_start_time` optionally pins an RFC3339 alignment
+  timestamp. This is Memorystore's automatic last-snapshot recovery on an
+  unplanned restart, not a numbered backup-retention count like Cloud SQL's
+  `postgres_backup_retained_backups` or AWS ElastiCache snapshots: at most one
+  RDB snapshot is kept and replayed, which can reintroduce stale/duplicate
+  queue jobs and adds memory and latency overhead while a snapshot is being
+  written. All three inputs are ignored (with an opposite-path warning) for
+  external Redis, and the two schedule inputs are separately warned when set
+  while persistence is disabled. Independent export/import backups remain an
+  operator responsibility; this module does not schedule or manage them.
+- Added `postgres_backup_retained_backups`, `postgres_transaction_log_retention_days`,
+  and `postgres_query_logging_enabled` (`add-google-parity-through-aws-0-4-0`,
+  section 17): optional managed Cloud SQL backup-count (COUNT retention, 1-365)
+  and transaction-log retention (1-7 days for `ENTERPRISE`, 1-35 for
+  `ENTERPRISE_PLUS`) tuning, using Cloud SQL's own retention semantics rather
+  than AWS retention days. Backups and point-in-time recovery remain enabled
+  unconditionally; both inputs default to `null` and preserve the provider's
+  existing default retention when omitted. `postgres_query_logging_enabled`
+  defaults to `false` and, when enabled, adds PostgreSQL `database_flags` for
+  DDL logging (`log_statement=ddl`) and statements taking at least 1000 ms
+  (`log_min_duration_statement=1000`), not all-statement logging; logged
+  slow-statement text may include literal query parameter values. All three
+  are ignored (with an opposite-path warning) for external PostgreSQL.
+- Added `redis_exporter_enabled` and `redis_exporter_image`
+  (`add-google-parity-through-aws-0-4-0`, section 16): an opt-in, private
+  Redis exporter (`oliver006/redis_exporter`, pinned to `v1.90.0` by default)
+  exposing Bull queue depth and other Redis metrics on a `ClusterIP` Service
+  (port 9121), independent of `n8n_metrics_enabled` and worker KEDA. Off by
+  default. The exporter reuses the same effective Redis host/port/TLS/ACL
+  username/password Secret and exact waiting/active queue keys n8n and KEDA
+  already use (`redis_key_prefix`-aware), trusts the module-managed
+  Memorystore service CA when transit encryption is enabled, and never
+  disables TLS verification. Runs as a single hardened, non-root Deployment
+  (dropped capabilities, read-only root filesystem, no privilege escalation,
+  no API token mount, resource requests/limits, liveness/readiness probes).
+  Adds a new `redis_exporter_service_name` output (`null` when disabled) and
+  folds the exporter's fixed CPU/memory requests into the managed GKE
+  capacity guardrail (`capacity.tf`). Installs no Prometheus/Grafana
+  resources.
+- Added `n8n_community_packages_registry`, `n8n_unverified_packages_enabled`,
+  `n8n_compression_max_decompressed_size_bytes`, and
+  `n8n_compression_max_zip_entries` (`add-google-parity-through-aws-0-4-0`,
+  section 15): optional registry/security runtime controls mapped to
+  `N8N_COMMUNITY_PACKAGES_REGISTRY`, `N8N_UNVERIFIED_PACKAGES_ENABLED`,
+  `N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES`, and
+  `N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES` on every n8n role (main, worker,
+  webhook processor). All four default to `null`, which omits the
+  corresponding env var and leaves n8n's own upstream default in place so a
+  future n8n release can change it without this module pinning it.
+  `n8n_community_packages_registry` must be a non-blank `https://` URL with
+  no embedded userinfo credentials; this module has no separate mechanism
+  for registry authentication, and the registry override does not by itself
+  grant the separate Enterprise entitlement community package installation
+  requires. The two compression limits must be positive whole numbers when
+  set.
+- Added `n8n_dns_config` (`add-google-parity-through-aws-0-4-0`, section 13):
+  optional pod-level DNS settings (nameservers, search domains, and options
+  such as `ndots`) applied to the main, worker, and webhook-processor pods
+  via the chart's top-level `dnsConfig`. Defaults to `null`, which omits the
+  block and leaves Kubernetes' cluster DNS defaults unchanged. Nameservers
+  are capped at 3 plain IPv4/IPv6 addresses; search domains are validated
+  against strict RFC 1123 subdomain rules (no underscores, no bare `"."` or
+  trailing dot) rather than the relaxed rules Kubernetes only guarantees on
+  1.34+, since this module targets GKE's supported release channels, which
+  can run older control planes; option names must be unique, and `ndots`
+  must be a whole number from 0 to 15.
+- Added `n8n_task_runner_custom_config` and `n8n_task_runner_timeout`
+  (`add-google-parity-through-aws-0-4-0`, section 12): reference an existing
+  ConfigMap holding a custom task-runner launcher configuration file, mounted
+  read-only at `/etc/n8n-task-runners.json` on the task-runner sidecar of
+  every main and worker pod via the chart's `taskRunners.customConfig`. The
+  module never reads the ConfigMap's contents; the whole file (not a merge)
+  comes from the caller and must match the exact task-runner image/version in
+  use. Requires `n8n_task_runners_enabled = true`; setting it with runners
+  disabled fails validation. `n8n_task_runner_timeout` (default 300 seconds,
+  wired to `N8N_RUNNERS_TASK_TIMEOUT`) separately bounds how long an accepted
+  Code node task may run, distinct from the existing
+  `n8n_task_runner_request_timeout` (how long n8n waits for a runner to
+  accept a task in the first place). Changing only the ConfigMap's contents
+  does not trigger an automatic rollout: restart the `n8n-main` and
+  `n8n-worker` deployments to load new data, see
+  [`docs/troubleshooting.md`](./docs/troubleshooting.md#task-runner-custom-launcher-configuration-needs-a-matching-image-and-a-manual-restart).
+- Added `n8n_credentials_overwrite_secret_ref`
+  (`add-google-parity-through-aws-0-4-0`, section 11): reference an existing
+  Kubernetes Secret holding a credential-overwrites JSON payload, mounted
+  read-only at `/etc/n8n/credentials-overwrite/overwrites.json` on every n8n
+  role (main, worker, webhook processor) with `CREDENTIALS_OVERWRITE_DATA_FILE`
+  pointed at it. The module never reads, hashes, or copies the referenced
+  Secret's contents; only the selected key is mounted. While set, the
+  `credentials-overwrite` volume name, the mount path, and the
+  `CREDENTIALS_OVERWRITE_DATA`/`CREDENTIALS_OVERWRITE_DATA_FILE` environment
+  names are reserved against `n8n_extra_volumes`/`n8n_extra_volume_mounts`/
+  `n8n_extra_env`; both remain usable as before when this input is left at
+  its default `null`. Changing only the referenced Secret's contents does not
+  trigger an automatic rollout: restart the `n8n-main`, `n8n-worker`, and
+  `n8n-webhook-processor` deployments to load new data, see
+  [`docs/troubleshooting.md`](./docs/troubleshooting.md#credential-overwrite-secret-content-changes-need-a-manual-restart).
+- Added `n8n_extra_volumes` and `n8n_extra_volume_mounts`
+  (`add-google-parity-through-aws-0-4-0`, section 10): mount an existing
+  ConfigMap, Secret, or PVC into every n8n role (main, worker, webhook
+  processor) via the chart's `extraVolumes`/`extraVolumeMounts`, without the
+  module creating or reading the referenced object. Each volume declares
+  exactly one typed source; a Secret/ConfigMap `default_mode` is an octal
+  permission string (e.g. `"0440"`), converted to the decimal value
+  Kubernetes expects (288). Mounts are validated for a declared volume
+  reference, name/path uniqueness, a canonical absolute `mount_path`, and no
+  overlap with the module's own protected mounts (`/home/node/.n8n`,
+  `/etc/n8n-certs`). Caller mounts coexist with the module's managed Redis CA
+  mount rather than replacing it. `n8n_custom_extensions_path` no longer
+  warns about a stock image when a caller-managed mount covers that exact
+  path.
+- Delivered direct `n8n_license_key` values through a dedicated
+  module-managed `kubernetes_secret.n8n_license` Secret instead of a literal
+  `license.activationKey` Helm value (`add-google-parity-through-aws-0-4-0`,
+  section 9). Every n8n role now reads the license through
+  `license.existingSecret`, whether the module manages the Secret (direct
+  key) or the caller supplies `n8n_license_key_secret_ref` (unread,
+  referenced as-is, no duplicate managed Secret). No functional or interface
+  change for callers already using either input; only the rendered Helm
+  values change (no literal key ever appears in them).
+- Added sensitive `n8n_encryption_key` (`add-google-parity-through-aws-0-4-0`,
+  section 8): reuse a known 64-hexadecimal-character encryption key instead of
+  letting the module generate one, e.g. to keep decrypting credentials in a
+  restored/cloned database. Mutually exclusive with
+  `existing_n8n_core_secret_name`. When supplied, the managed core Secret
+  carries the exact value and no `random_id.n8n_encryption_key` is generated;
+  the `n8n_encryption_key` output returns the supplied/generated value and
+  stays null for an unread external core Secret.
 - Added the foundation of the explicit infrastructure/Kubernetes ownership
   model (`add-full-stack-modularity`, section 1): non-null `create_network`,
   `create_psa`, `create_gke`, `create_redis_instance`, `create_gcs_bucket`,
@@ -265,7 +489,193 @@ this project adheres to the stability contract in
   and `modules/controllers/examples/direct-use`, which were runnable and
   mock-tested (section 4) but not yet wired into CI.
 
+- Curated the Google-specific Checkov security baseline
+  (`add-google-parity-through-aws-0-4-0`, section 23): rotated every
+  module-created CMEK key every 90 days (`kms.tf`); added always-on, PII-free
+  Cloud SQL audit flags (`log_connections`, `log_disconnections`,
+  `log_checkpoints`, `log_lock_waits`, `log_duration`, `log_hostname`,
+  `log_min_error_statement`); added VPC Flow Logs on the module-managed
+  subnet and an explicit low-priority deny-all-ingress firewall rule on the
+  module-managed network (neither changes any actual allowed traffic);
+  disabled GKE client-certificate authentication and enabled intranode
+  visibility, Dataplane V2 network policy enforcement, and Shielded-node
+  Secure Boot/Integrity Monitoring; and added a dedicated access-log bucket
+  (`google_storage_bucket.n8n_access_logs`) for the module-managed GCS
+  binary-data bucket. These are infrastructure behavior changes, not just
+  explicit API defaults. In particular, Dataplane V2 replaces existing
+  legacy-datapath clusters; see the breaking upgrade note below.
+  Pinned Checkov to `3.3.17` for local use (`uv tool install checkov==3.3.17`
+  or equivalent) and CI (`bridgecrewio/checkov-action@v12.3123.0`, the release
+  tag whose bundled image is `ghcr.io/bridgecrewio/checkov:3.3.17`). Narrowly
+  scoped, resource-level `checkov:skip` comments (which must sit inside the
+  resource body to take effect, not above it) document the remaining findings
+  Checkov cannot avoid: Cloud SQL SSL/pgAudit/full-statement-logging/major-version
+  and Memorystore AUTH/in-transit-encryption stay off by default to match n8n's
+  own default unencrypted client contract and remain caller-configurable
+  opt-ins; GKE Binary Authorization and Google-Groups RBAC need a
+  caller-owned policy/directory group this module cannot assume; the
+  module-managed network's own firewall and every Cloud SQL dynamic
+  `database_flags` value are real and verified by `terraform test`, but not
+  visible to Checkov's static analysis once the resource is `count`-indexed
+  or the flags come from a `dynamic` block (reproduced against minimal
+  fixtures during this review); and the dedicated access-log bucket does not
+  log access to itself. A full per-finding classification (fixed, scanner
+  limitation, or intentional exception) is on record in this change's PR
+  description and `openspec/changes/add-google-parity-through-aws-0-4-0/`
+  history.
+
+- Wired the credential-free chart-rendering regression check into CI and made
+  the curated Checkov baseline a blocking gate
+  (`add-google-parity-through-aws-0-4-0`, section 24): added a `chart-render`
+  job to `.github/workflows/terraform-tests.yml` that installs a pinned Helm
+  CLI (`v4.3.0`, via `azure/setup-helm@v5.0.1`) and runs
+  `tests/scripts/check-n8n-chart.sh` with no credentials and no cluster; the
+  script's own embedded self-check already proves a deliberately wrong
+  expected value fails, and this job proves the same command fails CI, not
+  just a local run. Flipped the `checkov` job's `soft_fail` from `true` to
+  `false` now that section 23's curated baseline scans clean (110 passed, 0
+  failed); a reintroduced finding (verified locally by temporarily reverting
+  one of section 23's fixes) exits nonzero. Corrected `AGENTS.md`'s local
+  verification loop: it now names the same twelve `validate`/`test`/`tflint`/
+  `docs` targets CI covers (previously missing `examples/split-ingress`,
+  the four `examples/customer-managed-*` examples, `modules/controllers`,
+  and `modules/controllers/examples/direct-use`), runs each example/module
+  target in its own subshell instead of a bare `cd examples/x && ...` chain
+  (which left the shell inside the previous example directory and broke the
+  next line's relative `cd`), and points the two controller
+  `terraform-docs --output-check` invocations at the root `.terraform-docs.yml`
+  via `--config` instead of the recursive-path default that silently prints
+  CLI help. Also documents the local `check-n8n-chart.sh` and pinned `checkov`
+  commands alongside the Terraform loop.
+
+- Exposed the n8n main-pod HPA floor (or, in `examples/customer-managed-everything`,
+  the fixed-replica floor) in every application example
+  (`add-google-parity-through-aws-0-4-0`, section 25.1): `examples/small`,
+  `examples/cloudflare`, `examples/godaddy`, `examples/split-ingress`,
+  `examples/customer-managed-cluster`, `examples/customer-managed-gcs`, and
+  `examples/customer-managed-redis` each add a `n8n_main_hpa_min_replicas`
+  passthrough defaulting to `null` (the module's own default of 2, multi-main,
+  is unchanged); `examples/medium` adds the same passthrough with an explicit
+  default of `2`, its prior effective value; `examples/customer-managed-everything`
+  adds a `n8n_main_fixed_replicas` passthrough (that example already sets
+  `n8n_main_hpa_enabled = false`) defaulting to `2`, also its prior effective
+  value. `examples/large`, which already exposed `n8n_main_hpa_min_replicas`
+  with its own default of 3, is unchanged. Every example's default renders the
+  same topology as before this change; setting the new input to 1 selects
+  single-main queue mode. The controller submodule and its `direct-use`
+  example are untouched. Added a `single_main_floor_produces_valid_plan` (or
+  equivalent) plan-time test to every touched example.
+- Exposed GKE boot-disk sizing and the database connection-pool ceiling as
+  passthrough inputs in the two sizing examples
+  (`add-google-parity-through-aws-0-4-0`, section 25.2): `examples/medium` and
+  `examples/large` each add `gke_node_disk_size_gb` (default `100`),
+  `gke_node_disk_type` (default `"pd-balanced"`), and
+  `db_postgresdb_pool_size` (default `10`) passthroughs, matching the module's
+  own defaults, so a load-tested deployment can tune boot-disk size/type and
+  the per-pod TypeORM pool ceiling without editing the example itself. No
+  Google resource sizing default changes; added plan-time tests confirming the
+  default and an overridden value both produce a valid plan.
+- Corrected `examples/large/README.md`'s stale worker-ceiling prose and added
+  operator guidance (`add-google-parity-through-aws-0-4-0`, section 25.3): the
+  sentence claiming a "worker max to 160" now reads 80, matching the
+  `n8n_worker_keda_max_replicas` default already shown in the sizing table.
+  Added a "Things to watch before you raise these ceilings further" section
+  explaining that `db_postgresdb_pool_size` is a lazy per-pod ceiling whose
+  aggregate demand (pool size times running pod count) can exceed Cloud SQL's
+  `max_connections` before any autoscaler bound is reached; that cluster DNS
+  query volume grows with pod count and `n8n_dns_config` is available if it
+  becomes a bottleneck; that `n8n_node_max_old_space_size_mb` applies to every
+  n8n container and must leave headroom under the smallest role's memory
+  limit; that `gke_node_disk_size_gb` affects image/ephemeral-storage disk
+  pressure under higher pod density, not only cost; that `n8n_pruning_max_age`/
+  `n8n_pruning_max_count` bound Cloud SQL execution-table growth at this
+  tier's higher execution-concurrency ceiling; and that opt-in Memorystore RDB
+  persistence (`redis_persistence_enabled`) trades memory/latency overhead for
+  last-snapshot (not point-in-time) recovery. No numeric table or default
+  changed; the not-scale-validated warning is retained.
+- Added `docs/upgrading-n8n.md` (`add-google-parity-through-aws-0-4-0`,
+  section 26.1) covering every behavior change in this release: the
+  `google_dns_record_set.n8n` resource-address change needing a manual
+  `terraform state mv`, single-main/multi-main topology transitions, the
+  chart's pre-existing replica-floor reset on every Helm upgrade, license
+  Secret delivery, `n8n_encryption_key` restore/clone continuity, the full
+  `n8n_extra_env`-to-dedicated-input reservation table, reference-only
+  Secret/ConfigMap restart requirements, corrected canonical URLs (including
+  the OAuth callback host for split-host deployments), Redis command/Bull
+  prefix isolation, opt-in Memorystore RDB persistence, the Redis exporter
+  and Cloud SQL backup/log additions, and caller-owned ingress continuity.
+  Cross-linked from `README.md`'s day-2 operations section and referenced by
+  `docs/customer-managed-infrastructure.md`, `docs/troubleshooting.md`, and
+  `docs/destroy-cleanup.md` where each topic already lived.
+- Extended `tests/scripts/README.md` and the read-only inspection portion of
+  `tests/scripts/smoke-test.sh` for this release's new runtime contracts
+  (`add-google-parity-through-aws-0-4-0`, section 26.2): main-topology
+  classification (single-main `Recreate`/`minAvailable=0` vs multi-main),
+  Redis command-channel/Bull prefix isolation (`QUEUE_BULL_PREFIX` vs
+  `N8N_REDIS_KEY_PREFIX`), the opt-in Redis exporter's Deployment/Service
+  health, the credentials-overwrite and task-runner custom-config
+  reference-only mounts (existence/readability only, contents never read),
+  the `NODE_OPTIONS` heap ceiling and pod `dnsConfig`, the managed license
+  Secret's existence, and every `n8n_ingress_hosts` alias's `/healthz`
+  reachability. Every added check is read-only: none of them drain a queue,
+  restart a Deployment, rotate or read a Secret's contents, or apply
+  infrastructure, and the script documents that boundary explicitly. The
+  opt-in `LOAD_TEST=true` load-generation path is unchanged and still never
+  runs automatically.
+- Delivered `docs/manual-verification-checklist.md`
+  (`add-google-parity-through-aws-0-4-0`, section 26.3): a 12-item checklist
+  for every runtime-only scenario this release cannot prove without a live
+  Google Cloud apply, single-main rollout/drain and return to multi-main,
+  credentials-overwrite and task-runner ConfigMap rotation restarts, restored/
+  cloned-database encryption-key continuity, separate-host OAuth callback
+  registration, alias hostname TLS coverage across every `tls_mode`,
+  split-ingress public/private route isolation, the Redis command/Bull prefix
+  transition, the Redis exporter's TLS trust and metrics, Memorystore RDB
+  persistence recovery, and n8n Enterprise license activation/entitlement
+  boundaries. Every item states its safety prerequisites (disposable
+  environment, drain-before-transition, destructive-item warnings) and its
+  expected result, and every item is recorded as "Not run" by default;
+  delivering the checklist, not running it, is what this section requires.
+  Linked from `README.md`'s day-2 operations section and from
+  `tests/scripts/README.md`.
+- Linked `openspec/changes/add-google-parity-through-aws-0-4-0/parity-matrix.md`
+  (`add-google-parity-through-aws-0-4-0`, section 26.4) from `README.md`'s
+  day-2 operations section as the durable record of every AWS `0.4.0`
+  feature group's disposition (ported, Google-adapted, already covered, or
+  excluded with a stated reason); every port/adaptation entry in that matrix
+  maps to an input, fix, or test landed in one of this change's numbered
+  sections, and every exclusion remains explicit rather than silently
+  dropped.
+
 ### Fixed
+
+- `tests/scripts/smoke-test.sh` now fails loudly when the kubectl context
+  switch (`gcloud container clusters get-credentials ...`) fails, and refuses
+  to continue unless `kubectl config current-context` matches the GKE context
+  for the deployment's cluster. Previously, under `set -e`, a failed switch
+  aborted the script with no message; without it, checks would have run
+  against whatever context happened to be current.
+- Documented that `n8n_worker_concurrency` is not the effective worker
+  concurrency with the defaults. Live testing on n8n 2.38.7 showed the worker
+  logs `Concurrency: 100`: n8n replaces the `--concurrency` flag with
+  `N8N_CONCURRENCY_PRODUCTION_LIMIT` whenever that variable is not -1, and the
+  module emits it from `n8n_execution_concurrency_limit` (default 100) on every
+  role. KEDA still scales workers on queue depth, but additional workers only
+  receive jobs once the first holds 100. Both variable descriptions now state
+  this; behaviour is unchanged pending a decision on per-role emission.
+- Explicitly set Memorystore persistence to `DISABLED` when
+  `redis_persistence_enabled = false`. Previously, omitting the
+  optional/computed block retained RDB persistence on an existing instance.
+  Snapshot schedule inputs are omitted while disabled. An existing instance
+  still using RDB with this input set to false now plans a disabling update;
+  review the loss of snapshot recovery before applying.
+- Made the split-ingress example's private Ingress HTTPS-only. Disabling
+  HTTP avoids requiring a `SHARED_LOADBALANCER_VIP` address for simultaneous
+  HTTP and HTTPS forwarding rules. The public Ingress is unchanged.
+- Granted `group:cloud-storage-analytics@google.com` the bucket-scoped
+  `roles/storage.objectCreator` role on the managed access-log bucket so
+  Cloud Storage can deliver logs. No logging IAM is created for
+  customer-managed buckets.
 
 - Pinned the managed-GKE Workload Identity binding to the project's own pool:
   `existing_gke_workload_identity_pool` is now genuinely ignored when
@@ -326,6 +736,63 @@ this project adheres to the stability contract in
   15 final verification; Checkov `CKV_GCP_73`).
 
 ### Changed
+
+- `gke_node_max_per_zone` now defaults to `4` (was `2`). With the previous
+  default the module's own replica maxima (`n8n_main_hpa_max_replicas = 20`,
+  `n8n_webhook_hpa_max_replicas = 50`, `n8n_worker_keda_max_replicas = 10`,
+  plus task-runner sidecars) exceeded the estimated capacity of the 6-node
+  pool, so a stock deployment (including `examples/small`) tripped both
+  capacity `check` warnings on every plan and apply, as observed live on
+  2026-09-18. 12 `e2-standard-4` nodes is the smallest ceiling whose
+  estimate covers those maxima; it is an autoscaler ceiling only, so baseline
+  cost is unchanged, but reaching it needs at least 48 vCPUs of regional
+  quota. For an existing deployment this is an in-place `max_node_count`
+  update on the node pool. The capacity estimate now also caps the zone
+  count at 3, GKE's default node locations for a regional pool, instead of
+  counting every zone in the region (a four-zone region such as
+  `us-central1` was overstated by a third), and the warning text no longer
+  suggests the cluster autoscaler can grow past `gke_node_max_per_zone`.
+
+- **Breaking:** the Private Services Access connection
+  (`google_service_networking_connection.psa`) is now abandoned on destroy
+  (`deletion_policy = "ABANDON"`) instead of deleted, and the destroy-time
+  pause that tried to make that delete succeed is removed:
+  `time_sleep.wait_for_psa_cleanup` and the `psa_cleanup_destroy_duration`
+  input are gone. GCP's `connections.delete` API rejects the call with
+  `Producer services ... are still using this connection` for anywhere from
+  minutes to days after Cloud SQL and Memorystore are actually deleted
+  (terraform-provider-google#16275), with no signal for when the release
+  completes, so no fixed pause could make it reliable; a live `examples/small`
+  teardown on 2026-09-17 still stalled there after the 3-minute default.
+  Abandoning does not remove the `servicenetworking-googleapis-com` peering
+  itself. The Google provider and GCP VPC documentation both state that a
+  remaining peering blocks network deletion; a live `examples/small` teardown
+  and a throwaway-VPC check on the same day nevertheless observed the VPC
+  delete succeed with only that peering left. Treat this as observed, not
+  guaranteed: the compute-level `gcloud compute networks peerings delete`
+  recovery stays documented in `README.md` and `docs/destroy-cleanup.md`. On
+  `create_network = false` the peering remains on the caller's VPC while the
+  module-owned PSA range is deleted; `docs/destroy-cleanup.md` covers removal
+  and the re-deploy path. Cloud SQL and Memorystore now depend on the
+  connection directly, so creation ordering is unchanged. A caller passing
+  `psa_cleanup_destroy_duration` must drop it. An existing deployment sees
+  `time_sleep.wait_for_psa_cleanup[0]` destroyed on its next apply; that
+  destroy pauses once for the resource's recorded `destroy_duration` (3m by
+  default) and touches nothing in GCP. Run `terraform apply` once on this
+  version before `terraform destroy`: the provider reads `deletion_policy`
+  from state, so a destroy without an intervening apply still uses the old
+  API-delete behavior.
+
+- **Breaking, minor release only:** managed GKE now uses Dataplane V2
+  (`datapath_provider = "ADVANCED_DATAPATH"`). With Google provider 6.x,
+  upgrading a `LEGACY_DATAPATH` cluster forces replacement and workload
+  downtime. The default is retained intentionally; no managed-path legacy
+  opt-out is provided. A state-address move cannot avoid replacement.
+  Rehearse the migration and review deletion protection, caller-managed
+  Kubernetes objects, and provider reconnection before applying. See
+  [the GKE migration procedure](./docs/upgrading-n8n.md#gke-dataplane-v2-requires-cluster-replacement).
+  Existing Dataplane V2 clusters and customer-managed clusters are unaffected
+  by this datapath setting.
 
 - **Breaking:** `cluster_name` is replaced by `friendly_name_prefix` as the
   naming driver for every Google Cloud resource the module creates. The

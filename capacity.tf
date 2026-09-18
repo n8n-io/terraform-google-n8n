@@ -9,9 +9,11 @@
 # The estimate itself is approximate by design (documented in the `check`
 # error messages below) and only ever emits a warning, never a plan failure.
 
-# Zones available to a regional GKE cluster in gcp_region; a regional cluster
-# schedules across all of them, so the node pool's total capacity scales with
-# this count, not with a single zone.
+# Zones available to a regional GKE cluster in gcp_region. The module sets no
+# node_locations, and GKE replicates a regional node pool across three zones
+# of the region by default (not every zone), so the zone count used for the
+# estimate is capped at 3 below; in a four-zone region such as us-central1 the
+# uncapped count would overstate capacity by a third.
 data "google_compute_zones" "gke" {
   count = var.create_gke ? 1 : 0
 
@@ -33,7 +35,7 @@ data "google_compute_machine_types" "gke" {
 }
 
 locals {
-  capacity_zone_count = var.create_gke ? length(data.google_compute_zones.gke[0].names) : 0
+  capacity_zone_count = var.create_gke ? min(3, length(data.google_compute_zones.gke[0].names)) : 0
 
   capacity_machine_cpu_cores  = var.create_gke ? try(data.google_compute_machine_types.gke[0].machine_types[0].guest_cpus, 0) : 0
   capacity_machine_memory_mib = var.create_gke ? try(data.google_compute_machine_types.gke[0].machine_types[0].memory_mb, 0) : 0
@@ -103,8 +105,12 @@ locals {
 
   # Maximum replica ceiling per role: the scaler's own maximum when the module
   # owns scaling, otherwise the fixed replica count the caller configured
-  # (mirrors the n8n.tf replica-count wiring for each scaler switch).
-  capacity_main_max_replicas    = var.n8n_main_hpa_enabled ? var.n8n_main_hpa_max_replicas : var.n8n_main_fixed_replicas
+  # (mirrors the n8n.tf replica-count wiring for each scaler switch). Main
+  # uses the same effective, single-main-clamped ceiling n8n.tf's main HPA
+  # renders (locals.tf's n8n_effective_main_hpa_max_replicas), so a caller-
+  # configured maximum above 1 does not overstate capacity while single-main
+  # is selected.
+  capacity_main_max_replicas    = var.n8n_main_hpa_enabled ? local.n8n_effective_main_hpa_max_replicas : var.n8n_main_fixed_replicas
   capacity_worker_max_replicas  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_max_replicas : var.n8n_worker_fixed_replicas
   capacity_webhook_max_replicas = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_max_replicas : var.n8n_webhook_fixed_replicas
 
@@ -112,16 +118,25 @@ locals {
   # (n8n.tf taskRunners block), never webhook-processor pods, so their
   # resource requests are added once per main replica and once per worker
   # replica, only while n8n_task_runners_enabled.
+  # The opt-in Redis exporter (observability.tf) runs one fixed-size replica
+  # regardless of any scaler, so its requests add a flat amount rather than
+  # multiplying by a replica ceiling. Matches the resources block in
+  # observability.tf; keep the two in sync.
+  capacity_exporter_cpu_millicores = var.redis_exporter_enabled ? 10 : 0
+  capacity_exporter_memory_mib     = var.redis_exporter_enabled ? 32 : 0
+
   capacity_requested_max_cpu_millicores = (
     local.capacity_main_max_replicas * (local.capacity_cpu_millicores_by_role.main + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
     local.capacity_worker_max_replicas * (local.capacity_cpu_millicores_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
-    local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook
+    local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook +
+    local.capacity_exporter_cpu_millicores
   )
 
   capacity_requested_max_memory_mib = (
     local.capacity_main_max_replicas * (local.capacity_memory_mib_by_role.main + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
     local.capacity_worker_max_replicas * (local.capacity_memory_mib_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
-    local.capacity_webhook_max_replicas * local.capacity_memory_mib_by_role.webhook
+    local.capacity_webhook_max_replicas * local.capacity_memory_mib_by_role.webhook +
+    local.capacity_exporter_memory_mib
   )
 }
 
@@ -140,11 +155,11 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       "Estimated managed GKE node-pool CPU capacity (~", format("%.1f", local.capacity_total_allocatable_cpu_millicores / 1000),
       " allocatable cores across up to ${local.capacity_total_nodes} ${var.gke_node_type} node(s): ",
       "${var.gke_node_max_per_zone} per zone x ${local.capacity_zone_count} zones) is below the CPU the configured ",
-      "main, worker, webhook, and task-runner replica ceilings could request at their maximum (~",
+      "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter, could request at their maximum (~",
       format("%.1f", local.capacity_requested_max_cpu_millicores / 1000), " cores). This is a non-blocking, ",
-      "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool: pods may ",
-      "still schedule if GKE's cluster autoscaler grows beyond gke_node_max_per_zone, or may go Pending if it ",
-      "cannot. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
+      "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster ",
+      "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
+      "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
     ])
   }
 }
@@ -160,11 +175,11 @@ check "gke_capacity_memory_fits_requested_replicas" {
       "Estimated managed GKE node-pool memory capacity (~", format("%.1f", local.capacity_total_allocatable_memory_mib / 1024),
       " allocatable GiB across up to ${local.capacity_total_nodes} ${var.gke_node_type} node(s): ",
       "${var.gke_node_max_per_zone} per zone x ${local.capacity_zone_count} zones) is below the memory the configured ",
-      "main, worker, webhook, and task-runner replica ceilings could request at their maximum (~",
+      "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter, could request at their maximum (~",
       format("%.1f", local.capacity_requested_max_memory_mib / 1024), " GiB). This is a non-blocking, documented ",
-      "estimate (GKE's per-node system-reserve formula), not a live read of the node pool: pods may still schedule ",
-      "if GKE's cluster autoscaler grows beyond gke_node_max_per_zone, or may go Pending if it cannot. Raise ",
-      "gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
+      "estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster autoscaler ",
+      "never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go Pending. ",
+      "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
     ])
   }
 }

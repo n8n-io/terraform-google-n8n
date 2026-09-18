@@ -69,6 +69,10 @@ jobs:
         working-directory: examples/godaddy
         run: terraform-docs --output-check .
 
+      - name: terraform-docs --output-check (examples/split-ingress)
+        working-directory: examples/split-ingress
+        run: terraform-docs --output-check .
+
       - name: terraform-docs --output-check (examples/medium)
         working-directory: examples/medium
         run: terraform-docs --output-check .
@@ -116,6 +120,7 @@ jobs:
             "examples/small",
             "examples/cloudflare",
             "examples/godaddy",
+            "examples/split-ingress",
             "examples/medium",
             "examples/large",
             "examples/customer-managed-cluster",
@@ -162,6 +167,7 @@ jobs:
             "examples/small",
             "examples/cloudflare",
             "examples/godaddy",
+            "examples/split-ingress",
             "examples/medium",
             "examples/large",
             "examples/customer-managed-cluster",
@@ -186,6 +192,25 @@ jobs:
         working-directory: ${{ matrix.target }}
         run: terraform test -verbose
 
+  chart-render:
+    name: n8n chart rendering check
+    runs-on: ubuntu-latest
+    env:
+      # Pinned to the exact Helm CLI version the chart-rendering fixtures in
+      # tests/scripts/check-n8n-chart.sh were authored and verified against
+      # (see the section-1 baseline report). OCI chart pulls only need Helm
+      # 3.8+, but pinning keeps local and CI `helm template` output identical.
+      HELM_VERSION: "v4.3.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: tests/scripts/check-n8n-chart.sh
+        run: tests/scripts/check-n8n-chart.sh
+
   tflint:
     name: tflint (${{ matrix.target }})
     runs-on: ubuntu-latest
@@ -198,6 +223,7 @@ jobs:
             "examples/small",
             "examples/cloudflare",
             "examples/godaddy",
+            "examples/split-ingress",
             "examples/medium",
             "examples/large",
             "examples/customer-managed-cluster",
@@ -239,15 +265,26 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: checkov
-        uses: bridgecrewio/checkov-action@v12
+        # Pinned to the checkov-action release tag whose bundled Docker image
+        # is ghcr.io/bridgecrewio/checkov:3.3.17 (the action has no separate
+        # checkov-version input; its own action.yml bakes in a Checkov tag per
+        # release, so the action ref itself is the pin). Local runs install
+        # the matching `checkov==3.3.17` (e.g. `uv tool install checkov==3.3.17`)
+        # so `checkov -d .` locally and this job agree; see the security
+        # baseline report referenced from CHANGELOG.md for the curated,
+        # remaining-finding-free baseline this version was pinned against.
+        uses: bridgecrewio/checkov-action@v12.3123.0
         with:
           directory: .
           framework: terraform
           quiet: true
-          # Module surfaces low-severity findings (e.g. Cloud SQL deletion
-          # protection, encryption knobs) that are intentional defaults for a
-          # getting-started template. Flip soft_fail to false once we curate
-          # suppressions.
-          soft_fail: true
+          # The curated baseline (parity-matrix.md / security review for
+          # add-google-parity-through-aws-0-4-0) fixes every in-scope finding
+          # and narrowly suppresses the rest via inline checkov:skip comments
+          # on the specific resources involved (see verification-report.md's
+          # section-23 curated run: 110 passed, 0 failed). soft_fail is now
+          # false: an unapproved new finding fails this job. Widening this
+          # back to true requires a documented reason and a follow-up.
+          soft_fail: false
           output_format: cli
           output_file_path: console

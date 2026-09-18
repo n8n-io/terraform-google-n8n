@@ -45,6 +45,27 @@ run "defaults_create_managed_network_resources" {
     error_message = "create_network defaults to true and must create Cloud NAT."
   }
 
+  # CKV_GCP_26: the subnet must always carry VPC Flow Logs.
+  assert {
+    condition     = google_compute_subnetwork.n8n[0].log_config[0].flow_sampling == 0.5
+    error_message = "The module-managed subnet must always enable VPC Flow Logs."
+  }
+
+  # Curated for Checkov's CKV2_GCP_18 (see network.tf's resource comment and
+  # this change's security baseline report): the explicit deny-all-ingress
+  # firewall must exist and stay attached to the module-managed network,
+  # changing no actual allowed traffic (lowest precedence priority, deny-all
+  # direction INGRESS).
+  assert {
+    condition     = length(google_compute_firewall.deny_all_ingress) == 1
+    error_message = "create_network defaults to true and must create the explicit deny-all-ingress firewall."
+  }
+
+  assert {
+    condition     = google_compute_firewall.deny_all_ingress[0].priority == 65534
+    error_message = "The deny-all-ingress firewall must use a low priority so it never overrides a more specific allow rule."
+  }
+
   assert {
     condition     = length(google_compute_global_address.psa) == 1
     error_message = "create_psa defaults to true and must create the PSA range."
@@ -55,9 +76,34 @@ run "defaults_create_managed_network_resources" {
     error_message = "create_psa defaults to true and must create the PSA connection."
   }
 
+  # By default the connection is abandoned, never deleted through the
+  # servicenetworking API, on destroy; see network.tf for why. A regression here
+  # reintroduces the "Producer services ... are still using this connection"
+  # teardown stall on the default path.
   assert {
-    condition     = length(time_sleep.wait_for_psa_cleanup) == 1
-    error_message = "create_psa defaults to true and must create the PSA cleanup delay."
+    condition     = google_service_networking_connection.psa[0].deletion_policy == "ABANDON"
+    error_message = "psa_connection_abandon_on_destroy defaults to true, so the PSA connection must use deletion_policy = ABANDON."
+  }
+}
+
+# ── Callers can opt back into the servicenetworking API delete ───────────────
+
+run "psa_connection_can_opt_into_api_delete" {
+  command = plan
+
+  variables {
+    psa_connection_abandon_on_destroy = false
+  }
+
+  assert {
+    condition     = google_service_networking_connection.psa[0].deletion_policy == null
+    error_message = "psa_connection_abandon_on_destroy = false must leave deletion_policy unset so the provider calls the servicenetworking delete API on destroy."
+  }
+
+  # The input only changes destroy behavior; creation wiring is unchanged.
+  assert {
+    condition     = length(google_service_networking_connection.psa) == 1 && length(google_compute_global_address.psa) == 1
+    error_message = "psa_connection_abandon_on_destroy must not affect whether the PSA range and connection are created."
   }
 }
 
@@ -94,6 +140,11 @@ run "existing_network_creates_no_network_resources" {
     error_message = "create_network = false must not create Cloud NAT."
   }
 
+  assert {
+    condition     = length(google_compute_firewall.deny_all_ingress) == 0
+    error_message = "create_network = false must not create the module-managed deny-all-ingress firewall; the caller owns firewall policy on an existing network."
+  }
+
   # PSA ownership is independent of network ownership; it still defaults to
   # module-managed on an existing network.
   assert {
@@ -127,11 +178,6 @@ run "existing_psa_creates_no_psa_resources" {
     error_message = "create_psa = false must not create a PSA connection."
   }
 
-  assert {
-    condition     = length(time_sleep.wait_for_psa_cleanup) == 0
-    error_message = "create_psa = false must not create the PSA cleanup delay."
-  }
-
   # The module still owns the VPC by default.
   assert {
     condition     = length(google_compute_network.n8n) == 1
@@ -161,8 +207,7 @@ run "existing_network_and_existing_psa_creates_no_network_or_psa_resources" {
       length(google_compute_router.n8n) == 0 &&
       length(google_compute_router_nat.n8n) == 0 &&
       length(google_compute_global_address.psa) == 0 &&
-      length(google_service_networking_connection.psa) == 0 &&
-      length(time_sleep.wait_for_psa_cleanup) == 0
+      length(google_service_networking_connection.psa) == 0
     )
     error_message = "A fully customer-managed network and PSA must create none of the module's network or PSA resources."
   }

@@ -2,6 +2,38 @@
 
 Post-deployment smoke test for `terraform-google-n8n`. Verifies the multi-main deployment is healthy end to end, pod health, queue mode, KEDA, HTTPS, API, and a full webhook → worker execution.
 
+`smoke-test.sh` is read-only inspection. It never drains a Redis queue,
+restarts a Deployment, rotates or reads a Secret's contents, or applies
+infrastructure, whether run manually or from CI. The one exception is the
+opt-in `LOAD_TEST=true` load-generation flag (see
+[Worker scaling test](#worker-scaling-test-opt-in)), which creates and deletes
+a temporary n8n workflow and fires webhook requests; it is off by default and
+never runs in CI. Manual-only runtime scenarios (encryption-key recovery,
+Redis prefix/persistence transitions, license verification, credential
+rotation restarts) are covered by
+[`docs/manual-verification-checklist.md`](../../docs/manual-verification-checklist.md),
+not by this script.
+
+## Chart-rendering regression check (`check-n8n-chart.sh`)
+
+`check-n8n-chart.sh` is a separate, credential-free check that renders the
+pinned n8n Helm chart (`var.n8n_chart_version` / `var.n8n_chart_repository`)
+with a synthetic values fixture and asserts on the rendered Kubernetes
+manifests: replica-count floor seeding on the main/worker/webhook-processor
+Deployments, the `service.annotations` BackendConfig annotation reaching both
+the main and webhook-processor Services, and the four
+`EXECUTIONS_DATA_SAVE_*` env vars. It needs only `helm` on `PATH`, no
+Terraform, no Kubernetes cluster, and no cloud credentials:
+
+```bash
+tests/scripts/check-n8n-chart.sh
+```
+
+This proves the chart renders these value fragments the way the module
+assumes; it is not a live Helm upgrade or a proof of runtime behavior, and it
+does not exercise the module's own Terraform expressions (covered by the
+mocked plan-time `terraform test` suite at the module root).
+
 ## What it covers
 
 | Check | What it verifies |
@@ -18,6 +50,13 @@ Post-deployment smoke test for `terraform-google-n8n`. Verifies the multi-main d
 | API connectivity (if API key set) | `/api/v1/workflows` responds with 200 |
 | Workflow execution (if API key set) | Creates a webhook → set workflow, fires it, confirms success, deletes it |
 | Worker scaling (opt-in) | Queues CPU-burning executions and confirms workers scale up |
+| Main topology | Classifies single-main (`replicas=1`, `Recreate`, PDB `minAvailable=0`) vs multi-main from the live `n8n-main` Deployment/PDB |
+| Redis namespace isolation | Bull queue prefix (`QUEUE_BULL_PREFIX`) and command-channel prefix (`N8N_REDIS_KEY_PREFIX`) match on worker pods |
+| Redis exporter (opt-in) | `redis-exporter` Deployment/Service exist and are ready when `redis_exporter_enabled = true` |
+| Reference-only mounts | Credentials-overwrite file and task-runner custom launcher config are readable when configured (content never read) |
+| Runtime settings | `NODE_OPTIONS` heap ceiling and pod `dnsConfig` reported when configured |
+| License Secret | Managed `n8n-license-secret` Secret exists when `n8n_license_key` is set (existence only, never read) |
+| Additional ingress hostnames | Every `n8n_ingress_hosts` entry responds on `/healthz` |
 
 ## Quick start
 

@@ -49,6 +49,32 @@ run "defaults_create_managed_gcs_resources" {
     condition     = output.gcs_kms_key_id == null
     error_message = "gcs_kms_key_id output must be null when no KMS key is configured."
   }
+
+  # CKV_GCP_62: the binary-data bucket must always log access to a dedicated,
+  # separate access-log bucket (see the security baseline report).
+  assert {
+    condition     = length(google_storage_bucket.n8n_access_logs) == 1
+    error_message = "create_gcs_bucket defaults to true and must create the access-log bucket."
+  }
+
+  assert {
+    condition     = google_storage_bucket.n8n[0].logging[0].log_bucket == google_storage_bucket.n8n_access_logs[0].name
+    error_message = "The binary-data bucket must log access to the dedicated access-log bucket."
+  }
+
+  assert {
+    condition = (
+      google_storage_bucket_iam_member.n8n_access_logs[0].bucket == google_storage_bucket.n8n_access_logs[0].name &&
+      google_storage_bucket_iam_member.n8n_access_logs[0].role == "roles/storage.objectCreator" &&
+      google_storage_bucket_iam_member.n8n_access_logs[0].member == "group:cloud-storage-analytics@google.com"
+    )
+    error_message = "Cloud Storage's logging identity must have objectCreator access scoped to the log destination bucket."
+  }
+
+  assert {
+    condition     = google_storage_bucket.n8n_access_logs[0].versioning[0].enabled == true
+    error_message = "The access-log bucket must also enable versioning (CKV_GCP_78)."
+  }
 }
 
 # ── Existing bucket, managed HMAC identity ────────────────────────────────────
@@ -84,6 +110,16 @@ run "existing_bucket_with_managed_hmac_identity_creates_no_bucket" {
   assert {
     condition     = output.gcs_bucket_name == "external-n8n-bucket"
     error_message = "gcs_bucket_name output must resolve to the supplied existing bucket."
+  }
+
+  assert {
+    condition     = length(google_storage_bucket.n8n_access_logs) == 0
+    error_message = "create_gcs_bucket = false must not create the module-managed access-log bucket; an existing bucket's own access logging is the caller's responsibility."
+  }
+
+  assert {
+    condition     = length(google_storage_bucket_iam_member.n8n_access_logs) == 0
+    error_message = "An existing bucket must receive no module-managed logging IAM grant."
   }
 }
 
@@ -151,6 +187,11 @@ run "managed_bucket_with_byo_hmac_creates_only_bucket_and_iam" {
     condition     = length(google_storage_hmac_key.n8n) == 0
     error_message = "BYO HMAC mode must not create an HMAC key, even for a module-managed bucket."
   }
+
+  assert {
+    condition     = length(google_storage_bucket_iam_member.n8n_access_logs) == 1
+    error_message = "A managed bucket needs log-delivery IAM even when the caller supplies the HMAC identity."
+  }
 }
 
 # ── Cloud KMS create-or-reference ─────────────────────────────────────────────
@@ -190,6 +231,12 @@ run "module_created_gcs_key_wires_key_ring_and_iam" {
       google_project_service_identity.gcs[0].service == "storage.googleapis.com"
     )
     error_message = "A module-created GCS key must materialize the target project's Cloud Storage service agent before granting IAM."
+  }
+
+  # CKV_GCP_43: every module-created CMEK key rotates within 90 days.
+  assert {
+    condition     = google_kms_crypto_key.gcs[0].rotation_period == "7776000s"
+    error_message = "A module-created GCS CryptoKey must rotate every 90 days."
   }
 }
 

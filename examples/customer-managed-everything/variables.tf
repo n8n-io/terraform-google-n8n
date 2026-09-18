@@ -26,6 +26,12 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_main_fixed_replicas" {
+  description = "Fixed replica count for n8n main pods, passed straight through to the module's own n8n_main_fixed_replicas (this example sets n8n_main_hpa_enabled=false, so the caller's own scaler manages main pods and this input only seeds the replica count). Defaults to the module's own default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n_main_hpa_enabled description for the required license edition and maintenance implications."
+  type        = number
+  default     = 2
+}
+
 # ── Network ────────────────────────────────────────────────────────────────
 
 variable "existing_network_name" {

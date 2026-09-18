@@ -75,6 +75,8 @@ if command -v terraform &>/dev/null && [[ -f "$TERRAFORM_DIR/terraform.tfstate" 
   tf_webhook_service=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_webhook_service_name 2>/dev/null || true)
   tf_service_port=$(terraform -chdir="$TERRAFORM_DIR" output -raw n8n_service_port 2>/dev/null || true)
   tf_webhook_route_prefixes=$(terraform -chdir="$TERRAFORM_DIR" output -json n8n_webhook_route_prefixes 2>/dev/null || true)
+  tf_ingress_hosts=$(terraform -chdir="$TERRAFORM_DIR" output -json n8n_ingress_hosts 2>/dev/null || true)
+  tf_redis_exporter_service=$(terraform -chdir="$TERRAFORM_DIR" output -raw redis_exporter_service_name 2>/dev/null || true)
 
   # Only apply if not already set via .env / environment
   NAMESPACE="${NAMESPACE:-$tf_namespace}"
@@ -86,6 +88,8 @@ if command -v terraform &>/dev/null && [[ -f "$TERRAFORM_DIR/terraform.tfstate" 
   N8N_WEBHOOK_SERVICE="${N8N_WEBHOOK_SERVICE:-$tf_webhook_service}"
   N8N_SERVICE_PORT="${N8N_SERVICE_PORT:-$tf_service_port}"
   N8N_WEBHOOK_ROUTE_PREFIXES_JSON="${N8N_WEBHOOK_ROUTE_PREFIXES_JSON:-$tf_webhook_route_prefixes}"
+  N8N_INGRESS_HOSTS_JSON="${N8N_INGRESS_HOSTS_JSON:-$tf_ingress_hosts}"
+  REDIS_EXPORTER_SERVICE="${REDIS_EXPORTER_SERVICE:-$tf_redis_exporter_service}"
 
   echo -e "\033[0;36m↳\033[0m  namespace = ${NAMESPACE:-<not found>}"
   echo -e "\033[0;36m↳\033[0m  n8n_url   = ${N8N_URL:-<not found>}"
@@ -93,9 +97,36 @@ if command -v terraform &>/dev/null && [[ -f "$TERRAFORM_DIR/terraform.tfstate" 
   # Switch kubectl context to the cluster from this Terraform deployment.
   # Required when multiple clusters are configured, avoids running against
   # the wrong cluster if the context was last pointed elsewhere.
+  #
+  # Fail loudly if the switch does not work. Under `set -e` a silent failure
+  # used to abort the script with no message; without `set -e` it would fall
+  # through to whatever context happened to be current, which may be an
+  # unrelated cluster. Both are worse than stopping here.
   if [[ -n "$tf_kubectl_cmd" ]]; then
     echo -e "\033[0;36m↳\033[0m  Switching kubectl context: $tf_kubectl_cmd"
-    eval "$tf_kubectl_cmd" &>/dev/null
+    if ! _switch_output=$(eval "$tf_kubectl_cmd" 2>&1); then
+      echo -e "\033[0;31mERROR: kubectl context switch failed:\033[0m" >&2
+      echo "$_switch_output" | sed 's/^/    /' >&2
+      echo "Re-authenticate first (for example: gcloud auth login), then re-run." >&2
+      exit 1
+    fi
+
+    # Confirm the current context is the GKE one gcloud just wrote for this
+    # cluster (gke_<project>_<location>_<cluster>) before any kubectl call.
+    _expected_ctx=$(echo "$tf_kubectl_cmd" | awk '{
+      for (i = 1; i <= NF; i++) {
+        if ($i == "get-credentials") name = $(i + 1)
+        if ($i == "--region" || $i == "--zone" || $i == "--location") loc = $(i + 1)
+        if ($i == "--project") proj = $(i + 1)
+      }
+      if (name != "" && loc != "" && proj != "") printf "gke_%s_%s_%s", proj, loc, name
+    }')
+    _current_ctx=$(kubectl config current-context 2>/dev/null || true)
+    if [[ -n "$_expected_ctx" && "$_current_ctx" != "$_expected_ctx" ]]; then
+      echo -e "\033[0;31mERROR: kubectl current-context is '$_current_ctx', expected '$_expected_ctx'. Refusing to run against another cluster.\033[0m" >&2
+      exit 1
+    fi
+    echo -e "\033[0;36m↳\033[0m  kubectl context = ${_current_ctx}"
   fi
 
   echo ""
@@ -120,6 +151,8 @@ N8N_MAIN_SERVICE="${N8N_MAIN_SERVICE:-}"
 N8N_WEBHOOK_SERVICE="${N8N_WEBHOOK_SERVICE:-}"
 N8N_SERVICE_PORT="${N8N_SERVICE_PORT:-}"
 N8N_WEBHOOK_ROUTE_PREFIXES_JSON="${N8N_WEBHOOK_ROUTE_PREFIXES_JSON:-}"
+N8N_INGRESS_HOSTS_JSON="${N8N_INGRESS_HOSTS_JSON:-}"
+REDIS_EXPORTER_SERVICE="${REDIS_EXPORTER_SERVICE:-}"
 
 # Multi-mode optional load test settings
 LOAD_TEST="${LOAD_TEST:-false}"
@@ -1303,6 +1336,188 @@ else
     fi
   else
     skip "Webhook route prefix checks (n8n_webhook_route_prefixes output or python3 not available)"
+  fi
+fi
+
+# ── New contracts (add-google-parity-through-aws-0-4-0) ───────────────────────
+#
+# Read-only inspection of the runtime contracts this change added: main
+# topology, Redis namespace isolation, the opt-in Redis exporter,
+# reference-only Secret/ConfigMap mounts, the V8 heap ceiling, pod DNS, and
+# additional ingress hostnames. None of these checks drain queues, restart
+# deployments, rotate credentials, or apply infrastructure; they only read
+# already-running objects. Each skips cleanly when its prerequisite output,
+# pod, or tooling is unavailable.
+
+header "Main Topology"
+
+main_pod=$(kubectl get pods -n "$NAMESPACE" \
+  -l "app.kubernetes.io/component=main" \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+if ! kubectl get deployment n8n-main -n "$NAMESPACE" &>/dev/null; then
+  skip "Main topology check (n8n-main deployment not found)"
+else
+  main_replicas=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+  main_strategy=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "")
+  main_pdb_min=$(kubectl get pdb -n "$NAMESPACE" --no-headers 2>/dev/null \
+    | awk 'tolower($1) ~ /main/ {print $1, $3; exit}')
+
+  if [[ "$main_replicas" -eq 1 && "$main_strategy" == "Recreate" ]]; then
+    pass "Single-main topology detected: n8n-main replicas=1, strategy=Recreate"
+    if [[ -n "$main_pdb_min" ]]; then
+      main_pdb_min_value=$(echo "$main_pdb_min" | awk '{print $2}')
+      if [[ "$main_pdb_min_value" == "0" ]]; then
+        pass "Main PodDisruptionBudget minAvailable=0 (expected for single-main)"
+      else
+        warn "Main PodDisruptionBudget minAvailable='$main_pdb_min_value' (expected 0 for single-main)"
+      fi
+    else
+      info "Could not identify a main PodDisruptionBudget by name, inspect manually: kubectl get pdb -n $NAMESPACE"
+    fi
+    info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
+  elif [[ "$main_replicas" -gt 1 ]]; then
+    pass "Multi-main topology detected: n8n-main replicas=$main_replicas, strategy=${main_strategy:-<default>}"
+    if [[ -n "$main_pod" ]]; then
+      multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
+        -- printenv N8N_MULTI_MAIN_SETUP_ENABLED 2>/dev/null || echo "")
+      if [[ "$multi_main" == "true" ]]; then
+        pass "N8N_MULTI_MAIN_SETUP_ENABLED=true on main pods"
+      else
+        warn "N8N_MULTI_MAIN_SETUP_ENABLED is not 'true' on a multi-replica main deployment (got: '${multi_main:-<unset>}')"
+      fi
+    fi
+  else
+    info "n8n-main replicas=$main_replicas, strategy=${main_strategy:-<unknown>} (unable to classify topology)"
+  fi
+fi
+
+header "Redis Namespace Isolation"
+
+worker_pod=$(kubectl get pods -n "$NAMESPACE" \
+  -l "app.kubernetes.io/component=worker" \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+
+if [[ -z "$worker_pod" ]]; then
+  skip "Redis command-channel/Bull prefix check (no running worker pod found)"
+else
+  bull_prefix=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
+    -- sh -c 'printenv QUEUE_BULL_PREFIX 2>/dev/null || true')
+  command_prefix=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
+    -- sh -c 'printenv N8N_REDIS_KEY_PREFIX 2>/dev/null || true')
+
+  if [[ -z "$bull_prefix" && -z "$command_prefix" ]]; then
+    info "No custom redis_key_prefix configured, n8n uses its own defaults (command prefix 'n8n', Bull prefix 'bull')"
+  elif [[ "$bull_prefix" == "$command_prefix" ]]; then
+    pass "Bull queue prefix and command-channel prefix match: '$bull_prefix'"
+  else
+    fail "Bull queue prefix ('${bull_prefix:-<unset>}') and command-channel prefix ('${command_prefix:-<unset>}') differ, expected redis_key_prefix to set both"
+  fi
+fi
+
+header "Redis Exporter"
+
+if [[ -z "$REDIS_EXPORTER_SERVICE" ]]; then
+  skip "Redis exporter check (redis_exporter_service_name output is null, redis_exporter_enabled = false)"
+else
+  if kubectl get service "$REDIS_EXPORTER_SERVICE" -n "$NAMESPACE" &>/dev/null; then
+    pass "Redis exporter Service '$REDIS_EXPORTER_SERVICE' exists"
+  else
+    fail "Redis exporter Service '$REDIS_EXPORTER_SERVICE' not found, but redis_exporter_service_name output is set"
+  fi
+
+  if kubectl get deployment redis-exporter -n "$NAMESPACE" &>/dev/null; then
+    exporter_ready=$(kubectl get deployment redis-exporter -n "$NAMESPACE" \
+      -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    exporter_ready="${exporter_ready:-0}"
+    if [[ "$exporter_ready" -ge 1 ]]; then
+      pass "Redis exporter deployment ready ($exporter_ready/1)"
+    else
+      fail "Redis exporter deployment not ready (0/1)"
+    fi
+  else
+    fail "Redis exporter Deployment 'redis-exporter' not found"
+  fi
+  info "Metrics endpoint and TLS trust are not probed automatically; verify manually with:"
+  info "  kubectl port-forward -n $NAMESPACE svc/$REDIS_EXPORTER_SERVICE 9121:9121 && curl -s localhost:9121/metrics"
+fi
+
+header "Reference-Only Mounts and Runtime Settings"
+
+if [[ -n "$main_pod" ]]; then
+  overwrite_file=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
+    -- sh -c 'printenv CREDENTIALS_OVERWRITE_DATA_FILE 2>/dev/null || true')
+  if [[ -n "$overwrite_file" ]]; then
+    if kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
+        -- sh -c "test -r '$overwrite_file'" &>/dev/null; then
+      pass "Credentials-overwrite file readable at '$overwrite_file' (content not inspected)"
+    else
+      fail "CREDENTIALS_OVERWRITE_DATA_FILE='$overwrite_file' set but not readable in n8n-main, check n8n_credentials_overwrite_secret_ref"
+    fi
+  else
+    info "n8n_credentials_overwrite_secret_ref not configured (CREDENTIALS_OVERWRITE_DATA_FILE unset)"
+  fi
+
+  runner_config_volume=$(kubectl get pod "$main_pod" -n "$NAMESPACE" \
+    -o jsonpath='{.spec.volumes[?(@.name=="task-runner-config")].configMap.name}' 2>/dev/null || true)
+  if [[ -n "$runner_config_volume" ]]; then
+    pass "Task-runner custom launcher configuration mounted from ConfigMap '$runner_config_volume' (volume 'task-runner-config')"
+  else
+    info "n8n_task_runner_custom_config not configured (no 'task-runner-config' volume on n8n-main)"
+  fi
+
+  heap_ceiling=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
+    -- sh -c 'printenv NODE_OPTIONS 2>/dev/null || true')
+  if [[ -n "$heap_ceiling" ]]; then
+    pass "NODE_OPTIONS set on n8n-main: $heap_ceiling"
+  else
+    info "n8n_node_max_old_space_size_mb not configured (NODE_OPTIONS unset)"
+  fi
+
+  dns_search=$(kubectl get pod "$main_pod" -n "$NAMESPACE" \
+    -o jsonpath='{.spec.dnsConfig}' 2>/dev/null || true)
+  if [[ -n "$dns_search" && "$dns_search" != "{}" && "$dns_search" != "map[]" ]]; then
+    pass "Pod dnsConfig present on n8n-main: $dns_search"
+  else
+    info "n8n_dns_config not configured (no custom pod dnsConfig)"
+  fi
+else
+  skip "Reference-only mount and runtime setting checks (no running main pod found)"
+fi
+
+if kubectl get secret n8n-license-secret -n "$NAMESPACE" &>/dev/null; then
+  pass "Managed license Secret 'n8n-license-secret' exists (n8n_license_key delivered by reference, no literal key in Helm values)"
+else
+  info "Secret 'n8n-license-secret' not found (expected when n8n_license_key is unset or n8n_license_key_secret_ref is used instead)"
+fi
+
+header "Additional Ingress Hostnames"
+
+if [[ -z "$N8N_INGRESS_HOSTS_JSON" ]]; then
+  skip "Additional hostname reachability (n8n_ingress_hosts output not available)"
+elif ! command -v python3 &>/dev/null; then
+  skip "Additional hostname reachability (python3 not available)"
+else
+  ingress_hosts=$(echo "$N8N_INGRESS_HOSTS_JSON" \
+    | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)))" 2>/dev/null || true)
+  if [[ -z "$ingress_hosts" ]]; then
+    skip "Additional hostname reachability (no hostnames in n8n_ingress_hosts)"
+  else
+    while IFS= read -r host; do
+      [[ -z "$host" ]] && continue
+      host_status=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "https://${host}/healthz" || echo "000")
+      if [[ "$host_status" == "200" ]]; then
+        pass "Hostname '$host' /healthz returned HTTP 200"
+      elif [[ "$host_status" == "000" ]]; then
+        warn "Hostname '$host' unreachable (connection failed); verify DNS/certificate coverage for this alias"
+      else
+        warn "Hostname '$host' /healthz returned HTTP $host_status (expected 200)"
+      fi
+    done <<< "$ingress_hosts"
   fi
 fi
 

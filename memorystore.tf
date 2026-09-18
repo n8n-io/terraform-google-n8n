@@ -15,8 +15,23 @@
 # (keda.tf) needs a TriggerAuthentication CRD, which locals.tf's
 # manage_redis_trigger_auth already accounts for.
 
+# Curated Checkov exceptions for this instance:
+#
+# CKV_GCP_97 (in-transit encryption): transit_encryption_mode defaults to
+# DISABLED, matching n8n's own default unencrypted Redis client behavior over
+# a private VPC connection; redis_transit_encryption_enabled lets an operator
+# turn this on without any code change (see the file-level comment and
+# manage_redis_trigger_auth in locals.tf, which already accounts for the
+# resulting KEDA TriggerAuthentication requirement).
+#
+# CKV_GCP_95 (AUTH): auth_enabled defaults to false, matching n8n's own
+# default unauthenticated Redis client behavior; redis_auth_enabled lets an
+# operator turn this on the same way as transit encryption above.
 resource "google_redis_instance" "n8n" {
   count = var.create_redis_instance ? 1 : 0
+
+  # checkov:skip=CKV_GCP_97: intentional, opt-in via redis_transit_encryption_enabled, see resource comment above.
+  # checkov:skip=CKV_GCP_95: intentional, opt-in via redis_auth_enabled, see resource comment above.
 
   name           = "${local.name_prefix}-redis"
   project        = var.project_id
@@ -33,11 +48,22 @@ resource "google_redis_instance" "n8n" {
 
   labels = local.gcp_labels
 
-  # Depending on the time_sleep (not the connection directly) also delays the
-  # peering's destruction until after this instance is gone; see network.tf.
-  # Also wait for the module-created key's IAM grant (kms.tf).
+  # Opt-in RDB persistence (redis_persistence_enabled): Memorystore's own
+  # automatic last-snapshot recovery, not a numbered backup-retention count.
+  # Explicit DISABLED is required to turn off previously enabled persistence:
+  # omitting this optional/computed block preserves the provider's prior state.
+  persistence_config {
+    persistence_mode        = var.redis_persistence_enabled ? "RDB" : "DISABLED"
+    rdb_snapshot_period     = var.redis_persistence_enabled ? var.redis_rdb_snapshot_period : null
+    rdb_snapshot_start_time = var.redis_persistence_enabled ? var.redis_rdb_snapshot_start_time : null
+  }
+
+  # Private IP requires the PSA peering to exist first (network.tf; the
+  # connection is abandoned rather than deleted on destroy, so no ordering
+  # against its teardown is needed). Also wait for the module-created key's
+  # IAM grant (kms.tf).
   depends_on = [
-    time_sleep.wait_for_psa_cleanup,
+    google_service_networking_connection.psa,
     google_kms_crypto_key_iam_member.redis,
   ]
 }

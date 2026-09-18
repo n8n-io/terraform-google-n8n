@@ -21,8 +21,8 @@ output "lb_ingress_ip" {
 # ── Secrets (retrieve with terraform output -raw <name>) ──────────────────────
 
 output "n8n_encryption_key" {
-  description = "n8n encryption key. Back this up; losing it makes all stored credentials unreadable. Null when existing_n8n_core_secret_name supplies an existing core Secret; the module generates and reads no encryption key on that path."
-  value       = local.manage_core_secret ? random_id.n8n_encryption_key[0].hex : null
+  description = "n8n encryption key: the direct n8n_encryption_key when supplied, else the generated key. Back this up; losing it makes all stored credentials unreadable. Null when existing_n8n_core_secret_name supplies an existing core Secret; the module generates and reads no encryption key on that path."
+  value       = local.effective_encryption_key
   sensitive   = true
 }
 
@@ -92,6 +92,11 @@ output "redis_username" {
 output "redis_kms_key_id" {
   description = "Effective Cloud KMS key ID protecting the module-managed Memorystore instance: the module-created key, the supplied existing_redis_kms_key_id, or null for Google-managed encryption. Always null when create_redis_instance = false."
   value       = var.create_redis_instance ? local.effective_redis_kms_key_id : null
+}
+
+output "redis_exporter_service_name" {
+  description = "Kubernetes Service name exposing the opt-in Redis exporter's metrics port (9121), for a caller-managed ServiceMonitor or scrape config. Null when redis_exporter_enabled = false."
+  value       = var.redis_exporter_enabled ? kubernetes_service_v1.redis_exporter[0].metadata[0].name : null
 }
 
 output "gcs_bucket_name" {
@@ -177,4 +182,9 @@ output "n8n_main_route_prefixes" {
 output "n8n_webhook_route_prefixes" {
   description = "Path prefixes that must route to n8n_webhook_service_name: /webhook, /webhook-waiting, /form, /form-waiting, and /mcp."
   value       = local.effective_webhook_route_prefixes
+}
+
+output "n8n_ingress_hosts" {
+  description = "Effective hostnames n8n serves the full main/webhook route set on: n8n_fqdn followed by every configured n8n_additional_domains entry, normalized to lowercase. Populated the same way regardless of create_ingress, so a customer-managed ingress can route the same hostnames the module would."
+  value       = local.n8n_effective_ingress_hosts
 }

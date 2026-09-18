@@ -33,6 +33,12 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_image_tag" {
+  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's floating `stable` tag, which resolves to whatever n8n version is current when each pod starts. Pin a concrete version (for example \"2.39.7\") for reproducible deployments and controlled upgrades."
+  type        = string
+  default     = null
+}
+
 variable "cloud_dns_zone_name" {
   description = "Google Cloud DNS managed-zone name for n8n_fqdn. Empty means you manage the A-record yourself against the static_ip output."
   type        = string
@@ -104,10 +110,28 @@ variable "gke_node_max_per_zone" {
   default     = 5
 }
 
+variable "gke_node_disk_size_gb" {
+  description = "Node boot disk size in GB, passed straight through to the module. Defaults to the module's own default of 100."
+  type        = number
+  default     = 100
+}
+
+variable "gke_node_disk_type" {
+  description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd), passed straight through to the module. Defaults to the module's own default of pd-balanced."
+  type        = string
+  default     = "pd-balanced"
+}
+
 variable "n8n_worker_concurrency" {
   description = "Concurrent executions per worker pod."
   type        = number
   default     = 15
+}
+
+variable "db_postgresdb_pool_size" {
+  description = "Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10, which already covers this tier's rule-of-thumb floor of n8n_worker_concurrency / 4 (15 / 4 = 3.75); raise it only after a load test shows pool exhaustion."
+  type        = number
+  default     = 10
 }
 
 variable "n8n_worker_keda_min_replicas" {
@@ -120,6 +144,13 @@ variable "n8n_worker_keda_max_replicas" {
   description = "KEDA worker ceiling (pair with gke_node_max_per_zone)."
   type        = number
   default     = 30
+}
+
+variable "n8n_main_hpa_min_replicas" {
+  description = "Main-pod HPA floor, passed straight through to the module. Defaults to the module's own default of 2 (multi-main) so this tier's sizing does not silently diverge; set to 1 for single-main queue mode instead (see the module's n8n_main_hpa_enabled description for licensing and maintenance implications)."
+  type        = number
+  default     = 2
+  nullable    = false
 }
 
 variable "n8n_webhook_hpa_min_replicas" {

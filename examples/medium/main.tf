@@ -18,6 +18,7 @@ module "n8n" {
   n8n_fqdn             = var.n8n_fqdn
 
   n8n_license_key = var.n8n_license_key
+  n8n_image_tag   = var.n8n_image_tag
   gcs_location    = var.gcs_location
 
   # Set true only if your creds have org-policy admin (see variable docs).
@@ -35,10 +36,15 @@ module "n8n" {
   gke_node_type         = var.gke_node_type
   gke_node_min_per_zone = var.gke_node_min_per_zone
   gke_node_max_per_zone = var.gke_node_max_per_zone
+  gke_node_disk_size_gb = var.gke_node_disk_size_gb
+  gke_node_disk_type    = var.gke_node_disk_type
+
+  db_postgresdb_pool_size = var.db_postgresdb_pool_size
 
   n8n_worker_concurrency       = var.n8n_worker_concurrency
   n8n_worker_keda_min_replicas = var.n8n_worker_keda_min_replicas
   n8n_worker_keda_max_replicas = var.n8n_worker_keda_max_replicas
+  n8n_main_hpa_min_replicas    = var.n8n_main_hpa_min_replicas
   n8n_webhook_hpa_min_replicas = var.n8n_webhook_hpa_min_replicas
   n8n_webhook_hpa_max_replicas = var.n8n_webhook_hpa_max_replicas
 

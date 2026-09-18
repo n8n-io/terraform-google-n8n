@@ -83,7 +83,11 @@ resource "kubectl_manifest" "managed_certificate" {
       namespace = local.effective_namespace
     }
     spec = {
-      domains = [var.n8n_fqdn]
+      # Every effective ingress host (task 20.2: n8n_fqdn plus every
+      # n8n_additional_domains entry); n8n_additional_domains's own
+      # validation caps the total at 100 domains, Google's ManagedCertificate
+      # limit per certificate.
+      domains = local.n8n_effective_ingress_hosts
     }
   })
 

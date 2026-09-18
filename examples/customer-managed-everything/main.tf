@@ -73,6 +73,7 @@ module "n8n" {
 
   # ── Autoscaling ownership: caller owns every scaler ────────────────────────
   n8n_main_hpa_enabled    = false
+  n8n_main_fixed_replicas = var.n8n_main_fixed_replicas
   n8n_webhook_hpa_enabled = false
   n8n_worker_keda_enabled = false
 

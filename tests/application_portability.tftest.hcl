@@ -248,6 +248,585 @@ run "custom_image_without_matching_task_runner_tag_triggers_check_warning" {
   expect_failures = [check.custom_image_tag_requires_task_runner_tag]
 }
 
+# ── Task runner execution timeout (section 12) ────────────────────────────────
+
+run "task_runner_timeout_defaults_to_300" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_task_runner_timeout == 300
+    error_message = "n8n_task_runner_timeout should default to 300 seconds."
+  }
+}
+
+run "task_runner_timeout_and_request_timeout_accept_distinct_explicit_values" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout         = 120
+    n8n_task_runner_request_timeout = 45
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_timeout == 120 && var.n8n_task_runner_request_timeout == 45
+    error_message = "n8n_task_runner_timeout (execution) and n8n_task_runner_request_timeout (acceptance) should accept distinct explicit values independently."
+  }
+}
+
+run "task_runner_timeout_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout = 0
+  }
+
+  expect_failures = [var.n8n_task_runner_timeout]
+}
+
+run "task_runner_timeout_rejects_negative" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout = -1
+  }
+
+  expect_failures = [var.n8n_task_runner_timeout]
+}
+
+run "task_runner_timeout_rejects_fraction" {
+  command = plan
+
+  variables {
+    n8n_task_runner_timeout = 60.5
+  }
+
+  expect_failures = [var.n8n_task_runner_timeout]
+}
+
+run "extra_env_rejects_task_runner_timeout_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_RUNNERS_TASK_TIMEOUT", value = "999" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+# ── Task runner custom launcher configuration (section 12) ───────────────────
+
+run "task_runner_custom_config_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config == null
+    error_message = "n8n_task_runner_custom_config should default to null so the chart's built-in launcher configuration applies."
+  }
+}
+
+run "task_runner_custom_config_accepts_valid_reference" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+    }
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config.config_map_name == "n8n-runner-launcher"
+    error_message = "n8n_task_runner_custom_config.config_map_name should accept a valid ConfigMap name."
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config.config_map_key == "n8n-task-runners.json"
+    error_message = "n8n_task_runner_custom_config.config_map_key should default to n8n-task-runners.json."
+  }
+}
+
+run "task_runner_custom_config_accepts_custom_key" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+      config_map_key  = "launcher-config.json"
+    }
+  }
+
+  assert {
+    condition     = var.n8n_task_runner_custom_config.config_map_key == "launcher-config.json"
+    error_message = "n8n_task_runner_custom_config.config_map_key should accept an explicit key."
+  }
+}
+
+run "task_runner_custom_config_rejects_invalid_config_map_name" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "Invalid_Name"
+    }
+  }
+
+  expect_failures = [var.n8n_task_runner_custom_config]
+}
+
+run "task_runner_custom_config_rejects_invalid_config_map_key" {
+  command = plan
+
+  variables {
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+      config_map_key  = "invalid key!"
+    }
+  }
+
+  expect_failures = [var.n8n_task_runner_custom_config]
+}
+
+run "task_runner_custom_config_requires_task_runners_enabled" {
+  command = plan
+
+  variables {
+    n8n_task_runners_enabled = false
+    n8n_task_runner_custom_config = {
+      config_map_name = "n8n-runner-launcher"
+    }
+  }
+
+  expect_failures = [var.n8n_task_runner_custom_config]
+}
+
+# ── Pod DNS (n8n_dns_config, section 13) ───────────────────────────────────────
+# Plan-time variable-contract assertions only, per AGENTS.md's documented mock
+# provider limitation: helm_release.values is unknown at plan time, so the
+# rendered dnsConfig cannot be asserted on here.
+
+run "dns_config_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_dns_config == null
+    error_message = "n8n_dns_config must default to null so Kubernetes' own DNS defaults apply unless a caller opts in."
+  }
+
+  assert {
+    condition     = local.n8n_dns_config == null
+    error_message = "local.n8n_dns_config must resolve to null when the variable is unset, so the dnsConfig key is omitted entirely rather than rendering an empty map."
+  }
+}
+
+run "dns_config_empty_object_resolves_to_null" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {}
+  }
+
+  assert {
+    condition     = local.n8n_dns_config == null
+    error_message = "local.n8n_dns_config must collapse an empty object (all attributes unset) to null, so the dnsConfig key is omitted from the Helm values entirely rather than rendering `dnsConfig: {}`."
+  }
+}
+
+run "dns_config_accepts_an_ndots_override" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      options = [{ name = "ndots", value = "1" }]
+    }
+  }
+
+  assert {
+    condition     = local.n8n_dns_config.options[0].name == "ndots" && local.n8n_dns_config.options[0].value == "1"
+    error_message = "local.n8n_dns_config must carry through a valid ndots option unchanged."
+  }
+
+  assert {
+    condition     = !contains(keys(local.n8n_dns_config), "nameservers") && !contains(keys(local.n8n_dns_config), "searches")
+    error_message = "local.n8n_dns_config must omit nameservers/searches keys entirely when unset, not render them as null: the chart's bare toYaml would emit `nameservers: null`, which the Kubernetes API server rejects."
+  }
+}
+
+run "dns_config_accepts_ipv4_and_ipv6_nameservers" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      nameservers = ["10.0.0.2", "fd00:10::a"]
+    }
+  }
+
+  assert {
+    condition     = length(local.n8n_dns_config.nameservers) == 2
+    error_message = "local.n8n_dns_config must carry through valid IPv4 and IPv6 nameservers unchanged."
+  }
+}
+
+run "dns_config_rejects_a_non_ip_nameserver" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      nameservers = ["dns.example.com"]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_a_fourth_nameserver" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      nameservers = ["10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_accepts_valid_search_domains" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      searches = ["n8n.svc.cluster.local", "svc.cluster.local", "example.com"]
+    }
+  }
+
+  assert {
+    condition     = length(local.n8n_dns_config.searches) == 3
+    error_message = "local.n8n_dns_config must carry through a valid searches list unchanged."
+  }
+}
+
+run "dns_config_rejects_more_than_thirty_two_search_domains" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      searches = [for i in range(33) : "search-${i}.example.com"]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_an_oversized_search_list" {
+  command = plan
+
+  variables {
+    # 30 entries of ~241 valid characters each joins to roughly 7,200, well past
+    # the 2048-character ceiling, while staying under the 32-entry limit and the
+    # 253-character per-entry limit so this run pins the joined-length branch
+    # rather than the count or syntax branches.
+    n8n_dns_config = {
+      searches = [for i in range(30) : "${i}.${join(".", [for j in range(24) : "abcdefghi"])}"]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_a_malformed_search_domain" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      searches = ["Example.COM"]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_relaxed_only_search_shapes" {
+  command = plan
+
+  variables {
+    # This module validates to the stricter grammar every supported GKE
+    # release admits at pod-spec admission, not the relaxed rules
+    # (RelaxedDNSSearchValidation) that only reached GA in Kubernetes 1.34: a
+    # bare "." and an underscore-containing domain must both fail here even
+    # though a 1.34+ cluster's API server would itself accept them.
+    n8n_dns_config = {
+      searches = [".", "_msdcs.corp.example.com"]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_duplicate_option_names" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      options = [
+        { name = "ndots", value = "1" },
+        { name = "ndots", value = "2" },
+      ]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_a_non_numeric_ndots_value" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      options = [{ name = "ndots", value = "many" }]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_an_out_of_range_ndots_value" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      options = [{ name = "ndots", value = "16" }]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_ndots_without_a_value" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      options = [{ name = "ndots" }]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+run "dns_config_rejects_a_fractional_ndots_value" {
+  command = plan
+
+  variables {
+    n8n_dns_config = {
+      options = [{ name = "ndots", value = "1.5" }]
+    }
+  }
+
+  expect_failures = [var.n8n_dns_config]
+}
+
+# ── V8 heap ceiling (n8n_node_max_old_space_size_mb, section 14) ─────────────
+
+run "node_max_old_space_size_mb_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_node_max_old_space_size_mb == null
+    error_message = "n8n_node_max_old_space_size_mb should default to null so Node's own heap heuristic applies."
+  }
+}
+
+run "node_max_old_space_size_mb_accepts_explicit_value" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 512
+  }
+
+  assert {
+    condition     = var.n8n_node_max_old_space_size_mb == 512
+    error_message = "n8n_node_max_old_space_size_mb should accept an explicit whole-MiB value."
+  }
+}
+
+run "node_max_old_space_size_mb_rejects_below_minimum" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 255
+  }
+
+  expect_failures = [var.n8n_node_max_old_space_size_mb]
+}
+
+run "node_max_old_space_size_mb_rejects_fraction" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 256.5
+  }
+
+  expect_failures = [var.n8n_node_max_old_space_size_mb]
+}
+
+run "node_max_old_space_size_mb_null_leaves_existing_node_options_escape_hatch_accepted" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "NODE_OPTIONS", value = "--max-old-space-size=768" },
+    ]
+  }
+
+  assert {
+    condition     = length(var.n8n_extra_env) == 1
+    error_message = "NODE_OPTIONS set through n8n_extra_env should remain accepted while n8n_node_max_old_space_size_mb is null."
+  }
+}
+
+run "node_max_old_space_size_mb_rejects_conflicting_extra_env_node_options" {
+  command = plan
+
+  variables {
+    n8n_node_max_old_space_size_mb = 512
+    n8n_extra_env = [
+      { name = "NODE_OPTIONS", value = "--max-old-space-size=999" },
+    ]
+  }
+
+  expect_failures = [var.n8n_node_max_old_space_size_mb]
+}
+
+# ── Community registry and security-related runtime controls (section 15) ───
+
+run "community_packages_registry_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_community_packages_registry == null
+    error_message = "n8n_community_packages_registry should default to null so n8n's own registry default applies."
+  }
+}
+
+run "community_packages_registry_accepts_valid_https_url" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = "https://registry.internal.example.com/npm"
+  }
+
+  assert {
+    condition     = var.n8n_community_packages_registry == "https://registry.internal.example.com/npm"
+    error_message = "n8n_community_packages_registry should accept a valid HTTPS URL."
+  }
+}
+
+run "community_packages_registry_rejects_blank" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = ""
+  }
+
+  expect_failures = [var.n8n_community_packages_registry]
+}
+
+run "community_packages_registry_rejects_non_https_scheme" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = "http://registry.internal.example.com/npm"
+  }
+
+  expect_failures = [var.n8n_community_packages_registry]
+}
+
+run "community_packages_registry_rejects_embedded_credentials" {
+  command = plan
+
+  variables {
+    n8n_community_packages_registry = "https://user:pass@registry.internal.example.com/npm"
+  }
+
+  expect_failures = [var.n8n_community_packages_registry]
+}
+
+run "unverified_packages_enabled_defaults_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_unverified_packages_enabled == null
+    error_message = "n8n_unverified_packages_enabled should default to null so n8n's own upstream default applies."
+  }
+}
+
+run "unverified_packages_enabled_accepts_explicit_false" {
+  command = plan
+
+  variables {
+    n8n_unverified_packages_enabled = false
+  }
+
+  assert {
+    condition     = var.n8n_unverified_packages_enabled == false
+    error_message = "n8n_unverified_packages_enabled should accept and preserve an explicit false, distinct from the null default."
+  }
+}
+
+run "compression_limits_default_to_null" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_compression_max_decompressed_size_bytes == null && var.n8n_compression_max_zip_entries == null
+    error_message = "Compression limits should default to null so n8n's own upstream defaults apply."
+  }
+}
+
+run "compression_limits_accept_explicit_values" {
+  command = plan
+
+  variables {
+    n8n_compression_max_decompressed_size_bytes = 1073741824
+    n8n_compression_max_zip_entries             = 10000
+  }
+
+  assert {
+    condition     = var.n8n_compression_max_decompressed_size_bytes == 1073741824 && var.n8n_compression_max_zip_entries == 10000
+    error_message = "Compression limits should accept explicit positive whole values."
+  }
+}
+
+run "compression_max_decompressed_size_bytes_rejects_zero" {
+  command = plan
+
+  variables {
+    n8n_compression_max_decompressed_size_bytes = 0
+  }
+
+  expect_failures = [var.n8n_compression_max_decompressed_size_bytes]
+}
+
+run "compression_max_decompressed_size_bytes_rejects_fraction" {
+  command = plan
+
+  variables {
+    n8n_compression_max_decompressed_size_bytes = 100.5
+  }
+
+  expect_failures = [var.n8n_compression_max_decompressed_size_bytes]
+}
+
+run "compression_max_zip_entries_rejects_negative" {
+  command = plan
+
+  variables {
+    n8n_compression_max_zip_entries = -1
+  }
+
+  expect_failures = [var.n8n_compression_max_zip_entries]
+}
+
 # ── Custom extensions path ────────────────────────────────────────────────────
 
 run "custom_extensions_path_defaults_to_null" {
@@ -462,6 +1041,92 @@ run "extra_env_rejects_node_extra_ca_certs_name" {
   variables {
     n8n_extra_env = [
       { name = "NODE_EXTRA_CA_CERTS", value = "/tmp/unmanaged-ca.crt" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_community_packages_registry_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_COMMUNITY_PACKAGES_REGISTRY", value = "https://evil.example.com/npm" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_unverified_packages_enabled_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_UNVERIFIED_PACKAGES_ENABLED", value = "true" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_compression_max_decompressed_size_bytes_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES", value = "1" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_compression_max_zip_entries_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES", value = "1" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+# ── Canonical URL reserved names (section 19) ──────────────────────────
+
+run "extra_env_rejects_webhook_url_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "WEBHOOK_URL", value = "https://evil.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_n8n_webhook_url_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_WEBHOOK_URL", value = "https://evil.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "extra_env_rejects_editor_base_url_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_EDITOR_BASE_URL", value = "https://evil.example.com" },
     ]
   }
 
