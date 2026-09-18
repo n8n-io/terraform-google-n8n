@@ -97,9 +97,36 @@ if command -v terraform &>/dev/null && [[ -f "$TERRAFORM_DIR/terraform.tfstate" 
   # Switch kubectl context to the cluster from this Terraform deployment.
   # Required when multiple clusters are configured, avoids running against
   # the wrong cluster if the context was last pointed elsewhere.
+  #
+  # Fail loudly if the switch does not work. Under `set -e` a silent failure
+  # used to abort the script with no message; without `set -e` it would fall
+  # through to whatever context happened to be current, which may be an
+  # unrelated cluster. Both are worse than stopping here.
   if [[ -n "$tf_kubectl_cmd" ]]; then
     echo -e "\033[0;36m↳\033[0m  Switching kubectl context: $tf_kubectl_cmd"
-    eval "$tf_kubectl_cmd" &>/dev/null
+    if ! _switch_output=$(eval "$tf_kubectl_cmd" 2>&1); then
+      echo -e "\033[0;31mERROR: kubectl context switch failed:\033[0m" >&2
+      echo "$_switch_output" | sed 's/^/    /' >&2
+      echo "Re-authenticate first (for example: gcloud auth login), then re-run." >&2
+      exit 1
+    fi
+
+    # Confirm the current context is the GKE one gcloud just wrote for this
+    # cluster (gke_<project>_<location>_<cluster>) before any kubectl call.
+    _expected_ctx=$(echo "$tf_kubectl_cmd" | awk '{
+      for (i = 1; i <= NF; i++) {
+        if ($i == "get-credentials") name = $(i + 1)
+        if ($i == "--region" || $i == "--zone" || $i == "--location") loc = $(i + 1)
+        if ($i == "--project") proj = $(i + 1)
+      }
+      if (name != "" && loc != "" && proj != "") printf "gke_%s_%s_%s", proj, loc, name
+    }')
+    _current_ctx=$(kubectl config current-context 2>/dev/null || true)
+    if [[ -n "$_expected_ctx" && "$_current_ctx" != "$_expected_ctx" ]]; then
+      echo -e "\033[0;31mERROR: kubectl current-context is '$_current_ctx', expected '$_expected_ctx'. Refusing to run against another cluster.\033[0m" >&2
+      exit 1
+    fi
+    echo -e "\033[0;36m↳\033[0m  kubectl context = ${_current_ctx}"
   fi
 
   echo ""
