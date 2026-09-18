@@ -18,6 +18,18 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Every example now exposes the ownership-neutral outputs
+  `tests/scripts/smoke-test.sh` reads from `terraform output` in the example
+  directory (`redis_host`, `redis_tls_enabled`, `redis_exporter_service_name`,
+  `gcs_bucket_name`, `n8n_main_service_name`, `n8n_webhook_service_name`,
+  `n8n_service_port`, `n8n_webhook_route_prefixes`, `n8n_ingress_hosts`).
+  A live `examples/small` run on 2026-09-18 showed the smoke test's Redis,
+  GCS, ingress-route, and additional-hostname checks silently skipped
+  because the example roots did not pass these through.
+- `examples/small`, `examples/medium`, and `examples/large` accept
+  `n8n_image_tag` (default `null`) so a caller can pin the n8n version
+  without editing `main.tf`; `terraform.tfvars.example` shows the pin. The
+  chart's floating `stable` tag remains the default.
 - Added `psa_connection_abandon_on_destroy` (default `true`) so callers can
   choose how the module-managed Private Services Access connection is torn
   down. `true` keeps `deletion_policy = "ABANDON"`; `false` leaves the policy
@@ -637,6 +649,12 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- `tests/scripts/smoke-test.sh` now fails loudly when the kubectl context
+  switch (`gcloud container clusters get-credentials ...`) fails, and refuses
+  to continue unless `kubectl config current-context` matches the GKE context
+  for the deployment's cluster. Previously, under `set -e`, a failed switch
+  aborted the script with no message; without it, checks would have run
+  against whatever context happened to be current.
 - Documented that `n8n_worker_concurrency` is not the effective worker
   concurrency with the defaults. Live testing on n8n 2.38.7 showed the worker
   logs `Concurrency: 100`: n8n replaces the `--concurrency` flag with

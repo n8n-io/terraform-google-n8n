@@ -33,6 +33,12 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_image_tag" {
+  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's floating `stable` tag, which resolves to whatever n8n version is current when each pod starts. Pin a concrete version (for example \"2.39.7\") for reproducible deployments and controlled upgrades."
+  type        = string
+  default     = null
+}
+
 variable "cloud_dns_zone_name" {
   description = "Google Cloud DNS managed-zone name for n8n_fqdn. Empty means you manage the A-record yourself against the static_ip output."
   type        = string

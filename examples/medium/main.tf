@@ -18,6 +18,7 @@ module "n8n" {
   n8n_fqdn             = var.n8n_fqdn
 
   n8n_license_key = var.n8n_license_key
+  n8n_image_tag   = var.n8n_image_tag
   gcs_location    = var.gcs_location
 
   # Set true only if your creds have org-policy admin (see variable docs).

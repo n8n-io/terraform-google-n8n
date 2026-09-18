@@ -121,6 +121,7 @@ Status: preliminary / not scale-validated.
 | <a name="output_gcs_bucket_name"></a> [gcs\_bucket\_name](#output\_gcs\_bucket\_name) | Effective GCS bucket; should equal var.existing\_gcs\_bucket\_name. |
 | <a name="output_gke_cluster_name"></a> [gke\_cluster\_name](#output\_gke\_cluster\_name) | Effective GKE cluster name; should equal var.existing\_gke\_cluster\_name. |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | n/a |
+| <a name="output_n8n_ingress_hosts"></a> [n8n\_ingress\_hosts](#output\_n8n\_ingress\_hosts) | Effective hostnames n8n serves (n8n\_fqdn plus n8n\_additional\_domains). |
 | <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | Effective namespace; should equal var.n8n\_kube\_namespace. |
 | <a name="output_n8n_main_route_prefixes"></a> [n8n\_main\_route\_prefixes](#output\_n8n\_main\_route\_prefixes) | n/a |
 | <a name="output_n8n_main_service_name"></a> [n8n\_main\_service\_name](#output\_n8n\_main\_service\_name) | n/a |
@@ -130,5 +131,7 @@ Status: preliminary / not scale-validated.
 | <a name="output_n8n_webhook_service_name"></a> [n8n\_webhook\_service\_name](#output\_n8n\_webhook\_service\_name) | n/a |
 | <a name="output_network_id"></a> [network\_id](#output\_network\_id) | Effective network ID; should resolve to var.existing\_network\_name. |
 | <a name="output_postgres_host"></a> [postgres\_host](#output\_postgres\_host) | Effective PostgreSQL host; should equal var.n8n\_database\_host. |
+| <a name="output_redis_exporter_service_name"></a> [redis\_exporter\_service\_name](#output\_redis\_exporter\_service\_name) | Redis exporter metrics Service name, or null when redis\_exporter\_enabled = false. |
 | <a name="output_redis_host"></a> [redis\_host](#output\_redis\_host) | Effective Redis host; should equal var.redis\_host. |
+| <a name="output_redis_tls_enabled"></a> [redis\_tls\_enabled](#output\_redis\_tls\_enabled) | Whether the effective Redis connection uses TLS. |
 <!-- END_TF_DOCS -->
