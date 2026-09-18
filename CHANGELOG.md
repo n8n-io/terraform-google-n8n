@@ -18,6 +18,14 @@ this project adheres to the stability contract in
 
 ### Added
 
+- Added `psa_connection_abandon_on_destroy` (default `true`) so callers can
+  choose how the module-managed Private Services Access connection is torn
+  down. `true` keeps `deletion_policy = "ABANDON"`; `false` leaves the policy
+  unset so the provider attempts the servicenetworking API delete, which may
+  stall on GCP's producer-in-use check. Ignored when `create_psa = false`.
+  Changing it requires a `terraform apply` before the next `destroy` so the
+  policy is recorded in state. Plan-time coverage in
+  `tests/network_ownership.tftest.hcl`.
 - Added nullable `n8n_main_leader_election_enabled` for explicit two-stage
   single-main to multi-main conversion. Enable election at one replica first,
   retaining Recreate, PDB minimum 0, and managed HPA maximum 1; verify the old
@@ -721,16 +729,25 @@ this project adheres to the stability contract in
   minutes to days after Cloud SQL and Memorystore are actually deleted
   (terraform-provider-google#16275), with no signal for when the release
   completes, so no fixed pause could make it reliable; a live `examples/small`
-  teardown on 2026-09-17 still stalled there after the 3-minute default. On
-  the module-managed network path nothing is left behind, since deleting the
-  VPC tears the peering down at the compute layer (verified against a
-  throwaway VPC: the network delete succeeds with only the servicenetworking
-  peering remaining). On `create_network = false` the peering remains on the
-  caller's VPC; see `docs/destroy-cleanup.md`. Cloud SQL and Memorystore now
-  depend on the connection directly, so creation ordering is unchanged. A
-  caller passing `psa_cleanup_destroy_duration` must drop it; an existing
-  deployment sees `time_sleep.wait_for_psa_cleanup[0]` destroyed on its next
-  apply, which is a no-op resource.
+  teardown on 2026-09-17 still stalled there after the 3-minute default.
+  Abandoning does not remove the `servicenetworking-googleapis-com` peering
+  itself. The Google provider and GCP VPC documentation both state that a
+  remaining peering blocks network deletion; a live `examples/small` teardown
+  and a throwaway-VPC check on the same day nevertheless observed the VPC
+  delete succeed with only that peering left. Treat this as observed, not
+  guaranteed: the compute-level `gcloud compute networks peerings delete`
+  recovery stays documented in `README.md` and `docs/destroy-cleanup.md`. On
+  `create_network = false` the peering remains on the caller's VPC while the
+  module-owned PSA range is deleted; `docs/destroy-cleanup.md` covers removal
+  and the re-deploy path. Cloud SQL and Memorystore now depend on the
+  connection directly, so creation ordering is unchanged. A caller passing
+  `psa_cleanup_destroy_duration` must drop it. An existing deployment sees
+  `time_sleep.wait_for_psa_cleanup[0]` destroyed on its next apply; that
+  destroy pauses once for the resource's recorded `destroy_duration` (3m by
+  default) and touches nothing in GCP. Run `terraform apply` once on this
+  version before `terraform destroy`: the provider reads `deletion_policy`
+  from state, so a destroy without an intervening apply still uses the old
+  API-delete behavior.
 
 - **Breaking, minor release only:** managed GKE now uses Dataplane V2
   (`datapath_provider = "ADVANCED_DATAPATH"`). With Google provider 6.x,

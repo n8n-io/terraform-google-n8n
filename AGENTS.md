@@ -119,7 +119,7 @@ Concretely, in this repo:
 - **`checkov`** (`bridgecrewio/checkov-action@v12.3123.0`, pinned to Checkov
   `3.3.17`) against the Terraform framework, repository root. `soft_fail` is
   `false`: an unapproved new finding fails the job. See
-  `openspec/changes/add-google-parity-through-aws-0-4-0/verification-report.md`
+  `openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/verification-report.md`
   for the curated baseline this was flipped against. **When you add new
   resources, do not regress curated findings; prefer fixing them over adding
   suppressions.**

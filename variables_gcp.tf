@@ -127,6 +127,13 @@ variable "psa_prefix_length" {
   default     = 16
 }
 
+variable "psa_connection_abandon_on_destroy" {
+  description = "When true (the default), the module-managed Private Services Access connection is dropped from Terraform state on destroy (deletion_policy = ABANDON) instead of calling the servicenetworking delete API, which GCP refuses with 'Producer services ... are still using this connection' for minutes to days after Cloud SQL and Memorystore are gone. Set false to attempt the API delete instead; it may stall. Read docs/destroy-cleanup.md before changing this, and run terraform apply once after changing it so the policy is recorded in state before the next destroy. Ignored when create_psa = false."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 # ── Cloud SQL ─────────────────────────────────────────────────────────────────
 
 variable "postgres_version" {

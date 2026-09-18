@@ -54,7 +54,7 @@ The module's dependency graph then destroys resources in the correct order:
 5. KEDA
 6. GKE node pool and cluster
 7. Cloud SQL, Memorystore, GCS
-8. A pause for Private Service Access release, then the PSA connection, address, and VPC
+8. The PSA connection is dropped from state (abandoned, see Troubleshooting below), then the PSA address range and VPC are deleted
 
 Most destroys complete in 10 to 20 minutes without intervention.
 
@@ -79,24 +79,58 @@ Module-created Cloud KMS CryptoKeys carry `lifecycle { prevent_destroy = true }`
 
 ## Troubleshooting
 
-### Private Service Access peering is abandoned, not deleted
+### Private Service Access connection is abandoned, not deleted
 
-`terraform destroy` does not delete `google_service_networking_connection.psa` through the servicenetworking API; the resource sets `deletion_policy = "ABANDON"`, so Terraform drops it from state and moves on.
+By default (`psa_connection_abandon_on_destroy = true`) `terraform destroy` does not delete `google_service_networking_connection.psa` through the servicenetworking API; the resource sets `deletion_policy = "ABANDON"`, so Terraform drops it from state and moves on to the PSA address range and, when the module owns the network, the VPC.
 
 **Why:** that API enforces a producer-side check that fails with `Producer services (e.g. CloudSQL, Cloud Memstore, etc.) are still using this connection` for anywhere from a few minutes to several days after the Cloud SQL and Memorystore instances are actually gone. Google exposes no signal for when the release completes, so no destroy-time pause or retry can make the delete reliable.
 
-**What happens instead:**
+**Upgrading:** the provider reads `deletion_policy` from state at destroy time. After moving to a module version with this behavior (or after changing `psa_connection_abandon_on_destroy`), run `terraform apply` once before `terraform destroy`; otherwise the destroy still uses the policy recorded by the previous apply.
 
-- `create_network = true` (default): Terraform deletes the PSA address range, then the VPC. Deleting a VPC tears down its `servicenetworking-googleapis-com` peering at the compute layer, which is not subject to the producer check. Nothing is left behind.
-- `create_network = false`: the peering stays on your VPC, which the module does not own. If no other producer (another Cloud SQL or Memorystore instance) still uses that network, remove it yourself once GCP's release has caught up:
+**What abandoning does not do:** it does not remove the `servicenetworking-googleapis-com` VPC Network Peering that the connection created. The [Google provider documentation](https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/service_networking_connection) and [GCP's VPC documentation](https://cloud.google.com/vpc/docs/create-modify-vpc-networks#deleting_a_network) both state that a remaining peering blocks deletion of the network. A live `examples/small` teardown on 2026-09-17 nevertheless observed `google_compute_network.n8n[0]` delete successfully with only that peering left. Treat that as observed behavior, not a guarantee.
+
+**Per network ownership:**
+
+- `create_network = true` (default): Terraform deletes the PSA address range, then the VPC. If the VPC delete is refused because the peering still references the network, remove the peering at the compute level and re-run destroy:
 
   ```bash
   gcloud compute networks peerings delete servicenetworking-googleapis-com \
+    --network="${CLUSTER}-vpc" \
+    --project="$PROJECT"
+
+  terraform destroy -auto-approve \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
+    -var gcs_force_destroy=true
+  ```
+
+- `create_network = false`: the peering stays on your VPC, which the module does not own, while the reserved PSA address range (`google_compute_global_address.psa`) is still module-owned and deleted normally. The peering then references an allocation that no longer exists. If no other producer (another Cloud SQL or Memorystore instance) still uses that network, first try the supported delete once GCP's producer-side release has caught up:
+
+  ```bash
+  gcloud services vpc-peerings delete \
+    --service=servicenetworking.googleapis.com \
     --network="<your-network>" \
     --project="$PROJECT"
   ```
 
-  The reserved PSA address range (`google_compute_global_address.psa`) is still module-owned and deleted normally on this path.
+  If that still reports `Producer services ... are still using this connection` after the release window, fall back to the compute-level peering delete shown above with `--network="<your-network>"`. Google discourages removing the peering directly as a routine path, and the connection may continue to exist on the service producer side.
+
+**Re-deploying onto the same customer-managed VPC:** with the peering left behind, a later `terraform apply` that creates `google_service_networking_connection.psa` again may fail with `Cannot modify allocated ranges in CreateConnection.` (Google provider 6.x). Two ways forward:
+
+- If the connection is shared with anything else on that VPC (another Cloud SQL or Memorystore instance, another team's allocation), set `create_psa = false` with `existing_psa_prerequisites_attestation = true` and manage the range and connection outside the module. Do not import it.
+- If the connection belongs exclusively to this deployment and its only reserved range is the module's `<friendly_name_prefix>-n8n-psa`, import it into the new state before applying, then inspect the plan:
+
+  ```bash
+  terraform import 'module.n8n.google_service_networking_connection.psa[0]' \
+    'projects/<project>/global/networks/<your-network>:servicenetworking.googleapis.com'
+  terraform plan
+  ```
+
+  A post-import update to `reserved_peering_ranges` force-replaces the connection's full range list with the module's single range, so any range not in the module configuration would be dropped. Only apply when the plan shows no change to `reserved_peering_ranges`, or when the connection's complete range list is exactly the module's.
+
+Recreating the connection may require the original allocated range name, since a service producer that still tracks the previous connection can reject a new one that uses a different range. Do not set the provider's `update_on_creation_fail`: its fallback carries the same range-replacement risk and runs without a plan to inspect.
+
+**Opting out:** `psa_connection_abandon_on_destroy = false` leaves `deletion_policy` unset so the provider calls the servicenetworking delete API. Expect the producer-in-use error above unless enough time has passed since the data services were deleted. Google provider 8.1 and later add `deletion_policy = "REMOVE_PEERING"`, which removes the peering only when that API delete is refused specifically because service producer resources still use the connection; other delete failures still surface as errors. The module can adopt it once its `google` constraint moves past 6.x.
 
 ### Namespace stuck in Terminating
 

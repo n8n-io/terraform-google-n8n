@@ -76,6 +76,14 @@ or Memorystore. The module never reads or verifies the existing connection.
 **Security boundary:** the module never mutates firewall rules, routes, or
 peerings it does not create.
 
+**Destroy on a customer-managed network with `create_psa = true`:** the module
+abandons its service networking connection on destroy by default
+(`psa_connection_abandon_on_destroy`), so the `servicenetworking-googleapis-com`
+peering it created stays attached to your VPC while the module-owned PSA
+address range is deleted. Removing that peering, and re-deploying the module
+onto the same VPC afterwards, is covered in
+[destroy-cleanup.md](./destroy-cleanup.md#private-service-access-connection-is-abandoned-not-deleted).
+
 ### GKE cluster
 
 `create_gke = false` omits the cluster, node pool, node service account, and

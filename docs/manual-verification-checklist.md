@@ -14,7 +14,8 @@ it against a real deployment.** Items marked otherwise were run on a disposable
 stays with the change record, not in this repository. Implementation of
 `add-google-parity-through-aws-0-4-0` does not require running this
 checklist; delivering it, with every item explicitly marked not run, is what
-gates completion (see `openspec/changes/add-google-parity-through-aws-0-4-0/tasks.md`,
+gates completion (see
+`openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/tasks.md`,
 section 26). Do not mark an item "passed" without actually performing it, and
 do not run destructive items (drains, restarts, snapshot recovery, license
 changes) against a production deployment.

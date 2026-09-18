@@ -194,7 +194,7 @@ transitions, and any resource-address changes needing a manual
 For a full account of which AWS module (`terraform-aws-n8n`) capabilities
 through its `0.4.0` release were ported, adapted for Google, already covered,
 or deliberately excluded, see
-[`openspec/changes/add-google-parity-through-aws-0-4-0/parity-matrix.md`](./openspec/changes/add-google-parity-through-aws-0-4-0/parity-matrix.md).
+[`openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/parity-matrix.md`](./openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/parity-matrix.md).
 Before relying on a feature this guide covers only automated tests for (for
 example single-main rollout behavior, the Redis exporter's TLS trust, or
 alias certificate coverage), also work through
@@ -255,14 +255,32 @@ Learnings from the first live deploy:
   objects.
 
   The Private Services Access connection is **abandoned, not deleted** on destroy
-  (`deletion_policy = "ABANDON"`). GCP's `connections.delete` API refuses with
+  by default (`psa_connection_abandon_on_destroy = true`, which sets
+  `deletion_policy = "ABANDON"`). GCP's `connections.delete` API refuses with
   `Producer services (e.g. CloudSQL, Cloud Memstore, ...) are still using this
   connection` for anywhere from minutes to days after the Cloud SQL and Memorystore
-  instances are actually gone, so the module never calls it. On the module-managed
-  network path this leaves nothing behind: deleting the VPC tears the peering down
-  at the compute layer. On a customer-managed network (`create_network = false`)
-  the peering stays on your VPC; remove it yourself if no other producer uses it.
-  See [`docs/destroy-cleanup.md`](./docs/destroy-cleanup.md) for the full guide.
+  instances are actually gone, so the module does not call it. Abandoning does not
+  remove the `servicenetworking-googleapis-com` peering itself. In a live
+  `examples/small` teardown the VPC delete was observed to succeed with only that
+  peering left, but the Google provider and GCP documentation both say a remaining
+  peering can block network deletion, so treat this as observed rather than
+  guaranteed. If `google_compute_network.n8n[0]` is refused, delete the peering at
+  the compute level and re-run `destroy`:
+
+  ```bash
+  gcloud compute networks peerings delete servicenetworking-googleapis-com \
+    --network=<friendly_name_prefix>-n8n-vpc --project=<project_id>
+  terraform destroy -auto-approve \
+    -var gke_deletion_protection=false \
+    -var postgres_deletion_protection=false \
+    -var gcs_force_destroy=true
+  ```
+
+  On a customer-managed network (`create_network = false`) the peering stays on
+  your VPC. Run `terraform apply` once after upgrading to a version with this
+  behavior before you `destroy`, so the policy is recorded in state. See
+  [`docs/destroy-cleanup.md`](./docs/destroy-cleanup.md) for the full guide,
+  including the customer-managed network cleanup and re-deploy path.
 
 ## Stability & versioning
 
@@ -625,6 +643,7 @@ all now supported, see
 | <a name="input_postgres_transaction_log_retention_days"></a> [postgres\_transaction\_log\_retention\_days](#input\_postgres\_transaction\_log\_retention\_days) | Days of transaction logs Cloud SQL retains for point-in-time recovery (settings.backup\_configuration.transaction\_log\_retention\_days). Null (the default) preserves the provider's existing default. Valid range depends on postgres\_edition: 1-7 for ENTERPRISE, 1-35 for ENTERPRISE\_PLUS. Ignored when create\_postgres\_instance = false. | `number` | `null` | no |
 | <a name="input_postgres_version"></a> [postgres\_version](#input\_postgres\_version) | Cloud SQL Postgres version. | `string` | `"POSTGRES_16"` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID to deploy into. | `string` | n/a | yes |
+| <a name="input_psa_connection_abandon_on_destroy"></a> [psa\_connection\_abandon\_on\_destroy](#input\_psa\_connection\_abandon\_on\_destroy) | When true (the default), the module-managed Private Services Access connection is dropped from Terraform state on destroy (deletion\_policy = ABANDON) instead of calling the servicenetworking delete API, which GCP refuses with 'Producer services ... are still using this connection' for minutes to days after Cloud SQL and Memorystore are gone. Set false to attempt the API delete instead; it may stall. Read docs/destroy-cleanup.md before changing this, and run terraform apply once after changing it so the policy is recorded in state before the next destroy. Ignored when create\_psa = false. | `bool` | `true` | no |
 | <a name="input_psa_prefix_length"></a> [psa\_prefix\_length](#input\_psa\_prefix\_length) | Prefix length for the Private Services Access range that Cloud SQL / Memorystore peer into. | `number` | `16` | no |
 | <a name="input_redis_auth_enabled"></a> [redis\_auth\_enabled](#input\_redis\_auth\_enabled) | Enable Redis AUTH on the module-managed Memorystore instance. If true, the KEDA worker trigger gets a TriggerAuthentication CRD referencing the generated AUTH string. | `bool` | `false` | no |
 | <a name="input_redis_exporter_enabled"></a> [redis\_exporter\_enabled](#input\_redis\_exporter\_enabled) | When true, creates a single-replica Redis exporter Deployment and a ClusterIP metrics Service (port 9121) that reads Bull queue depth and other metrics from the effective Redis connection (module-managed Memorystore or external). Independent of n8n\_metrics\_enabled and worker KEDA. Installs no Prometheus or Grafana resources; pair with a cluster Prometheus that discovers pods by the scrape annotations this module sets, or a ServiceMonitor pointed at redis\_exporter\_service\_name. Defaults to false. | `bool` | `false` | no |

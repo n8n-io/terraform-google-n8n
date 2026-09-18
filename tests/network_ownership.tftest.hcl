@@ -76,12 +76,34 @@ run "defaults_create_managed_network_resources" {
     error_message = "create_psa defaults to true and must create the PSA connection."
   }
 
-  # The connection is abandoned, never deleted through the servicenetworking
-  # API, on destroy; see network.tf for why. A regression here reintroduces the
-  # "Producer services ... are still using this connection" teardown stall.
+  # By default the connection is abandoned, never deleted through the
+  # servicenetworking API, on destroy; see network.tf for why. A regression here
+  # reintroduces the "Producer services ... are still using this connection"
+  # teardown stall on the default path.
   assert {
     condition     = google_service_networking_connection.psa[0].deletion_policy == "ABANDON"
-    error_message = "The PSA connection must use deletion_policy = ABANDON so destroy is not blocked by GCP's lagging producer-side release check."
+    error_message = "psa_connection_abandon_on_destroy defaults to true, so the PSA connection must use deletion_policy = ABANDON."
+  }
+}
+
+# ── Callers can opt back into the servicenetworking API delete ───────────────
+
+run "psa_connection_can_opt_into_api_delete" {
+  command = plan
+
+  variables {
+    psa_connection_abandon_on_destroy = false
+  }
+
+  assert {
+    condition     = google_service_networking_connection.psa[0].deletion_policy == null
+    error_message = "psa_connection_abandon_on_destroy = false must leave deletion_policy unset so the provider calls the servicenetworking delete API on destroy."
+  }
+
+  # The input only changes destroy behavior; creation wiring is unchanged.
+  assert {
+    condition     = length(google_service_networking_connection.psa) == 1 && length(google_compute_global_address.psa) == 1
+    error_message = "psa_connection_abandon_on_destroy must not affect whether the PSA range and connection are created."
   }
 }
 
