@@ -737,6 +737,22 @@ this project adheres to the stability contract in
 
 ### Changed
 
+- `gke_node_max_per_zone` now defaults to `4` (was `2`). With the previous
+  default the module's own replica maxima (`n8n_main_hpa_max_replicas = 20`,
+  `n8n_webhook_hpa_max_replicas = 50`, `n8n_worker_keda_max_replicas = 10`,
+  plus task-runner sidecars) exceeded the estimated capacity of the 6-node
+  pool, so a stock deployment (including `examples/small`) tripped both
+  capacity `check` warnings on every plan and apply, as observed live on
+  2026-09-18. 12 `e2-standard-4` nodes is the smallest ceiling whose
+  estimate covers those maxima; it is an autoscaler ceiling only, so baseline
+  cost is unchanged, but reaching it needs at least 48 vCPUs of regional
+  quota. For an existing deployment this is an in-place `max_node_count`
+  update on the node pool. The capacity estimate now also caps the zone
+  count at 3, GKE's default node locations for a regional pool, instead of
+  counting every zone in the region (a four-zone region such as
+  `us-central1` was overstated by a third), and the warning text no longer
+  suggests the cluster autoscaler can grow past `gke_node_max_per_zone`.
+
 - **Breaking:** the Private Services Access connection
   (`google_service_networking_connection.psa`) is now abandoned on destroy
   (`deletion_policy = "ABANDON"`) instead of deleted, and the destroy-time

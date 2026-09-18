@@ -42,6 +42,13 @@ variables {
   friendly_name_prefix = "test"
   n8n_fqdn             = "n8n.test.example.com"
   n8n_license_key      = "test-license-key-not-real"
+
+  # Every sized run below was calibrated against a 6-node ceiling (2 per zone x
+  # 3 zones). Pin it here so the module default (4) does not shift their math;
+  # the default itself is exercised explicitly in
+  # defaults_fit_the_default_node_pool_ceiling and asserted in
+  # tests/defaults.tftest.hcl.
+  gke_node_max_per_zone = 2
 }
 
 # ── Estimate wiring ────────────────────────────────────────────────────────────
@@ -74,7 +81,7 @@ run "capacity_estimate_scales_with_zone_count_and_node_max" {
 
   assert {
     condition     = local.capacity_total_nodes == var.gke_node_max_per_zone * 3
-    error_message = "capacity_total_nodes must be gke_node_max_per_zone times the region's zone count (a regional node pool's ceiling spans every zone)."
+    error_message = "capacity_total_nodes must be gke_node_max_per_zone times the node pool's zone count (three zones for a regional pool with default node_locations)."
   }
 
   assert {
@@ -87,12 +94,95 @@ run "capacity_estimate_scales_with_zone_count_and_node_max" {
     error_message = "Per-node allocatable memory must be less than the raw 16384MiB once GKE's system-reserve tiers are subtracted."
   }
 
-  # The module's own defaults (gke_node_type = e2-standard-4, gke_node_max_per_zone
-  # = 2) genuinely cannot host the default replica-maxima ceiling
-  # (n8n_main_hpa_max_replicas=20, n8n_worker_keda_max_replicas=10,
-  # n8n_webhook_hpa_max_replicas=50) at full scale-out; this is a real,
-  # documented finding the guardrail is meant to surface, not a test-harness
-  # artifact, so both checks are expected to fire here.
+  # At the historical 2-per-zone ceiling (6 e2-standard-4 nodes) the default
+  # replica maxima (n8n_main_hpa_max_replicas=20, n8n_worker_keda_max_replicas=10,
+  # n8n_webhook_hpa_max_replicas=50) cannot be hosted at full scale-out, so
+  # both checks fire. That is the finding the guardrail exists to surface; the
+  # module default was raised to 4 per zone so a default deployment no longer
+  # trips its own guardrail (see the run below).
+  expect_failures = [
+    check.gke_capacity_cpu_fits_requested_replicas,
+    check.gke_capacity_memory_fits_requested_replicas,
+  ]
+}
+
+# ── Module defaults pass the guardrail ────────────────────────────────────────
+# gke_node_max_per_zone = 4 is the module default (tests/defaults.tftest.hcl
+# asserts the value on the node pool); it is set explicitly here only because
+# this file pins 2 at file level. 12 e2-standard-4 nodes must cover the default
+# replica maxima so a stock deployment emits no capacity warning.
+
+run "defaults_fit_the_default_node_pool_ceiling" {
+  command = plan
+
+  variables {
+    gke_node_max_per_zone = 4
+  }
+
+  override_data {
+    target = data.google_compute_zones.gke
+    values = {
+      names = ["us-east4-a", "us-east4-b", "us-east4-c"]
+    }
+  }
+
+  override_data {
+    target = data.google_compute_machine_types.gke
+    values = {
+      machine_types = [{
+        name       = "e2-standard-4"
+        guest_cpus = 4
+        memory_mb  = 16384
+      }]
+    }
+  }
+
+  assert {
+    condition     = local.capacity_total_nodes == 12
+    error_message = "The default ceiling must be 12 nodes (4 per zone x 3 zones)."
+  }
+
+  assert {
+    condition     = local.capacity_requested_max_cpu_millicores <= local.capacity_total_allocatable_cpu_millicores
+    error_message = "The module's default replica maxima must fit the default node-pool CPU ceiling, or a stock deployment warns on every plan."
+  }
+
+  assert {
+    condition     = local.capacity_requested_max_memory_mib <= local.capacity_total_allocatable_memory_mib
+    error_message = "The module's default replica maxima must fit the default node-pool memory ceiling, or a stock deployment warns on every plan."
+  }
+}
+
+# ── Zone count is capped at GKE's three default node locations ────────────────
+# The module sets no node_locations, so GKE places the pool in three zones even
+# in a four-zone region; counting every UP zone would overstate capacity.
+
+run "capacity_zone_count_caps_at_three_default_node_locations" {
+  command = plan
+
+  override_data {
+    target = data.google_compute_zones.gke
+    values = {
+      names = ["us-central1-a", "us-central1-b", "us-central1-c", "us-central1-f"]
+    }
+  }
+
+  override_data {
+    target = data.google_compute_machine_types.gke
+    values = {
+      machine_types = [{
+        name       = "e2-standard-4"
+        guest_cpus = 4
+        memory_mb  = 16384
+      }]
+    }
+  }
+
+  assert {
+    condition     = local.capacity_zone_count == 3 && local.capacity_total_nodes == 6
+    error_message = "A four-zone region must still estimate against three zones, GKE's default node_locations for a regional pool."
+  }
+
   expect_failures = [
     check.gke_capacity_cpu_fits_requested_replicas,
     check.gke_capacity_memory_fits_requested_replicas,
@@ -103,6 +193,9 @@ run "capacity_check_skips_existing_gke" {
   command = plan
 
   variables {
+    # Back to the module default: the file-level pin of 2 would otherwise trip
+    # checks.tf's gke_tuning_ignored_when_existing on this existing-GKE run.
+    gke_node_max_per_zone                  = 4
     create_gke                             = false
     existing_gke_cluster_name              = "shared-cluster"
     existing_gke_prerequisites_attestation = true

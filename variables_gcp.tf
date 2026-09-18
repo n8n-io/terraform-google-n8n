@@ -1040,9 +1040,9 @@ variable "gke_node_min_per_zone" {
 }
 
 variable "gke_node_max_per_zone" {
-  description = "Autoscaling maximum nodes PER ZONE (total max is roughly this x number of zones)."
+  description = "Autoscaling maximum nodes PER ZONE. GKE places a regional node pool in three zones by default, so the pool's ceiling is roughly three times this value. The default of 4 (12 e2-standard-4 nodes, 48 vCPUs) is the smallest ceiling whose estimated allocatable capacity covers the module's default main, worker, webhook, and task-runner replica maxima (see the capacity check blocks); it is a ceiling only, baseline cost is set by gke_node_min_per_zone. Reaching it needs at least 48 vCPUs of regional Compute Engine quota plus headroom for surge upgrades; new projects often start at 24."
   type        = number
-  default     = 2
+  default     = 4
   nullable    = false
 
   validation {

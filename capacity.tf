@@ -9,9 +9,11 @@
 # The estimate itself is approximate by design (documented in the `check`
 # error messages below) and only ever emits a warning, never a plan failure.
 
-# Zones available to a regional GKE cluster in gcp_region; a regional cluster
-# schedules across all of them, so the node pool's total capacity scales with
-# this count, not with a single zone.
+# Zones available to a regional GKE cluster in gcp_region. The module sets no
+# node_locations, and GKE replicates a regional node pool across three zones
+# of the region by default (not every zone), so the zone count used for the
+# estimate is capped at 3 below; in a four-zone region such as us-central1 the
+# uncapped count would overstate capacity by a third.
 data "google_compute_zones" "gke" {
   count = var.create_gke ? 1 : 0
 
@@ -33,7 +35,7 @@ data "google_compute_machine_types" "gke" {
 }
 
 locals {
-  capacity_zone_count = var.create_gke ? length(data.google_compute_zones.gke[0].names) : 0
+  capacity_zone_count = var.create_gke ? min(3, length(data.google_compute_zones.gke[0].names)) : 0
 
   capacity_machine_cpu_cores  = var.create_gke ? try(data.google_compute_machine_types.gke[0].machine_types[0].guest_cpus, 0) : 0
   capacity_machine_memory_mib = var.create_gke ? try(data.google_compute_machine_types.gke[0].machine_types[0].memory_mb, 0) : 0
@@ -155,9 +157,9 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       "${var.gke_node_max_per_zone} per zone x ${local.capacity_zone_count} zones) is below the CPU the configured ",
       "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter, could request at their maximum (~",
       format("%.1f", local.capacity_requested_max_cpu_millicores / 1000), " cores). This is a non-blocking, ",
-      "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool: pods may ",
-      "still schedule if GKE's cluster autoscaler grows beyond gke_node_max_per_zone, or may go Pending if it ",
-      "cannot. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
+      "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster ",
+      "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
+      "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
     ])
   }
 }
@@ -175,9 +177,9 @@ check "gke_capacity_memory_fits_requested_replicas" {
       "${var.gke_node_max_per_zone} per zone x ${local.capacity_zone_count} zones) is below the memory the configured ",
       "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter, could request at their maximum (~",
       format("%.1f", local.capacity_requested_max_memory_mib / 1024), " GiB). This is a non-blocking, documented ",
-      "estimate (GKE's per-node system-reserve formula), not a live read of the node pool: pods may still schedule ",
-      "if GKE's cluster autoscaler grows beyond gke_node_max_per_zone, or may go Pending if it cannot. Raise ",
-      "gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
+      "estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster autoscaler ",
+      "never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go Pending. ",
+      "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
     ])
   }
 }

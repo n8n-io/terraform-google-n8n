@@ -76,7 +76,7 @@ check "gke_tuning_ignored_when_existing" {
       var.gke_enable_private_nodes == true &&
       var.gke_node_type == "e2-standard-4" &&
       var.gke_node_min_per_zone == 1 &&
-      var.gke_node_max_per_zone == 2 &&
+      var.gke_node_max_per_zone == 4 &&
       var.gke_node_disk_size_gb == 100 &&
       var.gke_node_disk_type == "pd-balanced"
     )

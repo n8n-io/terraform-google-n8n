@@ -79,8 +79,8 @@ run "defaults_produce_valid_plan" {
   }
 
   assert {
-    condition     = google_container_node_pool.n8n[0].autoscaling[0].max_node_count == 2
-    error_message = "gke_node_max_per_zone should default to 2"
+    condition     = google_container_node_pool.n8n[0].autoscaling[0].max_node_count == 4
+    error_message = "gke_node_max_per_zone should default to 4, the smallest ceiling whose estimated capacity covers the default replica maxima"
   }
 }
 
