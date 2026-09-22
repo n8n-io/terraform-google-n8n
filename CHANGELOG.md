@@ -31,8 +31,10 @@ this project adheres to the stability contract in
   `preview/worker-pools` branch, not released to a numbered chart version).
   A `lifecycle.precondition` on `helm_release.n8n` fails the plan when
   `n8n_worker_pools` is non-empty and the pinned chart cannot be trusted to
-  render it (a prerelease version passes automatically; a numbered version
-  needs `n8n_worker_pools_chart_verified = true`), and
+  render it (a worker-pools preview build, a prerelease whose identifier
+  contains `workerpools` such as `1.11.0-preview.workerpools.1`, passes
+  automatically; any other version, numbered or generic prerelease, needs
+  `n8n_worker_pools_chart_verified = true`), and
   `check.worker_pools_require_n8n_2_39` warns when `n8n_image_tag` predates
   the feature. `capacity.tf`'s node-capacity guardrail now folds each pool's
   own replica ceiling and resolved CPU/memory requests into the module's peak
@@ -40,14 +42,16 @@ this project adheres to the stability contract in
   `secteam`, `itop`, mirroring terraform-aws-n8n's own example) and
   `tests/scripts/verify-worker-pools.sh` (post-apply verification; no
   released chart renders the feature, so nothing at plan time can prove it).
-  Known Google-specific gap: a pool's KEDA trigger receives Redis TLS/AUTH
-  as plain metadata (mirroring terraform-aws-n8n), not the
-  `TriggerAuthentication` the default worker uses to trust a module-managed
-  Memorystore instance's private CA (`redis_transit_encryption_enabled =
-  true`), because the unreleased chart's `queueMode.workerGroups[].keda`
-  schema is not confirmed to support it. `check.worker_pools_with_managed_
-  redis_tls_ca` warns about that combination at plan time; see the comment on
-  `local.n8n_worker_pool_keda_metadata` in `worker-pools.tf`.
+  Requires `n8n_worker_keda_enabled = true` (validated on `n8n_worker_pools`):
+  the chart renders a pool's `ScaledObject` only under release-wide KEDA
+  scaling and otherwise runs the pool at 1 replica, silently ignoring its
+  replica bounds. A pool's triggers reference the same `n8n-redis-auth`
+  `TriggerAuthentication` the default worker's do (managed Redis AUTH,
+  username, and the Memorystore private CA on the
+  `redis_transit_encryption_enabled = true` path) via the chart's
+  `queueMode.workerGroups[].keda.authenticationRef`, verified against
+  `1.11.0-preview.workerpools.1`, so pools and the default worker
+  authenticate to Redis identically.
 
 - `docs/versioning.md`: the full inventory of every version this module
   pins (providers, the n8n and KEDA Helm charts, `postgres_version`, the
@@ -91,6 +95,12 @@ this project adheres to the stability contract in
   deliberate Symptom/Cause/Fix convention), MD040 (fenced-code-language),
   and MD060 (table-column-style, a rule new enough that none of this
   repo's existing tables were written against it).
+- The root `terraform test` CI job is split one job per `tests/*.tftest.hcl`
+  file (`test-root`, matrix generated from the filesystem so a new file is
+  never skipped), runs without `-verbose`, and every test job carries a
+  `timeout-minutes`. One serial job with full plan output for 500 runs took
+  43 minutes and starved the runner until a mock provider missed Terraform's
+  60 s plugin start timeout, failing an unrelated run.
 - A second, opt-in checkov pass (`checkov-opt-in` CI job,
   `tests/scripts/check-checkov.sh`) against a new
   `tests/checkov/opt-in.tfvars` fixture that flips on every switch gating a

@@ -50,7 +50,9 @@
       follows the default worker's exact rendering rule and the script
       compares TLS only, checking `passwordFromEnv` against the pool's own
       pod template. Added `check.worker_pools_with_managed_redis_tls_ca`
-      (+2 tests), named pools in both `capacity.tf` check messages, fixed
+      (+2 tests; both later superseded in PR review by wiring
+      `keda.authenticationRef` to the shared `TriggerAuthentication`, once
+      the published preview chart was verified to support it), named pools in both `capacity.tf` check messages, fixed
       two comment attributions, added `examples/worker-pools` to
       `scripts/check-example-parity.sh` (and the three `small` passthroughs
       it flagged as missing). Root `defaults.tftest.hcl`: 104 passed under

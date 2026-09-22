@@ -185,10 +185,71 @@ jobs:
         working-directory: ${{ matrix.target }}
         run: terraform validate -no-color
 
+  # The root suite is split one job per tests/*.tftest.hcl file (see test-root
+  # below). Running all root files serially in one job with -verbose output
+  # took 43 minutes on PR #5 and starved the runner until a mock provider
+  # missed Terraform's fixed 60 s plugin start timeout ("timeout while
+  # waiting for plugin to start"), failing an unrelated run.
+  test-root-matrix:
+    name: root test matrix
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Generated from the filesystem rather than hand-listed so a new root
+      # test file can never be silently skipped.
+      - name: list root test files
+        id: list
+        run: |
+          files=$(find tests -maxdepth 1 -name '*.tftest.hcl' | sort | jq -R . | jq -cs .)
+          test "$(echo "$files" | jq length)" -gt 0
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+  test-root:
+    name: terraform test (${{ matrix.file }})
+    runs-on: ubuntu-latest
+    needs: test-root-matrix
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJson(needs.test-root-matrix.outputs.files) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init
+        run: terraform init -backend=false
+
+      # No -verbose: it prints a full plan per run and is what made the CI
+      # log unreadable (500k+ lines). Use -verbose in the local loop only.
+      - name: terraform test
+        env:
+          TEST_FILE: ${{ matrix.file }}
+        run: terraform test -no-color -filter="$TEST_FILE"
+
+  # Stable name for branch protection: the per-file job names above change
+  # whenever a test file is added or renamed, so require this one instead.
+  test-root-gate:
+    name: terraform test (.)
+    runs-on: ubuntu-latest
+    needs: test-root
+    if: always()
+    steps:
+      - name: all root test files passed
+        run: test "${{ needs.test-root.result }}" = "success"
+
   test:
     name: terraform test (${{ matrix.target }})
     runs-on: ubuntu-latest
     needs: validate
+    timeout-minutes: 20
     env:
       # Stub credentials so the veksh/godaddy-dns provider initializes during
       # terraform test. Scoped to this job only, no real GoDaddy API calls
@@ -201,9 +262,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The module root (".") is covered by test-root above, one job per
+        # test file.
         target:
           [
-            ".",
             "examples/small",
             "examples/cloudflare",
             "examples/godaddy",
@@ -231,7 +293,7 @@ jobs:
 
       - name: terraform test
         working-directory: ${{ matrix.target }}
-        run: terraform test -verbose
+        run: terraform test -no-color
 
   chart-render:
     name: n8n chart rendering check

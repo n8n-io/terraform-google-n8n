@@ -147,6 +147,13 @@ Concretely, in this repo:
   `mock_provider` for `google`, `kubernetes`, `kubectl`, `helm`,
   `random`, and `time`. The module has no data sources to override, so the
   suite runs **without Google Cloud credentials** and is safe to run in CI.
+- CI runs the root suite **one job per `tests/*.tftest.hcl` file**
+  (`test-root` job, `terraform test -filter=<file>`, matrix generated from
+  the filesystem so a new file is picked up automatically) and without
+  `-verbose`. One serial job with full plan output for 500 runs took 43
+  minutes and starved the runner until a mock provider missed Terraform's
+  fixed 60 s plugin start timeout (`timeout while waiting for plugin to
+  start`), failing an unrelated run. Keep `-verbose` for the local loop.
 - Each example, the `modules/controllers` submodule, and its own
   `examples/direct-use` has its own `tests/defaults.tftest.hcl` that
   exercises it end-to-end with the same mocking strategy, catching wiring
@@ -432,6 +439,8 @@ terraform fmt -recursive                       # before committing
 terraform init -backend=false                  # at module root
 terraform validate
 terraform test -verbose                        # plan-time, no GCP creds needed
+# Faster iteration on one suite (CI runs the root this way, one file per job):
+#   terraform test -filter=tests/defaults.tftest.hcl
 tflint --init && tflint --format compact
 terraform-docs --output-check .                # README drift check
 

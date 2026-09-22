@@ -4,11 +4,13 @@ output "static_ip" {
 }
 
 output "n8n_url" {
-  value = module.n8n.n8n_url
+  description = "HTTPS URL of the n8n editor."
+  value       = module.n8n.n8n_url
 }
 
 output "kubectl_config_command" {
-  value = module.n8n.kubectl_config_command
+  description = "gcloud command that writes kubeconfig credentials for the GKE cluster."
+  value       = module.n8n.kubectl_config_command
 }
 
 output "n8n_kube_namespace" {

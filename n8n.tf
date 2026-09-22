@@ -887,6 +887,10 @@ resource "helm_release" "n8n" {
     kubernetes_secret.n8n_redis,
     kubernetes_secret.n8n_redis_username,
     kubernetes_secret.n8n_redis_tls,
+    # The default worker's and every pool's ScaledObject reference this by
+    # name; KEDA would only requeue until it exists, but creating it first
+    # avoids a READY=False window on the first apply.
+    kubectl_manifest.redis_trigger_auth,
     google_storage_hmac_key.n8n,
     google_service_account_iam_member.n8n_workload_identity,
     google_project_iam_member.n8n_cloudsql_client,

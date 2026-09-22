@@ -25,8 +25,9 @@
 # under the same versioning scheme as one that would carry it, and a
 # release cut from main can never prove the feature is present.
 # Until n8n-io/n8n-hosting#189 merges to main and a numbered release
-# actually carries it, only a prerelease build passes automatically, or a
-# numbered build the caller attests with n8n_worker_pools_chart_verified
+# actually carries it, only a worker-pools preview build (a prerelease whose
+# identifier names the feature, e.g. 1.11.0-preview.workerpools.1) passes
+# automatically, or a build the caller attests with n8n_worker_pools_chart_verified
 # (see that variable and locals.n8n_chart_renders_worker_pools below).
 # n8n-io/n8n-hosting#191 registered a `Preview chart` GitHub Action on that
 # repo's main branch that packages preview/worker-pools and publishes an
@@ -49,54 +50,49 @@ locals {
   # release-please cuts ship independently of it. There is no real floor to
   # compare against yet, so a numbered version only passes if the caller
   # explicitly attests it with n8n_worker_pools_chart_verified -- for example
-  # a private mirror serving a numbered build of the feature branch. A
-  # prerelease passes automatically, taken at the caller's word via the
-  # SemVer 2 "-prerelease" separator specifically, with no extra input
-  # needed. n8n_chart_version's own validation also allows an optional
-  # "+buildmetadata" suffix with no hyphen (e.g. "1.11.0+build.5"); Helm
-  # ignores build metadata when resolving a chart from an HTTPS/OCI
-  # repository, so that string can resolve to plain "1.11.0" -- the exact
-  # silent no-render case this guard exists to stop. Checking for the hyphen
-  # directly, rather than "fails a strict X.Y.Z match", is what keeps a
-  # build-metadata-only version from falling through as if it were a
-  # prerelease. Replace this whole local with a real floor and a numeric
-  # compare once n8n-io/n8n-hosting#189 merges to main and a numbered
-  # release carries the feature; n8n_worker_pools_chart_verified can retire
-  # at the same time.
+  # a private mirror serving a numbered build of the feature branch. Only a
+  # prerelease whose SemVer 2 "-" identifier names the feature (contains
+  # "workerpools", the naming n8n-hosting's Preview chart action publishes,
+  # e.g. 1.11.0-preview.workerpools.1) passes automatically. A generic
+  # prerelease ("1.12.0-rc.1", cut from main) ships under the same scheme as
+  # a numbered release and proves nothing about the feature, so it needs the
+  # same attestation. n8n_chart_version's own validation also allows an
+  # optional "+buildmetadata" suffix (e.g. "1.11.0+build.5"); Helm ignores
+  # build metadata when resolving a chart from an HTTPS/OCI repository, so
+  # that string can resolve to plain "1.11.0" -- the exact silent no-render
+  # case this guard exists to stop, which is why the match is anchored on the
+  # "-" separator and not on "fails a strict X.Y.Z match". Replace this whole
+  # local with a real floor and a numeric compare once n8n-io/n8n-hosting#189
+  # merges to main and a numbered release carries the feature;
+  # n8n_worker_pools_chart_verified can retire at the same time.
   n8n_chart_renders_worker_pools = (
-    can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+-", var.n8n_chart_version)) ||
+    can(regex("^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9A-Za-z.-]*workerpools", var.n8n_chart_version)) ||
     var.n8n_worker_pools_chart_verified
   )
 
-  # Extra KEDA Redis trigger metadata for a pool's ScaledObject. The chart
-  # builds a pool's ScaledObject itself from queueMode.workerGroups[].keda,
-  # and (unverified against the unreleased chart) that block is assumed to
-  # accept triggerMetadata the same way terraform-aws-n8n's does, with no
-  # equivalent of the authenticationRef the default worker's triggers use
-  # (n8n.tf). So, unlike the default worker, AUTH reaches a pool's scaler as
-  # metadata: passwordFromEnv names an environment variable KEDA resolves
-  # against the pool's own worker container (QUEUE_BULL_REDIS_PASSWORD, set
-  # by the chart's redis.passwordSecret value the same as every other
-  # worker), so the token never appears in the ScaledObject manifest.
+  # Redis auth for a pool's ScaledObject, mirroring the default worker's
+  # triggers in n8n.tf exactly. The chart builds a pool's ScaledObject itself
+  # from queueMode.workerGroups[].keda; verified against
+  # 1.11.0-preview.workerpools.1 (templates/scaledobject-worker-group.yaml),
+  # that block accepts both `triggerMetadata` (merged into each redis
+  # trigger's metadata) and `authenticationRef.name`, so a pool can share the
+  # n8n-redis-auth TriggerAuthentication (keda.tf) the default worker uses:
   #
-  # enableTLS follows the default worker's rule exactly (always rendered as
-  # "true"/"false", omitted only on the managed-CA path) so the two trigger
-  # sets agree by construction; tests/scripts/verify-worker-pools.sh
-  # compares them.
-  #
-  # Known gap versus the default worker: local.manage_redis_tls_ca (a
-  # module-managed Memorystore instance with redis_transit_encryption_enabled
-  # = true) trusts Memorystore's private CA through a TriggerAuthentication's
-  # `ca` field, which this metadata-only path has no equivalent for, and the
-  # omitted enableTLS on that path leaves the pool's scaler speaking
-  # plaintext to a TLS-only endpoint (READY=False, `i/o timeout` in the KEDA
-  # operator log). check.worker_pools_with_managed_redis_tls_ca below warns
-  # about the combination at plan time.
-  n8n_worker_pool_keda_metadata = merge(
-    local.manage_redis_tls_ca ? {} : { enableTLS = tostring(local.effective_redis_tls_enabled) },
-    local.effective_redis_password_secret_name != null ? { passwordFromEnv = "QUEUE_BULL_REDIS_PASSWORD" } : {},
-    local.effective_redis_username != null ? { username = local.effective_redis_username } : {},
-  )
+  # - manage_redis_trigger_auth (a Redis password Secret exists, or a
+  #   module-managed Memorystore instance has redis_transit_encryption_enabled
+  #   = true): attach the TriggerAuthentication, which carries the password,
+  #   the username Secret when one is managed, and on the managed-TLS path
+  #   Memorystore's private CA via its `tls`/`ca` parameters.
+  # - enableTLS: always rendered as "true"/"false" except on the managed-CA
+  #   path, where KEDA rejects TLS set in both trigger metadata and the
+  #   TriggerAuthentication. Same rule as n8n.tf so the two trigger sets agree
+  #   by construction; tests/scripts/verify-worker-pools.sh compares them.
+  n8n_worker_pool_keda_metadata = local.manage_redis_tls_ca ? {} : {
+    enableTLS = tostring(local.effective_redis_tls_enabled)
+  }
+  n8n_worker_pool_keda_auth = local.manage_redis_trigger_auth ? {
+    authenticationRef = { name = "n8n-redis-auth" }
+  } : {}
 
   n8n_worker_groups = [
     for p in var.n8n_worker_pools : {
@@ -121,14 +117,22 @@ locals {
         }
       }
 
-      keda = {
-        minReplicaCount = p.min_replicas
-        maxReplicaCount = p.max_replicas
-        # Same threshold the module gives the default worker's scaler, so a
-        # pool's queue depth is read on the same scale as the default queue's.
-        jobsPerReplica  = var.n8n_worker_keda_jobs_per_replica
-        triggerMetadata = local.n8n_worker_pool_keda_metadata
-      }
+      # Rendered only while the release-wide keda.enabled (n8n.tf, from
+      # n8n_worker_keda_enabled) is true; n8n_worker_pools' own validation
+      # requires that, because the chart otherwise renders no pool
+      # ScaledObject and runs the pool Deployment at 1 replica regardless of
+      # these bounds.
+      keda = merge(
+        {
+          minReplicaCount = p.min_replicas
+          maxReplicaCount = p.max_replicas
+          # Same threshold the module gives the default worker's scaler, so a
+          # pool's queue depth is read on the same scale as the default queue's.
+          jobsPerReplica  = var.n8n_worker_keda_jobs_per_replica
+          triggerMetadata = local.n8n_worker_pool_keda_metadata
+        },
+        local.n8n_worker_pool_keda_auth,
+      )
     }
   ]
 }
@@ -146,11 +150,11 @@ locals {
 # The chart pairing is a hard stop, enforced as a precondition on
 # helm_release.n8n (n8n.tf) because it is a property of that resource and
 # because letting the apply proceed past a warning is exactly the silent
-# outcome described above. A prerelease version is exempt automatically,
-# which is how the official preview build (see the top of this file and
-# examples/worker-pools/README.md) is installed while no release carries
-# the feature; a numbered version passes only if the caller sets
-# n8n_worker_pools_chart_verified, for a private mirror serving a numbered
+# outcome described above. A worker-pools preview version is exempt
+# automatically, which is how the official preview build (see the top of
+# this file and examples/worker-pools/README.md) is installed while no
+# release carries the feature; any other version passes only if the caller
+# sets n8n_worker_pools_chart_verified, for a private mirror serving a
 # build it has already verified. The image pairing stays a warning, not a hard
 # stop: n8n_image_tag is usually null (the chart's floating `stable`), which
 # the check cannot see, so it cannot be relied on to catch every case. Unlike
@@ -166,16 +170,16 @@ locals {
 locals {
   n8n_worker_pools_chart_error = join("", [
     "n8n_worker_pools declares ${length(var.n8n_worker_pools)} pool(s) but n8n_chart_version = \"${var.n8n_chart_version}\" ",
-    "is a numbered release that n8n_worker_pools_chart_verified does not attest, and no numbered ",
+    "is not a worker-pools preview build and n8n_worker_pools_chart_verified does not attest it, and no numbered ",
     "n8n-hosting release carries queueMode.workerGroups yet: the feature (n8n-io/n8n-hosting#189) is ",
     "merged only to the chart's preview/worker-pools branch. That chart accepts the key and renders ",
     "nothing for it, so the release would apply cleanly with N8N_WORKER_POOLS_ENABLED switched on and no ",
     "pool Deployment or ScaledObject behind it, and every project pinned to a pool would run on the ",
-    "default queue. Pin n8n_chart_version to a prerelease build that carries the feature (a version with ",
-    "a hyphen is taken at your word, e.g. an official preview build such as ",
+    "default queue. Pin n8n_chart_version to a preview build that carries the feature (a prerelease whose ",
+    "identifier contains \"workerpools\" is taken at your word, e.g. the official preview build ",
     "1.11.0-preview.workerpools.1 published to oci://ghcr.io/n8n-io/n8n-helm-chart via n8n-io/n8n-hosting's ",
     "Preview chart GitHub Action; see examples/worker-pools/README.md), set ",
-    "n8n_worker_pools_chart_verified = true if this numbered version is a private mirror you have already ",
+    "n8n_worker_pools_chart_verified = true if this version is a private mirror you have already ",
     "confirmed renders queueMode.workerGroups, or remove the pools.",
   ])
 }
@@ -200,18 +204,5 @@ check "worker_pools_require_n8n_2_39" {
       "the chart's floating `stable` tag, which this check cannot see; confirm that tag is new enough ",
       "before relying on it.",
     ])
-  }
-}
-
-# Google-specific, no AWS counterpart (ElastiCache needs no custom CA trust).
-# See the comment on local.n8n_worker_pool_keda_metadata: a pool's scaler has
-# no route to Memorystore's private CA, so this combination applies cleanly
-# and then fails silently (pool ScaledObjects READY=False, default workers
-# healthy). A warning, not a hard stop, because a caller may have made the CA
-# trusted out of band or accepted the pool sitting at min_replicas.
-check "worker_pools_with_managed_redis_tls_ca" {
-  assert {
-    condition     = length(var.n8n_worker_pools) > 0 ? !local.manage_redis_tls_ca : true
-    error_message = "n8n_worker_pools is set alongside a module-managed Memorystore instance with redis_transit_encryption_enabled = true. A pool's KEDA trigger metadata has no route for Memorystore's private CA (the default worker trusts it through the n8n-redis-auth TriggerAuthentication, which the chart's queueMode.workerGroups[].keda block has no equivalent of), so each pool's ScaledObject can fail to reach Redis and sit at min_replicas while the default workers stay healthy. Verify with tests/scripts/verify-worker-pools.sh before relying on this combination."
   }
 }

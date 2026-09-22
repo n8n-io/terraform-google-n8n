@@ -86,7 +86,7 @@ variable "gke_node_max_per_zone" {
 # ── Worker pools (EARLY ALPHA) ───────────────────────────────────────────────
 
 variable "n8n_chart_version" {
-  description = "n8n Helm chart version to deploy, passed to the module's n8n_chart_version. Required by this example because the module default predates queueMode.workerGroups and would render no pools. Pin a prerelease build (e.g. 1.11.0-preview.workerpools.1, published to n8n_chart_repository's default via n8n-io/n8n-hosting's Preview chart GitHub Action, or to a registry you control) until a numbered release carries the feature. See README.md, \"Getting a chart that renders pools\"."
+  description = "n8n Helm chart version to deploy, passed to the module's n8n_chart_version. Required by this example because the module default predates queueMode.workerGroups and would render no pools. Pin a worker-pools preview build (a prerelease whose identifier contains \"workerpools\", e.g. 1.11.0-preview.workerpools.1, published to n8n_chart_repository's default via n8n-io/n8n-hosting's Preview chart GitHub Action, or to a registry you control) until a numbered release carries the feature. See README.md, \"Getting a chart that renders pools\"."
   type        = string
 }
 
@@ -97,7 +97,7 @@ variable "n8n_chart_repository" {
 }
 
 variable "n8n_worker_pools_chart_verified" {
-  description = "Attests that n8n_chart_version renders queueMode.workerGroups, passed straight through to the module's n8n_worker_pools_chart_verified. Only needed for a numbered chart version (a private mirror you have already verified); a prerelease version is taken at your word from the version string itself. Leave false (the default) while pinning a prerelease build."
+  description = "Attests that n8n_chart_version renders queueMode.workerGroups, passed straight through to the module's n8n_worker_pools_chart_verified. Only needed for a chart version that is not a worker-pools preview build (a numbered release or generic prerelease on a private mirror you have already verified); a prerelease whose identifier contains \"workerpools\" is taken at your word from the version string itself. Leave false (the default) while pinning the official preview build."
   type        = bool
   default     = false
 }

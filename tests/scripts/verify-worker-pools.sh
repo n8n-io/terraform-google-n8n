@@ -204,6 +204,13 @@ trigger_field() {
     -o jsonpath="{.spec.triggers[$idx].metadata.$field}" 2>/dev/null
 }
 
+# authenticationRef.name of one trigger; empty when the trigger has none.
+trigger_auth_ref() {
+  local so="$1" idx="$2"
+  kubectl get scaledobject -n "$NAMESPACE" "$so" \
+    -o jsonpath="{.spec.triggers[$idx].authenticationRef.name}" 2>/dev/null
+}
+
 so_condition() {
   local so="$1" type="$2"
   kubectl get scaledobject -n "$NAMESPACE" "$so" \
@@ -348,28 +355,21 @@ fi
 # silently baseline every pool against an empty string, so a non-TLS pool
 # trigger would match a baseline that was never actually read.
 #
-# Only TLS is compared. Unlike terraform-aws-n8n, this module gives the
-# default worker its AUTH token and username through a TriggerAuthentication
-# (n8n.tf, keda.tf), never as trigger metadata, while a pool's scaler can
-# only receive them as metadata (passwordFromEnv/username); the per-pool
-# section below checks those against the pool's own pod template instead.
+# TLS metadata and the TriggerAuthentication reference are both compared.
+# This module gives the default worker its AUTH token, username and (on the
+# managed Memorystore TLS path) private CA through the n8n-redis-auth
+# TriggerAuthentication (n8n.tf, keda.tf), never as trigger metadata, and
+# worker-pools.tf attaches the same reference to every pool's
+# queueMode.workerGroups[].keda block, so a pool's triggers must name the
+# same TriggerAuthentication the default worker's do (or none, when neither
+# a password Secret nor a managed CA exists).
 DEFAULT_SO="${RELEASE_NAME}-worker"
 if [[ -z "$(scaledobject_json "$DEFAULT_SO")" ]]; then
   fail "ScaledObject $DEFAULT_SO not found; cannot establish the default worker's Redis TLS baseline for pool comparison"
   summarize_and_exit
 fi
 DEFAULT_TLS=$(trigger_field "$DEFAULT_SO" 0 enableTLS) || { fail "kubectl error reading $DEFAULT_SO trigger metadata (enableTLS)"; summarize_and_exit; }
-
-# Name of one env var on the n8n-worker container of a Deployment's pod
-# template, whether literal or valueFrom (the chart delivers
-# QUEUE_BULL_REDIS_PASSWORD as a secretKeyRef, so deploy_env's literal-value
-# read cannot see it). Empty when the var is absent.
-deploy_env_name() {
-  local deploy="$1" var="$2"
-  kubectl get deploy -n "$NAMESPACE" "$deploy" \
-    -o jsonpath="{.spec.template.spec.containers[?(@.name==\"n8n-worker\")].env[?(@.name==\"$var\")].name}" \
-    2>/dev/null
-}
+DEFAULT_AUTH_REF=$(trigger_auth_ref "$DEFAULT_SO" 0) || { fail "kubectl error reading $DEFAULT_SO trigger authenticationRef"; summarize_and_exit; }
 
 # ── Per pool ──────────────────────────────────────────────────────────────────
 
@@ -455,13 +455,12 @@ for pool in $WORKER_POOLS; do
     fail "triggers watch \"${wait_list:-<none>}\" / \"${active_list:-<none>}\", expected *:jobs-${pool}:wait and *:jobs-${pool}:active"
   fi
 
-  # TLS metadata must match the default worker's, or the scaler talks
-  # plaintext to a TLS-only endpoint and hangs without crashing. On the
-  # managed-CA path (redis_transit_encryption_enabled = true on module-managed
-  # Memorystore) both sides omit enableTLS and the default worker gets TLS
-  # through its TriggerAuthentication, which a pool has no equivalent of:
-  # this loop passes, and the pool's ScaledObject reads READY=False above.
-  # check.worker_pools_with_managed_redis_tls_ca warns about that at plan.
+  # TLS metadata and the TriggerAuthentication reference must both match the
+  # default worker's. A TLS mismatch means the scaler talks plaintext to a
+  # TLS-only endpoint and hangs without crashing; a missing or different
+  # authenticationRef means the pool's scaler authenticates with no
+  # credential (or trusts no CA on the managed Memorystore TLS path) and sits
+  # READY=False while the default worker's stays healthy.
   for idx in 0 1; do
     tls=$(trigger_field "$name" "$idx" enableTLS) || { fail "kubectl error reading $name trigger $idx metadata (enableTLS)"; continue; }
     if [[ "$tls" == "$DEFAULT_TLS" ]]; then
@@ -470,19 +469,15 @@ for pool in $WORKER_POOLS; do
       fail "trigger $idx enableTLS=${tls:-unset} differs from the default worker's ${DEFAULT_TLS:-unset}; a plaintext scaler against a TLS-only endpoint hangs without crashing"
     fi
 
-    # AUTH reaches a pool's scaler as passwordFromEnv, which KEDA resolves
-    # against the pool's own worker container, so the named variable has to
-    # exist there (as a secretKeyRef; the value itself is never in the
-    # manifest). Absent metadata is fine on a deployment without AUTH.
-    pwenv=$(trigger_field "$name" "$idx" passwordFromEnv) || { fail "kubectl error reading $name trigger $idx metadata (passwordFromEnv)"; continue; }
-    if [[ -z "$pwenv" ]]; then
-      info "trigger $idx sets no passwordFromEnv (no Redis AUTH configured)"
-    elif ! present=$(deploy_env_name "$name" "$pwenv"); then
-      fail "kubectl error reading $name's pod template for $pwenv"
-    elif [[ "$present" == "$pwenv" ]]; then
-      pass "trigger $idx passwordFromEnv=$pwenv resolves on the pool's n8n-worker container"
+    auth_ref=$(trigger_auth_ref "$name" "$idx") || { fail "kubectl error reading $name trigger $idx authenticationRef"; continue; }
+    if [[ "$auth_ref" == "$DEFAULT_AUTH_REF" ]]; then
+      if [[ -z "$auth_ref" ]]; then
+        info "trigger $idx has no authenticationRef, same as the default worker (no Redis AUTH or managed CA configured)"
+      else
+        pass "trigger $idx references the default worker's TriggerAuthentication ($auth_ref)"
+      fi
     else
-      fail "trigger $idx passwordFromEnv=$pwenv but the pool's n8n-worker container has no such env var; KEDA would authenticate with an empty credential"
+      fail "trigger $idx authenticationRef=${auth_ref:-<none>} differs from the default worker's ${DEFAULT_AUTH_REF:-<none>}; the pool's scaler would authenticate differently from the default worker's"
     fi
   done
 

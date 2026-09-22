@@ -39,6 +39,11 @@ exclusion.
   `queueMode.workerGroups[].keda` schema is not confirmed to support for
   pools. Ported the plain-metadata form (matching AWS 1:1) and documented
   the CA-trust gap rather than guessing at an unverified schema extension.
+  Superseded in PR review: the published `1.11.0-preview.workerpools.1`
+  chart's `queueMode.workerGroups[].keda` block was verified to accept
+  `authenticationRef.name`, so pools now share the default worker's
+  `n8n-redis-auth` `TriggerAuthentication` (`local.n8n_worker_pool_keda_auth`)
+  and the CA-trust gap and its `check` no longer exist.
 - New `examples/worker-pools/`, mirroring AWS's own example: the same
   3-pool topology (`heavy`/`secteam`/`itop`), adapted to this module's GKE
   node-capacity variable (`gke_node_max_per_zone`, raised 4 → 6) instead of

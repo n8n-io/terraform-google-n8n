@@ -12,11 +12,13 @@ Use this example when some executions need different hardware or isolation: heav
 >
 > - **n8n 2.39.0 or later** on the image. That is the first release that reads `N8N_WORKER_POOLS_ENABLED` and `N8N_WORKER_POOL_NAME`; an older image accepts both and ignores them. At the time of writing 2.39.0 is on the `next` tag and `stable` is still 2.38.x, so pin `n8n_image_tag` rather than trusting the chart's floating default.
 > - **A licence carrying `feat:workerPools`.** Without it a worker started with `N8N_WORKER_POOL_NAME` exits 1 with `worker pools are not licensed`, every pool pod crash-loops, and the Helm release fails its wait and is rolled back by `atomic`, so the apply fails. Terraform cannot see entitlements at plan, so the log line is the diagnosis: `kubectl -n n8n logs -l n8n.io/worker-pool=<pool> -c n8n-worker --previous | grep licensed`. If the entitlement is **added to a key that has already activated**, the pods keep loading the old certificate cached in the database (`settings` table, key `license.cert`) and keep failing. Delete that row and restart the n8n deployments so each process re-activates; a `terraform apply` alone does not clear it.
-> - **A Helm chart that renders `queueMode.workerGroups`.** No published chart *release* carries it (the newest, 1.11.0, does not); the feature is [n8n-io/n8n-hosting#189](https://github.com/n8n-io/n8n-hosting/pull/189), merged to the chart's `preview/worker-pools` branch. An official prerelease build can be published from that branch to the module's default chart registry via [n8n-io/n8n-hosting#191](https://github.com/n8n-io/n8n-hosting/pull/191)'s `Preview chart` GitHub Action, which is why `n8n_chart_version` is a required input of this example and the module fails the plan when the pinned chart is a release that predates the feature (prerelease builds are exempt). See "Getting a chart that renders pools" below.
+> - **A Helm chart that renders `queueMode.workerGroups`.** No published chart *release* carries it (the newest, 1.11.0, does not); the feature is [n8n-io/n8n-hosting#189](https://github.com/n8n-io/n8n-hosting/pull/189), merged to the chart's `preview/worker-pools` branch. An official prerelease build can be published from that branch to the module's default chart registry via [n8n-io/n8n-hosting#191](https://github.com/n8n-io/n8n-hosting/pull/191)'s `Preview chart` GitHub Action, which is why `n8n_chart_version` is a required input of this example and the module fails the plan unless the pinned chart is a worker-pools preview build (a prerelease whose identifier contains `workerpools`) or is attested with `n8n_worker_pools_chart_verified`. See "Getting a chart that renders pools" below.
 >
 > Treat this example as non-production until all three are released.
 >
-> **Known Google-specific gap.** A pool's KEDA trigger receives Redis TLS and AUTH as plain metadata (`enableTLS` by the same rule as the default worker's triggers, plus `passwordFromEnv`/`username`), but does **not** get the `TriggerAuthentication` the default worker uses to trust a module-managed Memorystore instance's private CA (`redis_transit_encryption_enabled = true`), because the unreleased chart's `queueMode.workerGroups[].keda` schema is not confirmed to support one. On that combination a pool's `ScaledObject` can sit `READY=False` while the default worker's is healthy; the module warns about it at plan time (`check.worker_pools_with_managed_redis_tls_ca`), and the comment on `local.n8n_worker_pool_keda_metadata` in `worker-pools.tf` at the module root has the detail. This example itself does not enable transit encryption (the module's own default), so it is not exercised here.
+> **Redis auth for pool scalers.** A pool's KEDA triggers reference the same `n8n-redis-auth` `TriggerAuthentication` the default worker's do whenever the module manages a Redis password Secret or a Memorystore instance with `redis_transit_encryption_enabled = true` (verified against the `1.11.0-preview.workerpools.1` chart's `queueMode.workerGroups[].keda.authenticationRef`), and carry `enableTLS` by the same rule, so the two trigger sets agree by construction. `tests/scripts/verify-worker-pools.sh` compares both after apply.
+>
+> **KEDA is required.** The chart renders a pool's `ScaledObject` only while release-wide KEDA scaling is on and otherwise runs the pool at 1 replica, so `n8n_worker_pools` fails validation when `n8n_worker_keda_enabled = false`.
 
 ## What it creates
 
@@ -87,8 +89,9 @@ helm lint charts/n8n -f charts/n8n/ci/workerGroups-values.yaml
 helm template n8n charts/n8n -f charts/n8n/ci/workerGroups-values.yaml \
   | grep -E '^kind: (Deployment|ScaledObject)$' | sort | uniq -c
 
-# 3. Package with a prerelease version. Helm never picks a prerelease up by
-#    accident, and the module's chart-version check takes one at your word.
+# 3. Package with a prerelease version whose identifier names the feature.
+#    Helm never picks a prerelease up by accident, and the module's
+#    chart-version check takes a "workerpools" prerelease at your word.
 helm package charts/n8n --version "$CHART_VERSION" --destination /tmp/chart-pkg
 
 # 4. Create an Artifact Registry Docker repository (once) and push.
@@ -113,15 +116,16 @@ n8n_image_tag        = "2.39.0"
 
 The `helm registry login` access token is short-lived; if a later `terraform apply` fails with `unauthorized` on the chart pull, run step 4's login line again.
 
-`CHART_VERSION` above is suffixed as a prerelease so the module's guard takes
-it at its word without any extra input. If you would rather package and
-distribute this internally under a real numbered version (dropping the
-`-preview.workerpools.1` suffix from `CHART_VERSION`, step 3's `--version`,
-and both `terraform.tfvars` snippets), add
+`CHART_VERSION` above carries a prerelease identifier that names the feature
+(`workerpools`), which is what the module's guard keys on, so it is taken at
+its word without any extra input. If you would rather package and distribute
+this internally under a real numbered version or a generic prerelease
+(dropping or changing the `-preview.workerpools.1` suffix in `CHART_VERSION`,
+step 3's `--version`, and both `terraform.tfvars` snippets), add
 `n8n_worker_pools_chart_verified = true` to `terraform.tfvars` alongside it:
-that is the one thing this guard cannot infer from a numbered version string,
-so it has to be an explicit attestation that you have already run steps 2
-and 5 successfully against that exact chart.
+that is the one thing this guard cannot infer from such a version string, so
+it has to be an explicit attestation that you have already run steps 2 and 5
+successfully against that exact chart.
 
 ## Apply
 
@@ -133,7 +137,7 @@ cp terraform.tfvars.example terraform.tfvars
 # oci://ghcr.io/n8n-io/n8n-helm-chart).
 
 terraform init
-terraform plan    # fails unless n8n_chart_version is a prerelease build; a "worker_pools_require_n8n_2_39" warning means the image pin is too old
+terraform plan    # fails unless n8n_chart_version is a worker-pools preview build (or attested); a "worker_pools_require_n8n_2_39" warning means the image pin is too old
 terraform apply
 ```
 
@@ -145,7 +149,7 @@ Run the scripted check first. It reads `worker_pool_names` and `n8n_kube_namespa
 ../../tests/scripts/verify-worker-pools.sh
 ```
 
-It asserts, per pool: the `n8n-worker-<pool>` Deployment exists and carries the `n8n.io/worker-pool` label; the ScaledObject of the same name exists and targets that Deployment; the ScaledObject is `READY=True` and its triggers watch `bull:jobs-<pool>:wait` / `:active` with the same `enableTLS` metadata the default worker's triggers carry and a `passwordFromEnv` (when Redis AUTH is on) that resolves on the pool's own worker container; running pool pods have `N8N_WORKER_POOL_NAME` set; the main Deployment has `N8N_WORKER_POOLS_ENABLED=true`; and KEDA's external metric for the pool's queue resolves. It also fails if the cluster has pool Deployments the outputs do not list.
+It asserts, per pool: the `n8n-worker-<pool>` Deployment exists and carries the `n8n.io/worker-pool` label; the ScaledObject of the same name exists and targets that Deployment; the ScaledObject is `READY=True` and its triggers watch `bull:jobs-<pool>:wait` / `:active` with the same `enableTLS` metadata and the same `authenticationRef` (or none) the default worker's triggers carry; running pool pods have `N8N_WORKER_POOL_NAME` set; the main Deployment has `N8N_WORKER_POOLS_ENABLED=true`; and KEDA's external metric for the pool's queue resolves. It also fails if the cluster has pool Deployments the outputs do not list.
 
 By hand, the same thing:
 
@@ -276,14 +280,14 @@ This example is a reference deployment optimized for clean `apply` / `destroy` c
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation for this project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise. | `bool` | `false` | no |
 | <a name="input_n8n_additional_domains"></a> [n8n\_additional\_domains](#input\_n8n\_additional\_domains) | Additional hostnames to give the full main/webhook route set alongside n8n\_fqdn. Passed straight through to the module's n8n\_additional\_domains. Default empty (no aliases). | `list(string)` | `[]` | no |
 | <a name="input_n8n_chart_repository"></a> [n8n\_chart\_repository](#input\_n8n\_chart\_repository) | Helm chart repository the module pulls the n8n chart from, passed to the module's n8n\_chart\_repository. The default is the module's own default, the public upstream registry, which is right both once a released chart renders pools and while using an official prerelease build published there. Only override this to point at a registry you control, e.g. Artifact Registry, if you packaged and pushed a preview build yourself. | `string` | `"oci://ghcr.io/n8n-io/n8n-helm-chart"` | no |
-| <a name="input_n8n_chart_version"></a> [n8n\_chart\_version](#input\_n8n\_chart\_version) | n8n Helm chart version to deploy, passed to the module's n8n\_chart\_version. Required by this example because the module default predates queueMode.workerGroups and would render no pools. Pin a prerelease build (e.g. 1.11.0-preview.workerpools.1, published to n8n\_chart\_repository's default via n8n-io/n8n-hosting's Preview chart GitHub Action, or to a registry you control) until a numbered release carries the feature. See README.md, "Getting a chart that renders pools". | `string` | n/a | yes |
+| <a name="input_n8n_chart_version"></a> [n8n\_chart\_version](#input\_n8n\_chart\_version) | n8n Helm chart version to deploy, passed to the module's n8n\_chart\_version. Required by this example because the module default predates queueMode.workerGroups and would render no pools. Pin a worker-pools preview build (a prerelease whose identifier contains "workerpools", e.g. 1.11.0-preview.workerpools.1, published to n8n\_chart\_repository's default via n8n-io/n8n-hosting's Preview chart GitHub Action, or to a registry you control) until a numbered release carries the feature. See README.md, "Getting a chart that renders pools". | `string` | n/a | yes |
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. | `string` | n/a | yes |
 | <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n image tag to deploy, passed straight through to the module's n8n\_image\_tag. Required by this example (no default): worker pools need n8n >= 2.39.0, which predates the chart's floating `stable` tag at the time of writing. See README.md. | `string` | n/a | yes |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key. Must carry feat:workerPools (see README.md); multi-main additionally needs feat:multipleMainInstances. | `string` | n/a | yes |
 | <a name="input_n8n_main_hpa_min_replicas"></a> [n8n\_main\_hpa\_min\_replicas](#input\_n8n\_main\_hpa\_min\_replicas) | Minimum replica count for n8n main pods, passed straight through to the module's own n8n\_main\_hpa\_min\_replicas. Leave null (the default) to use the module's default of 2 (multi-main, needs feat:multipleMainInstances on top of feat:workerPools). Set to 1 to run single-main queue mode instead. | `number` | `null` | no |
 | <a name="input_n8n_worker_keda_max_replicas"></a> [n8n\_worker\_keda\_max\_replicas](#input\_n8n\_worker\_keda\_max\_replicas) | Maximum replicas for the chart's own unlabelled worker deployment, passed straight through to the module's n8n\_worker\_keda\_max\_replicas. | `number` | `10` | no |
 | <a name="input_n8n_worker_keda_min_replicas"></a> [n8n\_worker\_keda\_min\_replicas](#input\_n8n\_worker\_keda\_min\_replicas) | Minimum replicas for the chart's own unlabelled worker deployment (the default `jobs` queue), passed straight through to the module's n8n\_worker\_keda\_min\_replicas. | `number` | `1` | no |
-| <a name="input_n8n_worker_pools_chart_verified"></a> [n8n\_worker\_pools\_chart\_verified](#input\_n8n\_worker\_pools\_chart\_verified) | Attests that n8n\_chart\_version renders queueMode.workerGroups, passed straight through to the module's n8n\_worker\_pools\_chart\_verified. Only needed for a numbered chart version (a private mirror you have already verified); a prerelease version is taken at your word from the version string itself. Leave false (the default) while pinning a prerelease build. | `bool` | `false` | no |
+| <a name="input_n8n_worker_pools_chart_verified"></a> [n8n\_worker\_pools\_chart\_verified](#input\_n8n\_worker\_pools\_chart\_verified) | Attests that n8n\_chart\_version renders queueMode.workerGroups, passed straight through to the module's n8n\_worker\_pools\_chart\_verified. Only needed for a chart version that is not a worker-pools preview build (a numbered release or generic prerelease on a private mirror you have already verified); a prerelease whose identifier contains "workerpools" is taken at your word from the version string itself. Leave false (the default) while pinning the official preview build. | `bool` | `false` | no |
 | <a name="input_postgres_backup_retained_backups"></a> [postgres\_backup\_retained\_backups](#input\_postgres\_backup\_retained\_backups) | Number of automated backups Cloud SQL retains. Null (the default) preserves the provider's own default retention. Passed straight through to the module's postgres\_backup\_retained\_backups. | `number` | `null` | no |
 | <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
 | <a name="input_postgres_transaction_log_retention_days"></a> [postgres\_transaction\_log\_retention\_days](#input\_postgres\_transaction\_log\_retention\_days) | Days of transaction logs Cloud SQL retains for point-in-time recovery. Null (the default) preserves the provider's own default. Passed straight through to the module's postgres\_transaction\_log\_retention\_days. | `number` | `null` | no |
@@ -293,11 +297,11 @@ This example is a reference deployment optimized for clean `apply` / `destroy` c
 
 | Name | Description |
 | ---- | ----------- |
-| <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | n/a |
+| <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | gcloud command that writes kubeconfig credentials for the GKE cluster. |
 | <a name="output_n8n_database_password"></a> [n8n\_database\_password](#output\_n8n\_database\_password) | Cloud SQL PostgreSQL password. Back this up in a password manager. |
 | <a name="output_n8n_encryption_key"></a> [n8n\_encryption\_key](#output\_n8n\_encryption\_key) | n8n encryption key. Back this up in a password manager. |
 | <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | Kubernetes namespace n8n is deployed into. Read by tests/scripts/verify-worker-pools.sh. |
-| <a name="output_n8n_url"></a> [n8n\_url](#output\_n8n\_url) | n/a |
+| <a name="output_n8n_url"></a> [n8n\_url](#output\_n8n\_url) | HTTPS URL of the n8n editor. |
 | <a name="output_redis_host"></a> [redis\_host](#output\_redis\_host) | Effective Redis host (module-managed Memorystore or external). |
 | <a name="output_redis_tls_enabled"></a> [redis\_tls\_enabled](#output\_redis\_tls\_enabled) | Whether the effective Redis connection uses TLS. |
 | <a name="output_static_ip"></a> [static\_ip](#output\_static\_ip) | LB static IP. Point n8n\_fqdn at this if you are not letting the module manage Cloud DNS. |
