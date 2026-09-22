@@ -17,7 +17,126 @@ this project adheres to the stability contract in
 > with; see [README.md, Stability & versioning](./README.md#stability--versioning).
 
 ### Added
+- **Worker pools (EARLY ALPHA, SUBJECT TO CHANGE WITHOUT NOTICE)**: `n8n_worker_pools`,
+  `n8n_worker_extra_env`, and `n8n_worker_pools_chart_verified` inputs, ported
+  1:1 from terraform-aws-n8n's own worker-pools feature (`worker-pools.tf`).
+  Each `n8n_worker_pools` entry becomes one `queueMode.workerGroups` Helm
+  value, rendering a labelled worker Deployment plus a KEDA `ScaledObject`
+  watching that pool's own `jobs-<name>` queue, so executions pinned to a
+  pool in the n8n UI (Project, Settings, Worker Pools) autoscale
+  independently of the default worker's queue. Tracks two upstream features
+  that are themselves alpha: n8n's own worker pools (needs n8n >= 2.39.0 and
+  a license carrying `feat:workerPools`) and the chart support for them
+  (`queueMode.workerGroups`, merged only to n8n-hosting's
+  `preview/worker-pools` branch, not released to a numbered chart version).
+  A `lifecycle.precondition` on `helm_release.n8n` fails the plan when
+  `n8n_worker_pools` is non-empty and the pinned chart cannot be trusted to
+  render it (a worker-pools preview build, a prerelease whose identifier
+  contains `workerpools` such as `1.11.0-preview.workerpools.1`, passes
+  automatically; any other version, numbered or generic prerelease, needs
+  `n8n_worker_pools_chart_verified = true`), and
+  `check.worker_pools_require_n8n_2_39` warns when `n8n_image_tag` predates
+  the feature. `capacity.tf`'s node-capacity guardrail now folds each pool's
+  own replica ceiling and resolved CPU/memory requests into the module's peak
+  estimate. New `examples/worker-pools/` (3-pool topology: `heavy`,
+  `secteam`, `itop`, mirroring terraform-aws-n8n's own example) and
+  `tests/scripts/verify-worker-pools.sh` (post-apply verification; no
+  released chart renders the feature, so nothing at plan time can prove it).
+  Requires `n8n_worker_keda_enabled = true` (validated on `n8n_worker_pools`):
+  the chart renders a pool's `ScaledObject` only under release-wide KEDA
+  scaling and otherwise runs the pool at 1 replica, silently ignoring its
+  replica bounds. A pool's triggers reference the same `n8n-redis-auth`
+  `TriggerAuthentication` the default worker's do (managed Redis AUTH,
+  username, and the Memorystore private CA on the
+  `redis_transit_encryption_enabled = true` path) via the chart's
+  `queueMode.workerGroups[].keda.authenticationRef`, verified against
+  `1.11.0-preview.workerpools.1`, so pools and the default worker
+  authenticate to Redis identically.
 
+- `docs/versioning.md`: the full inventory of every version this module
+  pins (providers, the n8n and KEDA Helm charts, `postgres_version`, the
+  GKE release channel, and the CI toolchain), which file it lives in, and
+  which of three bump tiers it falls into (patch-safe, minor-required,
+  verification-required). Linked from `AGENTS.md`, `README.md`'s
+  Compatibility section, and `docs/upgrading-n8n.md`.
+- `tests/scripts/check-version-drift.sh` and a weekly
+  `.github/workflows/version-drift.yml` job: reports every pin reachable
+  from a public API (Terraform providers via the registry API, the n8n
+  chart via GHCR's anonymous tag listing, and the KEDA chart via its Helm
+  repo) that has fallen behind upstream, and files/updates a single
+  tracking issue. Reports only, never auto-bumps or fails a build; every
+  lookup failure is reported as an explicit error distinct from "no drift
+  found".
+- `docs/helm-chart-coverage.md` and `tests/scripts/check-helm-chart-coverage.sh`:
+  fails when the doc's declared chart version disagrees with
+  `n8n_chart_version`'s default, or when the pinned chart's `values.yaml`
+  gains a top-level key the doc never mentions.
+- `tests/scripts/chart-values-diff.sh` (`tests/scripts/chart-values-diff.sh <candidate-version>`):
+  diffs the pinned n8n chart's `values.yaml` against a candidate version
+  via `helm show values`, so the manual diff step of a chart-version pickup
+  is one command. Never writes or bumps a pin. The shared "read a variable
+  default out of `variables.tf`" helper these three scripts and
+  `tests/scripts/check-checkov.sh` need now lives once in
+  `tests/scripts/lib/tf-defaults.sh`.
+- **`docs/istio-ingress.md`**: routing knowledge for a caller running Istio
+  instead of a GKE Ingress Controller. Covers the same `create_ingress =
+  false` contract and route-prefix ordering `examples/split-ingress`
+  documents for the GKE-native case, expressed as `Gateway`/`VirtualService`
+  instead of `kubernetes_ingress_v1`, and the "200 with an HTML body"
+  webhook-misroute trap both share. Purely additive: no new example, no new
+  module input or output.
+- `markdownlint` CI job (`markdownlint-cli2`) linting `README.md`,
+  `AGENTS.md`, and `docs/*.md`. `README.md`'s generated
+  `<!-- BEGIN_TF_DOCS -->` block is wrapped in
+  `<!-- markdownlint-disable -->`/`<!-- markdownlint-restore -->` comments
+  (placed outside the block) so its anchor tags and placeholder tokens
+  don't need hand-editing to pass. `.markdownlint.json` disables MD013
+  (line-length), MD036 (emphasis-as-heading, `docs/troubleshooting.md`'s
+  deliberate Symptom/Cause/Fix convention), MD040 (fenced-code-language),
+  and MD060 (table-column-style, a rule new enough that none of this
+  repo's existing tables were written against it).
+- The root `terraform test` CI job is split one job per `tests/*.tftest.hcl`
+  file (`test-root`, matrix generated from the filesystem so a new file is
+  never skipped), runs without `-verbose`, and every test job carries a
+  `timeout-minutes`. One serial job with full plan output for 500 runs took
+  43 minutes and starved the runner until a mock provider missed Terraform's
+  60 s plugin start timeout, failing an unrelated run.
+- A second, opt-in checkov pass (`checkov-opt-in` CI job,
+  `tests/scripts/check-checkov.sh`) against a new
+  `tests/checkov/opt-in.tfvars` fixture that flips on every switch gating a
+  resource that defaults to count 0. checkov answers every check on a
+  count-0 resource `UNKNOWN`, not `FAILED`, and drops it from the report
+  entirely, so the opt-in `redis_exporter` Deployment's `CKV_K8S_*` checks
+  had never actually run against a real resource. The script additionally
+  verifies the opt-in pass reached every resource in its own
+  `REQUIRED_OPT_IN_RESOURCES` list, not just that the run exited 0.
+  `terraform test` gained assertions pinning the exporter's security
+  context, capabilities, memory limit, image digest, and probes, and a
+  narrowly scoped `checkov:skip=CKV_K8S_11` (no CPU limit) records the
+  already-deliberate trade the resource's own comment explains.
+- `scripts/check-example-parity.sh` (local-only for now, not yet wired into
+  CI): diffs the variable-name set every `examples/*/variables.tf` declares
+  against `examples/small`'s and fails on any name present on only one side
+  that is not in that example's own allowlist. Also fails when an example
+  still lets the module create Cloud SQL or GCS but its README has no
+  "Production considerations" section.
+- A "Production considerations" README section on every example that lets
+  the module own Cloud SQL and/or GCS (`small`, `medium`, `large`,
+  `cloudflare`, `godaddy`, `split-ingress`, `customer-managed-redis`,
+  `customer-managed-cluster`, `customer-managed-gcs`), naming
+  `postgres_deletion_protection`, `postgres_backup_retained_backups`,
+  `postgres_transaction_log_retention_days`, and `gcs_force_destroy` as the
+  caller-facing knobs and linking `docs/destroy-cleanup.md`.
+  `postgres_backup_retained_backups`/`postgres_transaction_log_retention_days`
+  (previously module-only) are now passed through by every example above,
+  and `n8n_additional_domains` (previously passed through by no example) by
+  `small`, `medium`, `large`, `customer-managed-cluster`,
+  `customer-managed-redis`, `customer-managed-gcs`, and
+  `customer-managed-everything`. `examples/cloudflare/README.md` and
+  `examples/godaddy/README.md` now explain why neither takes
+  `n8n_additional_domains`: each issues its own single-hostname
+  certificate/DNS record and the module cannot add Subject Alternative
+  Names to a certificate it did not itself issue.
 - Every example now exposes the ownership-neutral outputs
   `tests/scripts/smoke-test.sh` reads from `terraform output` in the example
   directory (`redis_host`, `redis_tls_enabled`, `redis_exporter_service_name`,
@@ -649,6 +768,23 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- `n8n_fqdn`, `n8n_additional_domains`, and `n8n_image_pull_secrets` now
+  bound each dot-separated label to the actual DNS-1123 label rule (1 to 63
+  characters, alphanumeric start and end), not just a total-length check.
+  `n8n_fqdn`/`n8n_additional_domains` previously accepted an empty label
+  (`n8n..example.com`) or a label starting/ending with a hyphen anywhere
+  but the very first character of the whole string; `n8n_image_pull_secrets`
+  bounded only the 253-character total length. Every such value was always
+  going to be rejected downstream (GKE Ingress/`ManagedCertificate`, or the
+  Kubernetes Secret name rule); it now fails at `terraform plan` instead.
+- `tls_mode = "self_signed"` now rejects an `n8n_fqdn` over 64 characters at
+  plan, via a `precondition` on `tls_self_signed_cert.self_signed`. RFC 5280
+  caps a certificate's Common Name at 64 octets, tighter than the
+  253-character whole-hostname limit; previously an over-length hostname
+  failed deep inside the `tls` provider mid-apply. `google_managed`,
+  `custom`, and `secret` TLS keep only the existing 253-character rule,
+  since they carry the hostname as a Subject Alternative Name, not a
+  Common Name.
 - `tests/scripts/smoke-test.sh` now fails loudly when the kubectl context
   switch (`gcloud container clusters get-credentials ...`) fails, and refuses
   to continue unless `kubectl config current-context` matches the GKE context
@@ -737,6 +873,26 @@ this project adheres to the stability contract in
 
 ### Changed
 
+- **Breaking:** the `kubernetes` provider floor is bumped to `~> 3.0` (was
+  `~> 2.0`), across the root module, `modules/controllers`, and every
+  example. Provider 3.0 deprecates every unversioned Kubernetes resource
+  type in favor of its `_v1` twin; this module still uses
+  `kubernetes_namespace` and several `kubernetes_secret` resources
+  unversioned, so they now plan with a cosmetic "Deprecated Resource"
+  warning. Not renamed in this release: the provider has no `moved` support
+  across that rename (`hashicorp/terraform-provider-kubernetes` issue
+  #2812, still open), so renaming would force every existing deployment to
+  destroy and recreate its namespace. If your root module declares its own
+  `kubernetes` provider constraint at `~> 2.0`, widen it first, or
+  `terraform init` cannot satisfy both.
+- `time` provider bumped to `~> 0.14` (was `~> 0.12`): additive-only
+  upstream, no plan diff.
+- Default `n8n_chart_version` bumped to `1.11.0` (was `1.10.1`). Re-verified
+  with `tests/scripts/check-n8n-chart.sh`: chart 1.11.0's two upstream
+  behavior changes (the KEDA trigger `listName` default and a chart-managed
+  `/mcp/` webhook Ingress rule) are already inert here, since this module
+  sets `listName` itself and manages its own Ingress `/mcp` route rather
+  than the chart's.
 - `gke_node_max_per_zone` now defaults to `4` (was `2`). With the previous
   default the module's own replica maxima (`n8n_main_hpa_max_replicas = 20`,
   `n8n_webhook_hpa_max_replicas = 50`, `n8n_worker_keda_max_replicas = 10`,
@@ -839,6 +995,21 @@ this project adheres to the stability contract in
   `n8n_kube_svc_account`, and `dns_managed_zone` to `cloud_dns_zone_name`.
   Semantics, types, and defaults are unchanged; only the names move.
 - **Breaking:** output `namespace` is renamed to `n8n_kube_namespace`.
+
+### Security
+
+- `redis_exporter_image`'s default is now pinned by digest as well as tag
+  (`oliver006/redis_exporter:v1.90.0@sha256:a129504e65b87c54f79bc92f1afc403475e8ff646a3d7512de469904ceddf986`,
+  the multi-arch index, verified against the live registry manifest). The
+  tag alone was mutable, so the default `IfNotPresent` pull policy could
+  keep running a superseded image once the tag moved; the digest makes the
+  reference immutable. Deployments with `redis_exporter_enabled = true`
+  roll the exporter pod once on the next apply; nothing changes for the
+  default `false`. Fixes checkov `CKV_K8S_15` and `CKV_K8S_43` on merit,
+  surfaced only once the new opt-in checkov pass (see **Added**) actually
+  scans the resource. The one remaining finding, `CKV_K8S_11` (no CPU
+  limit), is a deliberate trade annotated at the resource: a CFS-throttled
+  exporter reports late during exactly the incident it exists for.
 
 ## [0.1.0] - 2026-07-21
 

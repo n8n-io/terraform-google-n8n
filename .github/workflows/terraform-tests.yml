@@ -97,6 +97,10 @@ jobs:
         working-directory: examples/customer-managed-everything
         run: terraform-docs --output-check .
 
+      - name: terraform-docs --output-check (examples/worker-pools)
+        working-directory: examples/worker-pools
+        run: terraform-docs --output-check .
+
       # modules/controllers is not the recursive-path default for a bare
       # `terraform-docs .` invocation from inside modules/, so it needs the
       # root config passed explicitly (see AGENTS.md).
@@ -107,6 +111,41 @@ jobs:
       - name: terraform-docs --output-check (modules/controllers/examples/direct-use)
         working-directory: modules/controllers/examples/direct-use
         run: terraform-docs --config ../../../../.terraform-docs.yml --output-check .
+
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    env:
+      # Pinned so a floating `latest` cannot introduce a new rule (like
+      # MD060/table-column-style, added in a recent markdownlint release)
+      # that silently starts failing this job with no corresponding repo
+      # change. Bump deliberately, alongside .markdownlint.json if the new
+      # version needs a new suppression.
+      MARKDOWNLINT_VERSION: "0.23.2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: install markdownlint-cli2
+        run: npm install -g "markdownlint-cli2@${MARKDOWNLINT_VERSION}"
+
+      - name: markdownlint-cli2
+        # Lints README.md, AGENTS.md, and docs/*.md. The generated
+        # <!-- BEGIN_TF_DOCS -->/<!-- END_TF_DOCS --> block in README.md is
+        # wrapped in markdownlint-disable/-restore comments (placed outside
+        # the block) to suppress false positives from terraform-docs output
+        # (anchor tags, placeholder tokens) without hand-editing the
+        # generated content itself. .markdownlint.json disables MD013
+        # (line-length; this repo does not hard-wrap prose), MD036
+        # (emphasis-as-heading; docs/troubleshooting.md's deliberate
+        # Symptom/Cause/Fix convention), MD040 (fenced-code-language; a
+        # handful of pre-existing shell-prompt-style fences), and MD060
+        # (table-column-style; a new pipe-alignment-style rule this repo's
+        # existing tables were never written against).
+        run: markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
 
   validate:
     name: terraform validate (${{ matrix.target }})
@@ -127,6 +166,7 @@ jobs:
             "examples/customer-managed-redis",
             "examples/customer-managed-gcs",
             "examples/customer-managed-everything",
+            "examples/worker-pools",
             "modules/controllers",
             "modules/controllers/examples/direct-use",
           ]
@@ -145,10 +185,71 @@ jobs:
         working-directory: ${{ matrix.target }}
         run: terraform validate -no-color
 
+  # The root suite is split one job per tests/*.tftest.hcl file (see test-root
+  # below). Running all root files serially in one job with -verbose output
+  # took 43 minutes on PR #5 and starved the runner until a mock provider
+  # missed Terraform's fixed 60 s plugin start timeout ("timeout while
+  # waiting for plugin to start"), failing an unrelated run.
+  test-root-matrix:
+    name: root test matrix
+    runs-on: ubuntu-latest
+    needs: validate
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Generated from the filesystem rather than hand-listed so a new root
+      # test file can never be silently skipped.
+      - name: list root test files
+        id: list
+        run: |
+          files=$(find tests -maxdepth 1 -name '*.tftest.hcl' | sort | jq -R . | jq -cs .)
+          test "$(echo "$files" | jq length)" -gt 0
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+  test-root:
+    name: terraform test (${{ matrix.file }})
+    runs-on: ubuntu-latest
+    needs: test-root-matrix
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        file: ${{ fromJson(needs.test-root-matrix.outputs.files) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: terraform init
+        run: terraform init -backend=false
+
+      # No -verbose: it prints a full plan per run and is what made the CI
+      # log unreadable (500k+ lines). Use -verbose in the local loop only.
+      - name: terraform test
+        env:
+          TEST_FILE: ${{ matrix.file }}
+        run: terraform test -no-color -filter="$TEST_FILE"
+
+  # Stable name for branch protection: the per-file job names above change
+  # whenever a test file is added or renamed, so require this one instead.
+  test-root-gate:
+    name: terraform test (.)
+    runs-on: ubuntu-latest
+    needs: test-root
+    if: always()
+    steps:
+      - name: all root test files passed
+        run: test "${{ needs.test-root.result }}" = "success"
+
   test:
     name: terraform test (${{ matrix.target }})
     runs-on: ubuntu-latest
     needs: validate
+    timeout-minutes: 20
     env:
       # Stub credentials so the veksh/godaddy-dns provider initializes during
       # terraform test. Scoped to this job only, no real GoDaddy API calls
@@ -161,9 +262,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # The module root (".") is covered by test-root above, one job per
+        # test file.
         target:
           [
-            ".",
             "examples/small",
             "examples/cloudflare",
             "examples/godaddy",
@@ -174,6 +276,7 @@ jobs:
             "examples/customer-managed-redis",
             "examples/customer-managed-gcs",
             "examples/customer-managed-everything",
+            "examples/worker-pools",
             "modules/controllers",
             "modules/controllers/examples/direct-use",
           ]
@@ -190,7 +293,7 @@ jobs:
 
       - name: terraform test
         working-directory: ${{ matrix.target }}
-        run: terraform test -verbose
+        run: terraform test -no-color
 
   chart-render:
     name: n8n chart rendering check
@@ -230,6 +333,7 @@ jobs:
             "examples/customer-managed-redis",
             "examples/customer-managed-gcs",
             "examples/customer-managed-everything",
+            "examples/worker-pools",
             "modules/controllers",
             "modules/controllers/examples/direct-use",
           ]
@@ -288,3 +392,28 @@ jobs:
           soft_fail: false
           output_format: cli
           output_file_path: console
+
+  checkov-opt-in:
+    name: checkov (opt-in resources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: install checkov
+        # Same pin as the checkov job above (bridgecrewio/checkov-action@v12.3123.0
+        # bundles checkov 3.3.17); installed directly here because
+        # tests/scripts/check-checkov.sh's reachability check needs checkov's
+        # own JSON output, which the Action does not expose.
+        run: pip install "checkov==3.3.17"
+
+      - name: check-checkov.sh
+        # Runs both the default-tfvars pass and the tests/checkov/opt-in.tfvars
+        # pass, then verifies the opt-in pass actually reached every
+        # opt-in-gated resource (redis_exporter today) rather than silently
+        # staying at count 0 - see AGENTS.md, "Static analysis", for why a
+        # count-0 resource is otherwise invisible to checkov.
+        run: tests/scripts/check-checkov.sh

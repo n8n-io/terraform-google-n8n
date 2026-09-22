@@ -1449,3 +1449,400 @@ run "webhook_hpa_stabilization_has_no_effect_when_hpa_disabled" {
     error_message = "No webhook HPA (and so no behavior/stabilization setting) should be rendered when n8n_webhook_hpa_enabled = false, regardless of the stabilization value."
   }
 }
+
+# ── Worker pools (EARLY ALPHA) ────────────────────────────────────────────────
+# Asserted at the variable-contract level, plus the chart-pairing precondition
+# on helm_release.n8n (which is a real Terraform precondition, so a mocked
+# `plan` does exercise it). queueMode.workerGroups wiring inside
+# helm_release.values can't be asserted here (values is unknown at plan time
+# under the mock provider, same limitation as n8n_extra_env above).
+
+run "worker_pools_default_to_empty" {
+  command = plan
+
+  assert {
+    condition     = length(var.n8n_worker_pools) == 0
+    error_message = "n8n_worker_pools must default to an empty list."
+  }
+
+  assert {
+    condition     = length(var.n8n_worker_extra_env) == 0
+    error_message = "n8n_worker_extra_env must default to an empty list."
+  }
+}
+
+run "worker_pools_with_prerelease_chart_plans_cleanly" {
+  command = plan
+
+  # A worker-pools preview build (prerelease identifier containing
+  # "workerpools", see local.n8n_chart_renders_worker_pools) is taken at the
+  # caller's word, so the precondition passes without
+  # n8n_worker_pools_chart_verified.
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_worker_pools = [
+      { name = "heavy", min_replicas = 1, max_replicas = 4, concurrency = 5 },
+    ]
+  }
+
+  assert {
+    condition     = length(var.n8n_worker_pools) == 1
+    error_message = "n8n_worker_pools should accept a minimal pool entry."
+  }
+
+  assert {
+    condition     = var.n8n_worker_pools[0].name == "heavy"
+    error_message = "n8n_worker_pools name should propagate correctly."
+  }
+}
+
+run "worker_pools_with_numbered_chart_fails_precondition" {
+  command = plan
+
+  # The default n8n_chart_version (a numbered release) cannot be trusted to
+  # render queueMode.workerGroups, and n8n_worker_pools_chart_verified is not
+  # set, so helm_release.n8n's precondition must fail the plan rather than
+  # apply cleanly with the pools silently unrendered.
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [helm_release.n8n]
+}
+
+run "worker_pools_with_numbered_chart_and_verified_attestation_plans_cleanly" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+    n8n_worker_pools_chart_verified = true
+  }
+
+  assert {
+    condition     = var.n8n_worker_pools_chart_verified == true
+    error_message = "n8n_worker_pools_chart_verified should accept true."
+  }
+}
+
+run "worker_pools_reject_default_name" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "default" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_uppercase_name" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "ITop" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_duplicate_names" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy" },
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_reversed_replica_bounds" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy", min_replicas = 5, max_replicas = 1 },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_accept_scale_to_zero" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_worker_pools = [
+      { name = "itop", min_replicas = 0, max_replicas = 3 },
+    ]
+  }
+
+  assert {
+    condition     = var.n8n_worker_pools[0].min_replicas == 0
+    error_message = "n8n_worker_pools min_replicas must accept 0 for scale-to-zero pools."
+  }
+}
+
+run "worker_pools_reject_pool_name_env_override" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "N8N_WORKER_POOL_NAME", value = "other" },
+        ]
+      },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_unsupported_cpu_quantity" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy", cpu_request = "1 core" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_extra_env_rejects_pool_name_var" {
+  command = plan
+
+  variables {
+    n8n_worker_extra_env = [
+      { name = "N8N_WORKER_POOL_NAME", value = "heavy" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_extra_env]
+}
+
+run "worker_pools_old_image_tag_triggers_check_warning" {
+  command = plan
+
+  # check.worker_pools_require_n8n_2_39 warns (not a hard failure) when an
+  # image predating worker pools is pinned alongside a non-empty
+  # n8n_worker_pools. Listed in expect_failures because a triggered `check`
+  # block counts as a failure for terraform test even though it does not
+  # block the plan.
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_image_tag     = "2.38.7"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [check.worker_pools_require_n8n_2_39]
+}
+
+run "worker_pools_new_image_tag_plans_cleanly" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_image_tag     = "2.39.0"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = var.n8n_image_tag == "2.39.0"
+    error_message = "n8n_image_tag should accept a version at the worker pools floor."
+  }
+}
+
+run "worker_pools_with_managed_redis_tls_ca_share_trigger_authentication" {
+  command = plan
+
+  # Module-managed Memorystore with transit encryption: the default worker
+  # trusts the private CA through the n8n-redis-auth TriggerAuthentication,
+  # and a pool's queueMode.workerGroups[].keda block must reference the same
+  # one (verified against chart 1.11.0-preview.workerpools.1) rather than
+  # carry enableTLS in metadata, which KEDA rejects alongside a
+  # TriggerAuthentication that also sets TLS. helm_release.values is unknown
+  # under mocks (AGENTS.md), so assert on the locals it is built from.
+  variables {
+    n8n_chart_version                = "1.11.0-preview.workerpools.1"
+    redis_transit_encryption_enabled = true
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_pool_keda_auth.authenticationRef.name, null) == "n8n-redis-auth"
+    error_message = "pool KEDA block must reference the n8n-redis-auth TriggerAuthentication on the managed Memorystore TLS path."
+  }
+
+  assert {
+    condition     = length(keys(local.n8n_worker_pool_keda_metadata)) == 0
+    error_message = "pool trigger metadata must omit enableTLS on the managed-CA path (TLS is carried by the TriggerAuthentication), matching the default worker's trigger rule."
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_groups[0].keda.authenticationRef.name, null) == "n8n-redis-auth"
+    error_message = "each rendered worker group must carry the TriggerAuthentication reference in its keda block."
+  }
+
+  assert {
+    # The reference is only valid if the object it names is actually managed.
+    condition     = length(kubectl_manifest.redis_trigger_auth) == 1
+    error_message = "the n8n-redis-auth TriggerAuthentication the pools reference must be created on the managed Memorystore TLS path."
+  }
+}
+
+run "worker_pools_with_managed_redis_auth_share_trigger_authentication" {
+  command = plan
+
+  # Managed Memorystore with AUTH on and no transit encryption: the pool
+  # reaches the password through the shared TriggerAuthentication, not
+  # through trigger metadata, and still states enableTLS explicitly.
+  variables {
+    n8n_chart_version  = "1.11.0-preview.workerpools.1"
+    redis_auth_enabled = true
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_groups[0].keda.authenticationRef.name, null) == "n8n-redis-auth"
+    error_message = "pool KEDA block must reference n8n-redis-auth whenever a Redis password Secret exists."
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_pool_keda_metadata.enableTLS, null) == "false" && length(keys(local.n8n_worker_pool_keda_metadata)) == 1
+    error_message = "pool trigger metadata must carry only enableTLS=\"false\" for managed Redis without transit encryption; no passwordFromEnv or username."
+  }
+
+  assert {
+    condition     = length(kubectl_manifest.redis_trigger_auth) == 1
+    error_message = "the n8n-redis-auth TriggerAuthentication the pools reference must be created when managed Redis AUTH is on."
+  }
+}
+
+run "worker_pools_with_external_redis_username_only_render_no_trigger_authentication" {
+  command = plan
+
+  # External Redis with a username but no password: the default worker's
+  # triggers carry no authenticationRef (a username without a password is
+  # inert on the client), and neither do the pools. Locks in that the pools
+  # follow the default worker rather than the old username-in-metadata path.
+  variables {
+    n8n_chart_version     = "1.11.0-preview.workerpools.1"
+    create_redis_instance = false
+    redis_host            = "redis.example.internal"
+    redis_username        = "n8n"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = length(keys(local.n8n_worker_pool_keda_auth)) == 0
+    error_message = "no TriggerAuthentication reference must be rendered for external Redis with a username but no password."
+  }
+
+  assert {
+    condition     = length(kubectl_manifest.redis_trigger_auth) == 0
+    error_message = "no TriggerAuthentication must be created for external Redis with a username but no password."
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_pool_keda_metadata.enableTLS, null) == "false" && length(keys(local.n8n_worker_pool_keda_metadata)) == 1
+    error_message = "pool trigger metadata must carry only enableTLS for external Redis; the username is never passed as trigger metadata."
+  }
+}
+
+run "worker_pools_without_keda_fail_validation" {
+  command = plan
+
+  # The chart renders no pool ScaledObject unless release-wide keda.enabled is
+  # true, and runs the pool Deployment at 1 replica, so a pool's replica
+  # bounds would be silently ignored. n8n_worker_pools' validation rejects it.
+  variables {
+    n8n_chart_version       = "1.11.0-preview.workerpools.1"
+    n8n_worker_keda_enabled = false
+    n8n_worker_pools = [
+      { name = "heavy", min_replicas = 2, max_replicas = 6 },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_with_generic_prerelease_chart_fails_precondition" {
+  command = plan
+
+  # A prerelease cut from n8n-hosting's main (no "workerpools" identifier)
+  # ships under the same scheme as a numbered release and proves nothing about
+  # queueMode.workerGroups, so it needs n8n_worker_pools_chart_verified too.
+  variables {
+    n8n_chart_version = "1.12.0-rc.1"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [helm_release.n8n]
+}
+
+run "worker_pools_with_build_metadata_chart_fails_precondition" {
+  command = plan
+
+  # "+build" metadata is not a prerelease: Helm resolves it to plain 1.11.0.
+  variables {
+    n8n_chart_version = "1.11.0+build.5"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [helm_release.n8n]
+}
+
+run "worker_pools_with_external_tls_redis_plans_cleanly" {
+  command = plan
+
+  # External TLS Redis without a password has no module-managed CA and no
+  # password Secret, so no TriggerAuthentication exists and the pool metadata
+  # carries enableTLS the same way the default worker does.
+  variables {
+    n8n_chart_version     = "1.11.0-preview.workerpools.1"
+    create_redis_instance = false
+    redis_host            = "redis.example.internal"
+    redis_tls_enabled     = true
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_pool_keda_metadata.enableTLS, null) == "true"
+    error_message = "pool trigger metadata must carry enableTLS=\"true\" against an external TLS Redis, matching the default worker's trigger rule."
+  }
+
+  assert {
+    condition     = length(keys(local.n8n_worker_pool_keda_auth)) == 0
+    error_message = "no TriggerAuthentication reference must be rendered when neither a password Secret nor a managed CA exists (an empty ref name is invalid)."
+  }
+}

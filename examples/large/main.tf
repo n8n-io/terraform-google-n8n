@@ -56,6 +56,12 @@ module "n8n" {
   postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
+  # ── Backup tuning passthrough ────────────────────────────────────────────
+  postgres_backup_retained_backups        = var.postgres_backup_retained_backups
+  postgres_transaction_log_retention_days = var.postgres_transaction_log_retention_days
+
+  n8n_additional_domains = var.n8n_additional_domains
+
   # DNS + TLS: manage the record in Cloud DNS, Google-managed cert.
   cloud_dns_zone_name = var.cloud_dns_zone_name
   tls_mode            = "google_managed"

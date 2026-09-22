@@ -600,14 +600,14 @@ variable "redis_exporter_enabled" {
 }
 
 variable "redis_exporter_image" {
-  description = "Container image (repository:tag) for the Redis exporter. Defaults to the pinned, verified \"oliver006/redis_exporter:v1.90.0\". Must include an explicit tag; an unpinned floating tag is not accepted. Ignored when redis_exporter_enabled = false. A custom image runs as the module-set UID 59000, matching the default image's own non-root user."
+  description = "Container image (repository:tag[@digest]) for the Redis exporter. Defaults to the pinned, verified \"oliver006/redis_exporter:v1.90.0\", pinned by digest (sha256:a129504e...) as well as tag: the tag alone is mutable, so the default IfNotPresent pull policy could otherwise keep running a superseded image once the tag moves. Must include an explicit tag; an unpinned floating tag is not accepted. An optional trailing @sha256:<64-hex> digest is accepted on any image, including a caller-supplied one. Ignored when redis_exporter_enabled = false. A custom image runs as the module-set UID 59000, matching the default image's own non-root user."
   type        = string
-  default     = "oliver006/redis_exporter:v1.90.0"
+  default     = "oliver006/redis_exporter:v1.90.0@sha256:a129504e65b87c54f79bc92f1afc403475e8ff646a3d7512de469904ceddf986"
   nullable    = false
 
   validation {
-    condition     = can(regex("^[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*(/[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9._-]*$", var.redis_exporter_image))
-    error_message = "redis_exporter_image must be a bare image reference including an explicit tag (e.g. \"oliver006/redis_exporter:v1.90.0\"): lowercase path components, no scheme, no whitespace, and a tag after the final colon."
+    condition     = can(regex("^[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*(/[a-z0-9]+((\\.|_|__|-+)[a-z0-9]+)*)*:[A-Za-z0-9_][A-Za-z0-9._-]*(@sha256:[A-Fa-f0-9]{64})?$", var.redis_exporter_image))
+    error_message = "redis_exporter_image must be a bare image reference including an explicit tag (e.g. \"oliver006/redis_exporter:v1.90.0\"), optionally followed by \"@sha256:<64 hex characters>\": lowercase path components, no scheme, no whitespace, and a tag after the final colon before any digest."
   }
 }
 
@@ -871,6 +871,16 @@ variable "n8n_additional_domains" {
       for d in var.n8n_additional_domains : can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$", d))
     ])
     error_message = "Every n8n_additional_domains entry must be a valid fully qualified domain name (e.g. alt.example.com); wildcards (e.g. *.example.com) are not accepted."
+  }
+
+  validation {
+    condition = alltrue([
+      for d in var.n8n_additional_domains : alltrue([
+        for label in split(".", d) :
+        length(label) >= 1 && length(label) <= 63 && can(regex("^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$", label))
+      ])
+    ])
+    error_message = "Every dot-separated label of each n8n_additional_domains entry must be 1 to 63 characters, start and end with an alphanumeric character, and contain only alphanumerics and hyphens (the DNS-1123 label rule GKE Ingress/ManagedCertificate enforce)."
   }
 
   validation {

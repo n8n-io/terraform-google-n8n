@@ -125,18 +125,52 @@ locals {
   capacity_exporter_cpu_millicores = var.redis_exporter_enabled ? 10 : 0
   capacity_exporter_memory_mib     = var.redis_exporter_enabled ? 32 : 0
 
+  # Worker pools (worker-pools.tf, EARLY ALPHA): each pool's own max_replicas
+  # ceiling, at its own resolved request (falling back to the module-wide
+  # worker request the same way n8n_worker_groups does), plus a task runner
+  # sidecar per replica while n8n_task_runners_enabled -- pool workers get the
+  # same taskRunners sidecar every other worker pod gets (n8n.tf).
+  capacity_pool_cpu_millicores = [
+    for p in var.n8n_worker_pools : (
+      endswith(coalesce(p.cpu_request, var.n8n_worker_cpu_request), "m")
+      ? tonumber(trimsuffix(coalesce(p.cpu_request, var.n8n_worker_cpu_request), "m"))
+      : tonumber(coalesce(p.cpu_request, var.n8n_worker_cpu_request)) * 1000
+    )
+  ]
+
+  capacity_pool_memory_mib = [
+    for p in var.n8n_worker_pools : (
+      endswith(coalesce(p.memory_request, var.n8n_worker_memory_request), "Gi") ? tonumber(trimsuffix(coalesce(p.memory_request, var.n8n_worker_memory_request), "Gi")) * 1024 :
+      endswith(coalesce(p.memory_request, var.n8n_worker_memory_request), "Mi") ? tonumber(trimsuffix(coalesce(p.memory_request, var.n8n_worker_memory_request), "Mi")) :
+      endswith(coalesce(p.memory_request, var.n8n_worker_memory_request), "Ki") ? tonumber(trimsuffix(coalesce(p.memory_request, var.n8n_worker_memory_request), "Ki")) / 1024 :
+      tonumber(coalesce(p.memory_request, var.n8n_worker_memory_request)) / 1024 / 1024
+    )
+  ]
+
+  capacity_pool_peak_cpu_millicores = sum(concat([0], [
+    for i, p in var.n8n_worker_pools :
+    p.max_replicas * (local.capacity_pool_cpu_millicores[i] + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0))
+  ]))
+
+  capacity_pool_peak_memory_mib = sum(concat([0], [
+    for i, p in var.n8n_worker_pools :
+    p.max_replicas * (local.capacity_pool_memory_mib[i] + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0))
+  ]))
+
   capacity_requested_max_cpu_millicores = (
     local.capacity_main_max_replicas * (local.capacity_cpu_millicores_by_role.main + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
     local.capacity_worker_max_replicas * (local.capacity_cpu_millicores_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
     local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook +
-    local.capacity_exporter_cpu_millicores
+    local.capacity_exporter_cpu_millicores +
+    local.capacity_pool_peak_cpu_millicores
   )
 
   capacity_requested_max_memory_mib = (
     local.capacity_main_max_replicas * (local.capacity_memory_mib_by_role.main + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
     local.capacity_worker_max_replicas * (local.capacity_memory_mib_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
     local.capacity_webhook_max_replicas * local.capacity_memory_mib_by_role.webhook +
-    local.capacity_exporter_memory_mib
+    local.capacity_exporter_memory_mib +
+    local.capacity_pool_peak_memory_mib
   )
 }
 
@@ -155,11 +189,13 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       "Estimated managed GKE node-pool CPU capacity (~", format("%.1f", local.capacity_total_allocatable_cpu_millicores / 1000),
       " allocatable cores across up to ${local.capacity_total_nodes} ${var.gke_node_type} node(s): ",
       "${var.gke_node_max_per_zone} per zone x ${local.capacity_zone_count} zones) is below the CPU the configured ",
-      "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter, could request at their maximum (~",
+      "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter and any n8n_worker_pools ",
+      "(${length(var.n8n_worker_pools)} pool(s), ~", format("%.1f", local.capacity_pool_peak_cpu_millicores / 1000), " cores at their maxima), could request at their maximum (~",
       format("%.1f", local.capacity_requested_max_cpu_millicores / 1000), " cores). This is a non-blocking, ",
       "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster ",
       "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
-      "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
+      "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
+      "n8n_worker_pools max_replicas) to silence this warning.",
     ])
   }
 }
@@ -175,11 +211,13 @@ check "gke_capacity_memory_fits_requested_replicas" {
       "Estimated managed GKE node-pool memory capacity (~", format("%.1f", local.capacity_total_allocatable_memory_mib / 1024),
       " allocatable GiB across up to ${local.capacity_total_nodes} ${var.gke_node_type} node(s): ",
       "${var.gke_node_max_per_zone} per zone x ${local.capacity_zone_count} zones) is below the memory the configured ",
-      "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter, could request at their maximum (~",
+      "main, worker, webhook, and task-runner replica ceilings, plus the optional Redis exporter and any n8n_worker_pools ",
+      "(${length(var.n8n_worker_pools)} pool(s), ~", format("%.1f", local.capacity_pool_peak_memory_mib / 1024), " GiB at their maxima), could request at their maximum (~",
       format("%.1f", local.capacity_requested_max_memory_mib / 1024), " GiB). This is a non-blocking, documented ",
       "estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster autoscaler ",
       "never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go Pending. ",
-      "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima to silence this warning.",
+      "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
+      "n8n_worker_pools max_replicas) to silence this warning.",
     ])
   }
 }

@@ -207,6 +207,7 @@ Learnings from the first live deploy:
 - **After apply, TLS lags.** The Google L7 LB's HTTPS frontend and cert take a few
   minutes to propagate *after* `apply` returns. `ERR_CONNECTION_CLOSED` right after
   apply is normal, wait ~5-10 min. Check backends and cert:
+
   ```bash
   kubectl -n n8n get pods
   kubectl -n n8n get certificate n8n-tls          # READY should be True
@@ -216,9 +217,11 @@ Learnings from the first live deploy:
 - **Switching Let's Encrypt staging -> production (examples/cloudflare).** Comment
   out `acme_server` in tfvars (prod is the default) and `apply`, this updates the
   `ClusterIssuer` but does **not** re-issue an already-valid cert. Force one re-issue:
+
   ```bash
   kubectl -n n8n delete secret n8n-tls    # cert-manager re-requests from prod (~1-2 min)
   ```
+
   Then the ingress-gce controller mints a new GCP `SslCertificate` and rebinds the
   HTTPS proxy, another **~10 min**. Verify (no `-k`): `curl -sI https://<domain>/healthz`.
   Do this **once**, LE production allows only 5 identical certs per week, so don't
@@ -301,9 +304,12 @@ unintentionally. This contract goes away at 1.0.0 in favor of standard SemVer.
 
 ### Compatibility
 
-The module ships against specific provider majors and validated versions:
+The module ships against specific provider majors and validated versions. See [`docs/versioning.md`](./docs/versioning.md) for the complete pin inventory (every provider, chart, and CI toolchain version, with its bump tier).
 
 - **Google provider:** `~> 6.0` (hashicorp/google).
+- **Kubernetes provider:** `~> 3.0` (bumped from `~> 2.0`; see [`CHANGELOG.md`](./CHANGELOG.md) for the upgrade note). If your root module declares its own `kubernetes` provider constraint at `~> 2.0`, widen it first, or `terraform init` cannot satisfy both.
+- **`time` provider:** `~> 0.14`.
+- **n8n Helm chart:** default `1.11.0`.
 - **GKE:** validated on a recent GKE `REGULAR` release channel version.
 - **PostgreSQL:** validated on Cloud SQL `POSTGRES_16`.
 - Callers can pin the n8n application image via `n8n_image_tag` (e.g. `"1.2.3"`)
@@ -337,6 +343,7 @@ all now supported, see
 
 ## Reference
 
+<!-- markdownlint-disable -->
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -347,9 +354,9 @@ all now supported, see
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
-| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 2.0 |
+| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 3.0 |
 | <a name="requirement_random"></a> [random](#requirement\_random) | ~> 3.0 |
-| <a name="requirement_time"></a> [time](#requirement\_time) | ~> 0.12 |
+| <a name="requirement_time"></a> [time](#requirement\_time) | ~> 0.14 |
 | <a name="requirement_tls"></a> [tls](#requirement\_tls) | ~> 4.0 |
 
 ## Providers
@@ -360,9 +367,9 @@ all now supported, see
 | <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | ~> 6.0 |
 | <a name="provider_helm"></a> [helm](#provider\_helm) | ~> 3.0 |
 | <a name="provider_kubectl"></a> [kubectl](#provider\_kubectl) | ~> 1.14 |
-| <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | ~> 2.0 |
+| <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | ~> 3.0 |
 | <a name="provider_random"></a> [random](#provider\_random) | ~> 3.0 |
-| <a name="provider_time"></a> [time](#provider\_time) | ~> 0.12 |
+| <a name="provider_time"></a> [time](#provider\_time) | ~> 0.14 |
 | <a name="provider_tls"></a> [tls](#provider\_tls) | ~> 4.0 |
 
 ## Modules
@@ -518,7 +525,7 @@ all now supported, see
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let this module set a PROJECT-LEVEL override that turns OFF the<br/>iam.disableServiceAccountKeyCreation org policy, so the GCS HMAC key can be<br/>created. Default false, the module does not touch org policy.<br/>Set true ONLY IF: (a) your credentials have roles/orgpolicy.policyAdmin (org/<br/>folder-level; a normal project deployer does not), and (b) your org permits<br/>overriding this guardrail. Otherwise disable the policy out-of-band and leave<br/>this false. Requires the orgpolicy.googleapis.com API enabled. | `bool` | `false` | no |
 | <a name="input_n8n_additional_domains"></a> [n8n\_additional\_domains](#input\_n8n\_additional\_domains) | Additional hostnames to give the full main/webhook route set alongside n8n\_fqdn, e.g. for a second public domain pointed at the same deployment. Compared case-insensitively everywhere the module uses them (duplicate detection, Cloud DNS records, ManagedCertificate/self-signed/Secret TLS coverage); see n8n\_ingress\_hosts for the effective lowercase-normalized list. Wildcards are not accepted. Adds no DNS, certificate, or ingress resource when create\_ingress = false, but n8n\_ingress\_hosts still reports these hostnames for a caller-managed ingress to route. | `list(string)` | `[]` | no |
 | <a name="input_n8n_chart_repository"></a> [n8n\_chart\_repository](#input\_n8n\_chart\_repository) | Helm chart repository the n8n chart is installed from. Accepts an HTTPS chart-repository URL or an OCI registry reference (oci://...), so a private mirror can replace the public upstream (oci://ghcr.io/n8n-io/n8n-helm-chart) for a cluster with no egress to it. The mirror must serve the exact version named by n8n\_chart\_version; this module does not verify that a mirrored repository actually carries it. | `string` | `"oci://ghcr.io/n8n-io/n8n-helm-chart"` | no |
-| <a name="input_n8n_chart_version"></a> [n8n\_chart\_version](#input\_n8n\_chart\_version) | n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n). Must be an exact semantic version (e.g. "1.10.1"), not a range or floating tag, so every apply is deterministic. | `string` | `"1.10.1"` | no |
+| <a name="input_n8n_chart_version"></a> [n8n\_chart\_version](#input\_n8n\_chart\_version) | n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n). Must be an exact semantic version (e.g. "1.10.1"), not a range or floating tag, so every apply is deterministic. | `string` | `"1.11.0"` | no |
 | <a name="input_n8n_community_packages_prevent_loading"></a> [n8n\_community\_packages\_prevent\_loading](#input\_n8n\_community\_packages\_prevent\_loading) | Prevent installed community packages from being loaded at runtime. Maps to N8N\_COMMUNITY\_PACKAGES\_PREVENT\_LOADING. When true, n8n leaves the community-packages management surface in place but skips loading the package code, which is useful for locking an instance down without uninstalling. Leave false (the default) for community nodes to load and execute. n8n defaults this to false; when false the env var is omitted entirely so n8n's own default applies. | `bool` | `false` | no |
 | <a name="input_n8n_community_packages_registry"></a> [n8n\_community\_packages\_registry](#input\_n8n\_community\_packages\_registry) | HTTPS URL of a custom registry n8n uses to resolve community (npm) package installs, mapped to N8N\_COMMUNITY\_PACKAGES\_REGISTRY on every n8n role (main, worker, webhook processor). Null (the default) leaves n8n's own npm registry default in place. Must not embed credentials (no user:pass@ userinfo); authenticate the registry itself (e.g. a network-level allowlist or a registry that accepts anonymous reads from the cluster's egress path), since this module has no separate mechanism for registry credentials. Community package installation itself is a distinct Enterprise entitlement from this registry override; setting this value does not enable or unlock community packages by itself. | `string` | `null` | no |
 | <a name="input_n8n_compression_max_decompressed_size_bytes"></a> [n8n\_compression\_max\_decompressed\_size\_bytes](#input\_n8n\_compression\_max\_decompressed\_size\_bytes) | Maximum total decompressed size, in bytes, n8n allows when decompressing an archive (e.g. inside the Compression node), mapped to N8N\_COMPRESSION\_NODE\_MAX\_DECOMPRESSED\_SIZE\_BYTES on every n8n role. Null (the default) leaves n8n's own upstream limit in place, so a future n8n release can change that default without this module pinning it. | `number` | `null` | no |
@@ -621,6 +628,7 @@ all now supported, see
 | <a name="input_n8n_worker_concurrency"></a> [n8n\_worker\_concurrency](#input\_n8n\_worker\_concurrency) | Number of jobs each worker pod can process simultaneously, passed to the chart as the worker --concurrency flag. Verified against n8n 2.38.7: the worker ignores this flag whenever N8N\_CONCURRENCY\_PRODUCTION\_LIMIT is set to anything other than -1, and the module always sets that variable from n8n\_execution\_concurrency\_limit (default 100) on every role. With the defaults the effective worker concurrency is therefore 100, not 10, and KEDA-scaled additional workers only receive jobs once the first worker holds 100. To make this input effective, set n8n\_execution\_concurrency\_limit = -1 or align both values deliberately. | `number` | `10` | no |
 | <a name="input_n8n_worker_cpu_limit"></a> [n8n\_worker\_cpu\_limit](#input\_n8n\_worker\_cpu\_limit) | CPU limit for n8n worker pods (e.g. 1000m, 2000m) | `string` | `"1000m"` | no |
 | <a name="input_n8n_worker_cpu_request"></a> [n8n\_worker\_cpu\_request](#input\_n8n\_worker\_cpu\_request) | CPU request for n8n worker pods (e.g. 500m, 1000m) | `string` | `"500m"` | no |
+| <a name="input_n8n_worker_extra_env"></a> [n8n\_worker\_extra\_env](#input\_n8n\_worker\_extra\_env) | Additional environment variables injected into worker pods only, via queueMode.workerExtraEnv. Use this for worker-only tuning that must not reach main or webhook-processor pods; n8n\_extra\_env is the equivalent for all three. This reaches every worker, the chart's own unlabelled deployment and each n8n\_worker\_pools pool alike, because they render from one shared pod template; a pool's own extra\_env is applied after this and wins on a repeated name. N8N\_WORKER\_POOL\_NAME is rejected here along with the other module-managed names: pool membership is owned by n8n\_worker\_pools, and pinning the chart's own worker deployment to a pool through this input would leave those workers consuming a pool queue that nothing scales. Rejected at plan time for the same module-managed names as n8n\_extra\_env. | <pre>list(object({<br/>    name  = string<br/>    value = string<br/>  }))</pre> | `[]` | no |
 | <a name="input_n8n_worker_fixed_replicas"></a> [n8n\_worker\_fixed\_replicas](#input\_n8n\_worker\_fixed\_replicas) | Fixed replica count for n8n worker pods when n8n\_worker\_keda\_enabled = false. Ignored while KEDA scaling is enabled. | `number` | `1` | no |
 | <a name="input_n8n_worker_keda_enabled"></a> [n8n\_worker\_keda\_enabled](#input\_n8n\_worker\_keda\_enabled) | When true (the default), the module creates and manages the KEDA ScaledObject for n8n worker pods. Set to false to let the caller own worker scaling (or run a fixed replica count); no n8n worker ScaledObject is rendered. n8n\_worker\_fixed\_replicas sets the replica count while disabled. | `bool` | `true` | no |
 | <a name="input_n8n_worker_keda_jobs_per_replica"></a> [n8n\_worker\_keda\_jobs\_per\_replica](#input\_n8n\_worker\_keda\_jobs\_per\_replica) | Number of waiting jobs per worker replica used as the KEDA scaling threshold. KEDA targets ceil(queue\_depth / jobs\_per\_replica) replicas. | `number` | `5` | no |
@@ -628,6 +636,8 @@ all now supported, see
 | <a name="input_n8n_worker_keda_min_replicas"></a> [n8n\_worker\_keda\_min\_replicas](#input\_n8n\_worker\_keda\_min\_replicas) | Minimum worker replicas. KEDA keeps at least this many workers running even when the queue is empty. | `number` | `1` | no |
 | <a name="input_n8n_worker_memory_limit"></a> [n8n\_worker\_memory\_limit](#input\_n8n\_worker\_memory\_limit) | Memory limit for n8n worker pods (e.g. 2Gi, 4Gi) | `string` | `"2Gi"` | no |
 | <a name="input_n8n_worker_memory_request"></a> [n8n\_worker\_memory\_request](#input\_n8n\_worker\_memory\_request) | Memory request for n8n worker pods (e.g. 1Gi, 2Gi) | `string` | `"1Gi"` | no |
+| <a name="input_n8n_worker_pools"></a> [n8n\_worker\_pools](#input\_n8n\_worker\_pools) | EARLY ALPHA, SUBJECT TO CHANGE WITHOUT NOTICE: tracks n8n's own worker pools feature and the chart support for it, both alpha upstream. Labelled worker pools to run beside the chart's own unlabelled worker deployment. Each entry becomes one queueMode.workerGroups entry in the Helm release, which renders one Deployment (identical to the chart's worker pods but carrying N8N\_WORKER\_POOL\_NAME) and one KEDA ScaledObject watching that pool's own `jobs-<name>` queue, so a pool autoscales on its own backlog rather than the default queue's. Requires n8n\_worker\_keda\_enabled = true (the chart renders pool ScaledObjects only under release-wide KEDA scaling; see the validation on this variable). Requires an n8n\_chart\_version whose chart supports queueMode.workerGroups: that feature (n8n-io/n8n-hosting#189) is merged to the chart's preview/worker-pools branch but not released to a numbered chart version, and an older chart accepts the key and renders nothing for it, so a precondition on the Helm release fails the plan for every chart version except a worker-pools preview build (a prerelease whose identifier contains "workerpools", taken at the caller's word) or one attested with n8n\_worker\_pools\_chart\_verified. Pools share the default worker's Redis TriggerAuthentication (n8n-redis-auth), so managed Memorystore AUTH and transit encryption work for pools the same way they do for the default worker. An official preview build can be published from that branch's Preview chart GitHub Action to oci://ghcr.io/n8n-io/n8n-helm-chart, this module's default n8n\_chart\_repository, at a version such as 1.11.0-preview.workerpools.1, which is what to pin in n8n\_chart\_version. See examples/worker-pools/README.md for the exact command and a private-mirror fallback. | <pre>list(object({<br/>    name         = string<br/>    min_replicas = optional(number, 1)<br/>    max_replicas = optional(number, 5)<br/><br/>    # Null inherits the module-wide worker setting of the same name.<br/>    concurrency    = optional(number, null)<br/>    cpu_request    = optional(string, null)<br/>    cpu_limit      = optional(string, null)<br/>    memory_request = optional(string, null)<br/>    memory_limit   = optional(string, null)<br/><br/>    # Extra env for this pool's workers only, on top of what every worker gets.<br/>    extra_env = optional(list(object({<br/>      name  = string<br/>      value = string<br/>    })), [])<br/>  }))</pre> | `[]` | no |
+| <a name="input_n8n_worker_pools_chart_verified"></a> [n8n\_worker\_pools\_chart\_verified](#input\_n8n\_worker\_pools\_chart\_verified) | Attests that n8n\_chart\_version, whatever repository it resolves from, renders queueMode.workerGroups. Only consulted when n8n\_worker\_pools is non-empty and n8n\_chart\_version is not a worker-pools preview build; a prerelease whose SemVer 2 "-" identifier contains "workerpools" (e.g. 1.11.0-preview.workerpools.1) is already taken at your word from the version string itself and needs no extra input. This exists for the versions that string cannot vouch for: a numbered release or a generic prerelease (e.g. 1.12.0-rc.1) served from a private mirror that you have already built with the feature baked in, so you would rather not retag your own build. Setting this to true is a one-time promise, not an automated guarantee: nothing re-checks it if n8n\_chart\_version later changes to point at a different, unverified chart, so treat a bump to this variable's pinned version with the same scrutiny as setting this flag the first time. Leave it false once a real numbered floor replaces this guard entirely. | `bool` | `false` | no |
 | <a name="input_pods_cidr"></a> [pods\_cidr](#input\_pods\_cidr) | Secondary range for GKE pods (VPC-native / alias IPs). | `string` | `"10.20.0.0/16"` | no |
 | <a name="input_postgres_availability_type"></a> [postgres\_availability\_type](#input\_postgres\_availability\_type) | REGIONAL for HA (failover replica), ZONAL for single-zone. | `string` | `"REGIONAL"` | no |
 | <a name="input_postgres_backup_retained_backups"></a> [postgres\_backup\_retained\_backups](#input\_postgres\_backup\_retained\_backups) | Number of automated backups Cloud SQL retains (settings.backup\_configuration.backup\_retention\_settings.retained\_backups, retention\_unit=COUNT). Null (the default) preserves the provider's existing default retention. Ignored when create\_postgres\_instance = false. | `number` | `null` | no |
@@ -647,7 +657,7 @@ all now supported, see
 | <a name="input_psa_prefix_length"></a> [psa\_prefix\_length](#input\_psa\_prefix\_length) | Prefix length for the Private Services Access range that Cloud SQL / Memorystore peer into. | `number` | `16` | no |
 | <a name="input_redis_auth_enabled"></a> [redis\_auth\_enabled](#input\_redis\_auth\_enabled) | Enable Redis AUTH on the module-managed Memorystore instance. If true, the KEDA worker trigger gets a TriggerAuthentication CRD referencing the generated AUTH string. | `bool` | `false` | no |
 | <a name="input_redis_exporter_enabled"></a> [redis\_exporter\_enabled](#input\_redis\_exporter\_enabled) | When true, creates a single-replica Redis exporter Deployment and a ClusterIP metrics Service (port 9121) that reads Bull queue depth and other metrics from the effective Redis connection (module-managed Memorystore or external). Independent of n8n\_metrics\_enabled and worker KEDA. Installs no Prometheus or Grafana resources; pair with a cluster Prometheus that discovers pods by the scrape annotations this module sets, or a ServiceMonitor pointed at redis\_exporter\_service\_name. Defaults to false. | `bool` | `false` | no |
-| <a name="input_redis_exporter_image"></a> [redis\_exporter\_image](#input\_redis\_exporter\_image) | Container image (repository:tag) for the Redis exporter. Defaults to the pinned, verified "oliver006/redis\_exporter:v1.90.0". Must include an explicit tag; an unpinned floating tag is not accepted. Ignored when redis\_exporter\_enabled = false. A custom image runs as the module-set UID 59000, matching the default image's own non-root user. | `string` | `"oliver006/redis_exporter:v1.90.0"` | no |
+| <a name="input_redis_exporter_image"></a> [redis\_exporter\_image](#input\_redis\_exporter\_image) | Container image (repository:tag[@digest]) for the Redis exporter. Defaults to the pinned, verified "oliver006/redis\_exporter:v1.90.0", pinned by digest (sha256:a129504e...) as well as tag: the tag alone is mutable, so the default IfNotPresent pull policy could otherwise keep running a superseded image once the tag moves. Must include an explicit tag; an unpinned floating tag is not accepted. An optional trailing @sha256:<64-hex> digest is accepted on any image, including a caller-supplied one. Ignored when redis\_exporter\_enabled = false. A custom image runs as the module-set UID 59000, matching the default image's own non-root user. | `string` | `"oliver006/redis_exporter:v1.90.0@sha256:a129504e65b87c54f79bc92f1afc403475e8ff646a3d7512de469904ceddf986"` | no |
 | <a name="input_redis_host"></a> [redis\_host](#input\_redis\_host) | External Redis host. Required when create\_redis\_instance = false. Ignored otherwise (n8n and KEDA use the module-managed Memorystore host). | `string` | `null` | no |
 | <a name="input_redis_key_prefix"></a> [redis\_key\_prefix](#input\_redis\_key\_prefix) | Optional prefix n8n applies to both its command channel (N8N\_REDIS\_KEY\_PREFIX, n8n default "n8n") and its Bull queue Redis keys (the chart's redis.prefix, chart default "bull"), synchronized with the corresponding KEDA queue list names ("<prefix>:jobs:wait" / "<prefix>:jobs:active") and, when enabled, the Redis exporter's queue-key checks. Leave null (the default) to use n8n's and the chart's own distinct default prefixes. Changing this value on a deployment with in-flight or queued jobs strands them under the old prefix; drain the queue first (see docs/customer-managed-infrastructure.md). | `string` | `null` | no |
 | <a name="input_redis_memory_size_gb"></a> [redis\_memory\_size\_gb](#input\_redis\_memory\_size\_gb) | Memorystore capacity in GB. | `number` | `1` | no |
@@ -708,4 +718,4 @@ all now supported, see
 | <a name="output_workload_identity_pool"></a> [workload\_identity\_pool](#output\_workload\_identity\_pool) | Effective Workload Identity pool the n8n Google service account is bound into (<project\_id>.svc.id.goog, or existing\_gke\_workload\_identity\_pool for a cross-project existing cluster). |
 | <a name="output_workload_identity_service_account"></a> [workload\_identity\_service\_account](#output\_workload\_identity\_service\_account) | Google service account the n8n pods impersonate via Workload Identity. |
 <!-- END_TF_DOCS -->
-
+<!-- markdownlint-restore -->

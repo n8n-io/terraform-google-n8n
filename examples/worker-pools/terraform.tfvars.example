@@ -1,0 +1,20 @@
+# Copy to terraform.tfvars and populate. Auth: gcloud auth application-default login.
+project_id           = "my-gcp-project-id"
+gcp_region           = "us-east4" # any region; e.g. us-east4 (N. Virginia), europe-west3 (Frankfurt), europe-west1 (Belgium)
+gcs_location         = "US"       # keep near gcp_region: US for us-*, EU for europe-*, or a specific region
+friendly_name_prefix = "dev"
+n8n_fqdn             = "n8n.example.com"
+n8n_license_key      = "your-enterprise-license-key" # must carry feat:workerPools
+cloud_dns_zone_name  = "my-cloud-dns-zone"            # empty = manage the A-record yourself
+
+# Let Terraform disable iam.disableServiceAccountKeyCreation for the GCS HMAC key.
+# Requires org-policy admin rights; otherwise leave false and disable it manually.
+# manage_sa_key_org_policy = true
+
+# ── Worker pools (EARLY ALPHA) ────────────────────────────────────────────────
+# Required: n8n >= 2.39.0 and a chart that renders queueMode.workerGroups.
+# See README.md, "Getting a chart that renders pools", before applying.
+n8n_image_tag     = "2.39.0"
+n8n_chart_version = "1.11.0-preview.workerpools.1"
+# n8n_chart_repository = "oci://ghcr.io/n8n-io/n8n-helm-chart" # the module's default
+# n8n_worker_pools_chart_verified = true # only for a private numbered mirror; see README.md

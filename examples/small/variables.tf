@@ -57,6 +57,25 @@ variable "manage_sa_key_org_policy" {
   default     = false
 }
 
+# ── Backup tuning passthrough ──────────────────────────────────────────────
+variable "postgres_backup_retained_backups" {
+  description = "Number of automated backups Cloud SQL retains. Null (the default) preserves the provider's own default retention. Passed straight through to the module's postgres_backup_retained_backups."
+  type        = number
+  default     = null
+}
+
+variable "postgres_transaction_log_retention_days" {
+  description = "Days of transaction logs Cloud SQL retains for point-in-time recovery. Null (the default) preserves the provider's own default. Passed straight through to the module's postgres_transaction_log_retention_days."
+  type        = number
+  default     = null
+}
+
+variable "n8n_additional_domains" {
+  description = "Additional hostnames to give the full main/webhook route set alongside n8n_fqdn. Passed straight through to the module's n8n_additional_domains. Default empty (no aliases)."
+  type        = list(string)
+  default     = []
+}
+
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
 # To `terraform destroy`, first flip these (e.g. `-var gke_deletion_protection=false
 # -var postgres_deletion_protection=false -var gcs_force_destroy=true`) and apply,

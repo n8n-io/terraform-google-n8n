@@ -76,6 +76,16 @@ resource "tls_self_signed_cert" "self_signed" {
   dns_names             = local.n8n_effective_ingress_hosts
   validity_period_hours = 8760
   allowed_uses          = ["key_encipherment", "digital_signature", "server_auth"]
+
+  lifecycle {
+    # RFC 5280 caps a certificate's Common Name at 64 octets, tighter than
+    # the 253-octet whole-hostname limit n8n_fqdn's own validation enforces.
+    # Catch it here, at plan, rather than letting the tls provider fail mid-apply.
+    precondition {
+      condition     = length(var.n8n_fqdn) <= 64
+      error_message = "n8n_fqdn is ${length(var.n8n_fqdn)} characters, but tls_mode = self_signed writes it into the certificate's Common Name, which RFC 5280 caps at 64 characters. Shorten n8n_fqdn, or switch tls_mode to google_managed/custom/secret, where the hostname is carried as a Subject Alternative Name instead (253-character limit)."
+    }
+  }
 }
 
 # ── Pre-shared SSL certificate (custom or self_signed) ────────────────────────

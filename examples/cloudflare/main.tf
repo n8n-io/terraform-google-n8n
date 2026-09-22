@@ -26,6 +26,10 @@ module "n8n" {
   postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
+  # Backup tuning passthrough (both null by default; Cloud SQL's own defaults apply).
+  postgres_backup_retained_backups        = var.postgres_backup_retained_backups
+  postgres_transaction_log_retention_days = var.postgres_transaction_log_retention_days
+
   # DNS is managed here in Cloudflare (dns.tf), not by the module.
   cloud_dns_zone_name = ""
 

@@ -38,3 +38,18 @@ run "single_main_floor_produces_valid_plan" {
     error_message = "n8n_main_hpa_min_replicas=1 (single-main) must still produce a valid plan through this example's passthrough."
   }
 }
+
+run "backup_tuning_and_additional_domains_passthrough" {
+  command = plan
+
+  variables {
+    postgres_backup_retained_backups        = 14
+    postgres_transaction_log_retention_days = 3
+    n8n_additional_domains                  = ["alt.example.com"]
+  }
+
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
+    error_message = "New backup-tuning and additional-domains passthrough must not break the base plan."
+  }
+}

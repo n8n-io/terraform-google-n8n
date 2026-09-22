@@ -14,6 +14,29 @@ rotation restarts) are covered by
 [`docs/manual-verification-checklist.md`](../../docs/manual-verification-checklist.md),
 not by this script.
 
+## Worker pools verification (`verify-worker-pools.sh`, EARLY ALPHA)
+
+`verify-worker-pools.sh` is a companion to the smoke test above, for a
+deployment that declares `n8n_worker_pools` (see
+[`examples/worker-pools`](../../examples/worker-pools/)). It answers a
+question nothing at plan time can: did the pinned Helm chart actually render
+`queueMode.workerGroups`. A chart that predates the feature accepts the key
+and renders nothing for it, so `terraform apply` succeeds with
+`N8N_WORKER_POOLS_ENABLED` switched on and no pool Deployment or
+`ScaledObject` behind it. Run it from the example directory that holds
+Terraform state, the same convention as the smoke test:
+
+```bash
+cd examples/worker-pools
+../../tests/scripts/verify-worker-pools.sh
+```
+
+It counts the rendered pool Deployments/ScaledObjects against the
+`worker_pool_names` output, checks each pool's `N8N_WORKER_POOL_NAME` env var
+and KEDA trigger metadata against the default worker's, and confirms
+`N8N_WORKER_POOLS_ENABLED=true` reached the mains. CI cannot run this: it
+needs a live cluster. Same manual-verification tier as the smoke test.
+
 ## Chart-rendering regression check (`check-n8n-chart.sh`)
 
 `check-n8n-chart.sh` is a separate, credential-free check that renders the
@@ -33,6 +56,61 @@ This proves the chart renders these value fragments the way the module
 assumes; it is not a live Helm upgrade or a proof of runtime behavior, and it
 does not exercise the module's own Terraform expressions (covered by the
 mocked plan-time `terraform test` suite at the module root).
+
+## Two-pass checkov security baseline (`check-checkov.sh`)
+
+`check-checkov.sh` runs the module's pinned checkov baseline (see
+`AGENTS.md`, "Static analysis") twice: once against the default tfvars, and
+once against [`tests/checkov/opt-in.tfvars`](../checkov/opt-in.tfvars), which
+flips on every switch that gates a resource defaulting to count 0.
+checkov answers every check on a count-0 resource `UNKNOWN`, not `FAILED`,
+so a resource behind a default-`false` toggle (e.g. `redis_exporter_enabled`)
+never appears in the report at all under the default pass alone. The
+opt-in pass additionally verifies checkov actually *evaluated* every
+resource in its own `REQUIRED_OPT_IN_RESOURCES` list, not just that the
+run exited 0:
+
+```bash
+tests/scripts/check-checkov.sh
+```
+
+Requires `checkov` (pinned to the version `.github/workflows/terraform-tests.yml`'s
+`checkov` job uses) and `python3` on `PATH`. No credentials, no cluster: checkov
+statically parses the Terraform source and its resolved variable defaults/tfvars.
+
+Adding a new count-gated resource? Add its enabling switch to
+`tests/checkov/opt-in.tfvars` and its resource address to this script's
+`REQUIRED_OPT_IN_RESOURCES`, or the opt-in pass silently stops reaching it.
+
+## Version-currency reports (`check-version-drift.sh`, `check-helm-chart-coverage.sh`, `chart-values-diff.sh`)
+
+Report-only; none of these three write or bump a pin. See
+[`docs/versioning.md`](../../docs/versioning.md) for the full pin inventory
+and bump-tier classification these scripts check against.
+
+- **`check-version-drift.sh`**: compares every Terraform provider (via the
+  Terraform Registry API), the n8n chart (via GHCR's anonymous tag API), and
+  the KEDA chart (via its Helm repo) against the currently pinned version.
+  Every lookup failure is reported as an explicit `ERROR`, distinct from "no
+  drift found", so a network hiccup cannot look like a clean report. Exit
+  code is nonzero only on a lookup failure, never on drift alone.
+- **`check-helm-chart-coverage.sh`**: fails when
+  [`docs/helm-chart-coverage.md`](../../docs/helm-chart-coverage.md)'s
+  declared chart version disagrees with `n8n_chart_version`'s default, or
+  when the pinned chart's `values.yaml` has a top-level key the doc never
+  mentions.
+- **`chart-values-diff.sh <candidate-version>`**: diffs the pinned chart's
+  `values.yaml` against a candidate version, e.g.
+  `tests/scripts/chart-values-diff.sh 1.12.0`. Manual, run when picking up a
+  chart bump; exits nonzero only if a `helm show values` call itself fails
+  (bad version, unreachable registry), never because a diff was found.
+
+```bash
+tests/scripts/check-version-drift.sh
+tests/scripts/check-helm-chart-coverage.sh
+```
+
+Requires `helm` and `python3` on `PATH`. No Google Cloud credentials.
 
 ## What it covers
 

@@ -67,7 +67,7 @@ Status: preliminary / not scale-validated.
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
-| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 2.0 |
+| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 3.0 |
 
 ## Providers
 
@@ -103,6 +103,7 @@ Status: preliminary / not scale-validated.
 | <a name="input_gcs_hmac_access_id"></a> [gcs\_hmac\_access\_id](#input\_gcs\_hmac\_access\_id) | HMAC access ID (S3 access key) for the pre-existing key named by gcs\_hmac\_service\_account\_email. | `string` | n/a | yes |
 | <a name="input_gcs_hmac_secret_name"></a> [gcs\_hmac\_secret\_name](#input\_gcs\_hmac\_secret\_name) | Name of an existing Kubernetes Secret (in n8n\_kube\_namespace) holding the HMAC secret under key "accessSecret". Create this Secret out of band before applying; the module never reads its value. | `string` | n/a | yes |
 | <a name="input_gcs_hmac_service_account_email"></a> [gcs\_hmac\_service\_account\_email](#input\_gcs\_hmac\_service\_account\_email) | Email of the pre-existing service account that owns the out-of-band-created HMAC key. The module grants this account objectAdmin on existing\_gcs\_bucket\_name; it does not create the account or the key. | `string` | n/a | yes |
+| <a name="input_n8n_additional_domains"></a> [n8n\_additional\_domains](#input\_n8n\_additional\_domains) | Additional hostnames to give the full main/webhook route set alongside n8n\_fqdn. Passed straight through to the module's n8n\_additional\_domains. Default empty (no aliases). | `list(string)` | `[]` | no |
 | <a name="input_n8n_database_host"></a> [n8n\_database\_host](#input\_n8n\_database\_host) | External PostgreSQL host reachable from existing\_network\_name. | `string` | n/a | yes |
 | <a name="input_n8n_database_password_secret_name"></a> [n8n\_database\_password\_secret\_name](#input\_n8n\_database\_password\_secret\_name) | Name of an existing Kubernetes Secret (in n8n\_kube\_namespace) holding the external database password under key "password". Create this Secret out of band before applying; the module never reads its value. | `string` | n/a | yes |
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. Point your own DNS/ingress at whatever address it resolves to; this example does not manage DNS or ingress. | `string` | n/a | yes |

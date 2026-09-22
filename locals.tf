@@ -93,6 +93,11 @@ locals {
     "N8N_EDITOR_BASE_URL",
     "N8N_DISABLE_PRODUCTION_MAIN_PROCESS",
     "N8N_NATIVE_PYTHON_RUNNER",
+    # Set by the module in config.extraEnv (n8n.tf, all pods) once
+    # n8n_worker_pools is non-empty; N8N_WORKER_POOL_NAME is stamped by the
+    # chart itself per rendered pool container (worker-pools.tf).
+    "N8N_WORKER_POOLS_ENABLED",
+    "N8N_WORKER_POOL_NAME",
     "TZ",
   ]
 

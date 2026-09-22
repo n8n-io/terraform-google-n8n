@@ -78,6 +78,7 @@ expected by the Terraform Registry:
 | `examples/cloudflare/`            | DNS-variant of `small` using Cloudflare DNS + cert-manager. |
 | `examples/godaddy/`               | DNS-variant of `small` using GoDaddy DNS.                   |
 | `examples/customer-managed-cluster/`, `examples/customer-managed-redis/`, `examples/customer-managed-gcs/`, `examples/customer-managed-everything/` | Ownership-boundary examples: an existing GKE cluster, external Redis, an existing GCS bucket, and every layer customer-managed, respectively. None creates a VPC. |
+| `examples/worker-pools/`          | EARLY ALPHA: labelled worker pools (`n8n_worker_pools`), sizing-equivalent to `small` apart from `gke_node_max_per_zone`. Creates the VPC. |
 | `tests/*.tftest.hcl`              | `terraform test` plan-time tests with mocked providers.     |
 | `tests/scripts/smoke-test.sh`     | Post-`apply` smoke test for live deployments.               |
 | `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`. |
@@ -117,12 +118,25 @@ Concretely, in this repo:
 - **`tflint`** against every target in that same matrix, with the ruleset
   initialized via `tflint --init`.
 - **`checkov`** (`bridgecrewio/checkov-action@v12.3123.0`, pinned to Checkov
-  `3.3.17`) against the Terraform framework, repository root. `soft_fail` is
-  `false`: an unapproved new finding fails the job. See
+  `3.3.17`) against the Terraform framework, repository root, at the
+  **default** tfvars. `soft_fail` is `false`: an unapproved new finding fails
+  the job. See
   `openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/verification-report.md`
   for the curated baseline this was flipped against. **When you add new
   resources, do not regress curated findings; prefer fixing them over adding
   suppressions.**
+- **`checkov-opt-in`** runs a second pass against
+  `tests/checkov/opt-in.tfvars`, which flips on every switch that gates a
+  resource defaulting to count 0. **checkov answers every check on a count-0
+  resource `UNKNOWN`, not `FAILED`, and drops it from the report entirely**;
+  a resource behind a default-`false` toggle (e.g. `redis_exporter_enabled`)
+  is otherwise invisible to both the default pass and any earlier baseline
+  review that scanned only at defaults. `tests/scripts/check-checkov.sh`
+  runs both passes and additionally verifies the opt-in pass actually
+  *evaluated* each resource named in its own `REQUIRED_OPT_IN_RESOURCES`
+  list, not just that the run exited 0 - add a resource to both that list
+  and `tests/checkov/opt-in.tfvars` when you add a new count-gated resource,
+  or this check silently stops proving anything for it.
 - **`tests/scripts/check-n8n-chart.sh`** (`chart-render` job) renders the
   pinned n8n Helm chart with a synthetic values fixture and asserts on the
   output, using a pinned Helm CLI version. No credentials, no cluster.
@@ -133,6 +147,13 @@ Concretely, in this repo:
   `mock_provider` for `google`, `kubernetes`, `kubectl`, `helm`,
   `random`, and `time`. The module has no data sources to override, so the
   suite runs **without Google Cloud credentials** and is safe to run in CI.
+- CI runs the root suite **one job per `tests/*.tftest.hcl` file**
+  (`test-root` job, `terraform test -filter=<file>`, matrix generated from
+  the filesystem so a new file is picked up automatically) and without
+  `-verbose`. One serial job with full plan output for 500 runs took 43
+  minutes and starved the runner until a mock provider missed Terraform's
+  fixed 60 s plugin start timeout (`timeout while waiting for plugin to
+  start`), failing an unrelated run. Keep `-verbose` for the local loop.
 - Each example, the `modules/controllers` submodule, and its own
   `examples/direct-use` has its own `tests/defaults.tftest.hcl` that
   exercises it end-to-end with the same mocking strategy, catching wiring
@@ -376,6 +397,19 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   `../../../../.terraform-docs.yml` from a nested `modules/*/examples/*`
   directory.
 
+- **`markdownlint`** (CI job, `markdownlint-cli2`) lints `README.md`,
+  `AGENTS.md`, and `docs/*.md`. `.markdownlint.json` disables MD013
+  (line-length; this repo's prose is not hard-wrapped), MD036
+  (emphasis-as-heading; `docs/troubleshooting.md`'s deliberate
+  Symptom/Cause/Fix convention), MD040 (fenced-code-language; a handful of
+  pre-existing shell-prompt-style fences), and MD060 (table-column-style; a
+  rule new enough that none of this repo's existing tables were written
+  against it). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
+  wrapped in `<!-- markdownlint-disable -->`/`<!-- markdownlint-restore -->`
+  comments placed outside the block, so its anchor tags and placeholder
+  tokens don't need hand-editing to pass MD033. Run locally with
+  `markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"`.
+
 - Each example has its own `README.md` documenting the runnable example.
 - `docs/post-deployment.md` and `docs/destroy-cleanup.md` cover operator-facing
   concerns that don't belong inline in `README.md`.
@@ -405,6 +439,8 @@ terraform fmt -recursive                       # before committing
 terraform init -backend=false                  # at module root
 terraform validate
 terraform test -verbose                        # plan-time, no GCP creds needed
+# Faster iteration on one suite (CI runs the root this way, one file per job):
+#   terraform test -filter=tests/defaults.tftest.hcl
 tflint --init && tflint --format compact
 terraform-docs --output-check .                # README drift check
 
@@ -412,9 +448,23 @@ terraform-docs --output-check .                # README drift check
 # Terraform. Mirrors the `chart-render` CI job.
 tests/scripts/check-n8n-chart.sh
 
-# Security baseline: pinned Checkov, same command as the `checkov` CI job.
-# soft_fail is false, so an unapproved new finding exits nonzero.
-checkov -d . --framework terraform --compact --quiet
+# Security baseline: pinned Checkov, both passes (default tfvars and the
+# opt-in fixture that unblinds count-0 resources like the Redis exporter),
+# same as the `checkov` + `checkov-opt-in` CI jobs. soft_fail is false, so
+# an unapproved new finding exits nonzero.
+tests/scripts/check-checkov.sh
+
+# Markdown lint, same command as the `markdownlint` CI job.
+markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
+
+# Version-currency reports (never auto-bump; see docs/versioning.md).
+# check-version-drift.sh compares every pin against its upstream source.
+# check-helm-chart-coverage.sh fails only if docs/helm-chart-coverage.md
+# drifts from the pinned chart's actual values.yaml. chart-values-diff.sh
+# is manual, run with a candidate version when picking up a chart bump:
+#   tests/scripts/chart-values-diff.sh 1.12.0
+tests/scripts/check-version-drift.sh
+tests/scripts/check-helm-chart-coverage.sh
 
 # Repeat the same five commands under every example and both controller
 # targets. This exact target list mirrors the `validate`/`test`/`tflint`/`docs`
@@ -436,6 +486,7 @@ checkov -d . --framework terraform --compact --quiet
 (cd examples/customer-managed-redis      && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
 (cd examples/customer-managed-gcs        && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
 (cd examples/customer-managed-everything && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
+(cd examples/worker-pools                && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --output-check .)
 (cd modules/controllers                  && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --config ../../.terraform-docs.yml --output-check .)
 (cd modules/controllers/examples/direct-use && terraform init -backend=false && terraform validate && terraform test -verbose && tflint --init && tflint --format compact && terraform-docs --config ../../../../.terraform-docs.yml --output-check .)
 ```

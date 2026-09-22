@@ -42,6 +42,10 @@ module "n8n" {
   postgres_deletion_protection = var.postgres_deletion_protection
   gcs_force_destroy            = var.gcs_force_destroy
 
+  # ── Backup tuning passthrough ────────────────────────────────────────────
+  postgres_backup_retained_backups        = var.postgres_backup_retained_backups
+  postgres_transaction_log_retention_days = var.postgres_transaction_log_retention_days
+
   # This example owns ingress, DNS, and TLS entirely (network.tf, services.tf,
   # tls.tf); leave every managed-ingress tuning input at its default so
   # checks.tf's create_ingress = false guard stays quiet.

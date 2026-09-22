@@ -16,11 +16,12 @@
 module "n8n" {
   source = "../.."
 
-  project_id           = var.project_id
-  gcp_region           = var.gcp_region
-  friendly_name_prefix = var.friendly_name_prefix
-  n8n_fqdn             = var.n8n_fqdn
-  n8n_license_key      = var.n8n_license_key
+  project_id             = var.project_id
+  gcp_region             = var.gcp_region
+  friendly_name_prefix   = var.friendly_name_prefix
+  n8n_fqdn               = var.n8n_fqdn
+  n8n_license_key        = var.n8n_license_key
+  n8n_additional_domains = var.n8n_additional_domains
 
   # ── Network ownership: existing VPC + subnetwork ───────────────────────────
   create_network               = false

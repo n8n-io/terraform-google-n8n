@@ -120,3 +120,16 @@ run "single_main_floor_produces_valid_plan" {
     error_message = "n8n_main_fixed_replicas=1 (single-main) must still produce a valid plan through this example's passthrough, even though the caller owns the main scaler (n8n_main_hpa_enabled=false)."
   }
 }
+
+run "additional_domains_passthrough" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["alt.example.com"]
+  }
+
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
+    error_message = "n8n_additional_domains passthrough must not break the base plan through this example's caller-owned ingress."
+  }
+}

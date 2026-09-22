@@ -86,3 +86,17 @@ variable "gcs_force_destroy" {
   type        = bool
   default     = false
 }
+
+# ── Backup tuning passthrough ─────────────────────────────────────────────────
+
+variable "postgres_backup_retained_backups" {
+  description = "Number of automated backups Cloud SQL retains. Null (the default) preserves the provider's own default retention. Passed straight through to the module's postgres_backup_retained_backups."
+  type        = number
+  default     = null
+}
+
+variable "postgres_transaction_log_retention_days" {
+  description = "Days of transaction logs Cloud SQL retains for point-in-time recovery. Null (the default) preserves the provider's own default. Passed straight through to the module's postgres_transaction_log_retention_days."
+  type        = number
+  default     = null
+}

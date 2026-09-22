@@ -315,6 +315,11 @@ run "exporter_hardened_pod_contract" {
     condition     = length(kubernetes_deployment_v1.redis_exporter[0].spec[0].template[0].spec[0].container[0].readiness_probe) == 1
     error_message = "The exporter must have a readiness probe."
   }
+
+  assert {
+    condition     = kubernetes_deployment_v1.redis_exporter[0].spec[0].template[0].spec[0].container[0].image == "oliver006/redis_exporter:v1.90.0@sha256:a129504e65b87c54f79bc92f1afc403475e8ff646a3d7512de469904ceddf986"
+    error_message = "The default exporter image must be pinned by digest as well as tag, so the default IfNotPresent pull policy cannot silently keep running a superseded image once the tag moves."
+  }
 }
 
 # ── Image must be pinned (no unpinned floating tag) ──────────────────────────
@@ -324,6 +329,30 @@ run "exporter_image_requires_explicit_tag" {
 
   variables {
     redis_exporter_image = "oliver006/redis_exporter"
+  }
+
+  expect_failures = [var.redis_exporter_image]
+}
+
+run "exporter_image_accepts_a_digest" {
+  command = plan
+
+  variables {
+    redis_exporter_enabled = true
+    redis_exporter_image   = "oliver006/redis_exporter:v1.90.0@sha256:a129504e65b87c54f79bc92f1afc403475e8ff646a3d7512de469904ceddf986"
+  }
+
+  assert {
+    condition     = kubernetes_deployment_v1.redis_exporter[0].spec[0].template[0].spec[0].container[0].image == "oliver006/redis_exporter:v1.90.0@sha256:a129504e65b87c54f79bc92f1afc403475e8ff646a3d7512de469904ceddf986"
+    error_message = "A caller-supplied image with a valid digest suffix must be accepted and used verbatim."
+  }
+}
+
+run "exporter_image_rejects_malformed_digest" {
+  command = plan
+
+  variables {
+    redis_exporter_image = "oliver006/redis_exporter:v1.90.0@sha256:not-hex"
   }
 
   expect_failures = [var.redis_exporter_image]
