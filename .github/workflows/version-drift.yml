@@ -1,0 +1,53 @@
+name: Version drift report
+
+# Weekly, report-only: never fails a PR and never bumps a pin. Runs
+# tests/scripts/check-version-drift.sh and files/updates a single tracking
+# issue with the result. See docs/versioning.md for what is checked and
+# tests/scripts/README.md for how to run it locally.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  version-drift:
+    name: version drift report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: run tests/scripts/check-version-drift.sh
+        id: drift
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          tests/scripts/check-version-drift.sh 2>&1 | tee /tmp/drift-report.txt
+          echo "exit_code=$?" >>"$GITHUB_OUTPUT"
+
+      - name: file or update tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="Version drift report"
+          body_file="/tmp/drift-report.txt"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            echo "Latest run: ${run_url}"
+            echo
+            echo '```'
+            cat "$body_file"
+            echo '```'
+          } >/tmp/issue-body.txt
+
+          existing="$(gh issue list --search "in:title \"${title}\"" --state open --json number --jq '.[0].number' || true)"
+          if [ -n "${existing:-}" ]; then
+            gh issue comment "$existing" --body-file /tmp/issue-body.txt
+          else
+            gh issue create --title "$title" --body-file /tmp/issue-body.txt
+          fi

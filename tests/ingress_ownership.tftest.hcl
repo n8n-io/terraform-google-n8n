@@ -332,6 +332,79 @@ run "additional_domains_reject_repeat_of_canonical_hostname" {
   expect_failures = [var.n8n_additional_domains]
 }
 
+run "additional_domains_reject_overlong_label" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["${join("", [for i in range(64) : "a"])}.example.com"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+run "additional_domains_reject_empty_label" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["a..example.com"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+run "additional_domains_reject_hyphen_boundary_label" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["a.-b.example.com"]
+  }
+
+  expect_failures = [var.n8n_additional_domains]
+}
+
+run "additional_domains_accept_max_length_label" {
+  command = plan
+
+  variables {
+    n8n_additional_domains = ["${join("", [for i in range(63) : "a"])}.example.com"]
+  }
+
+  assert {
+    condition     = length(output.n8n_ingress_hosts) == 2
+    error_message = "A 63-character label is valid and must be accepted."
+  }
+}
+
+run "fqdn_reject_overlong_label" {
+  command = plan
+
+  variables {
+    n8n_fqdn = "${join("", [for i in range(64) : "a"])}.example.com"
+  }
+
+  expect_failures = [var.n8n_fqdn]
+}
+
+run "fqdn_reject_empty_label" {
+  command = plan
+
+  variables {
+    n8n_fqdn = "n8n..example.com"
+  }
+
+  expect_failures = [var.n8n_fqdn]
+}
+
+run "fqdn_reject_hyphen_boundary_label" {
+  command = plan
+
+  variables {
+    n8n_fqdn = "n8n.-example.com"
+  }
+
+  expect_failures = [var.n8n_fqdn]
+}
+
 # ── Guarded ingress annotations (task 20.1) ───────────────────────────────────
 
 run "ingress_annotations_reject_module_owned_key" {
@@ -487,6 +560,31 @@ run "self_signed_certificate_sans_include_every_alias_domain" {
   assert {
     condition     = toset(tls_self_signed_cert.self_signed[0].dns_names) == toset(["n8n.test.example.com", "alt.example.com"])
     error_message = "The self-signed certificate's SANs must cover the canonical host and every alias domain."
+  }
+}
+
+run "self_signed_certificate_rejects_over_64_character_fqdn" {
+  command = plan
+
+  variables {
+    tls_mode = "self_signed"
+    n8n_fqdn = "${join("", [for i in range(58) : "a"])}.example.com"
+  }
+
+  expect_failures = [tls_self_signed_cert.self_signed]
+}
+
+run "google_managed_certificate_accepts_over_64_character_fqdn" {
+  command = plan
+
+  variables {
+    tls_mode = "google_managed"
+    n8n_fqdn = "${join("", [for i in range(58) : "a"])}.example.com"
+  }
+
+  assert {
+    condition     = length(kubectl_manifest.managed_certificate) == 1
+    error_message = "google_managed carries the hostname as a SAN, not a Common Name, so it must accept an over-64-character n8n_fqdn that self_signed rejects."
   }
 }
 

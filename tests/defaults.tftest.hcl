@@ -1449,3 +1449,260 @@ run "webhook_hpa_stabilization_has_no_effect_when_hpa_disabled" {
     error_message = "No webhook HPA (and so no behavior/stabilization setting) should be rendered when n8n_webhook_hpa_enabled = false, regardless of the stabilization value."
   }
 }
+
+# ── Worker pools (EARLY ALPHA) ────────────────────────────────────────────────
+# Asserted at the variable-contract level, plus the chart-pairing precondition
+# on helm_release.n8n (which is a real Terraform precondition, so a mocked
+# `plan` does exercise it). queueMode.workerGroups wiring inside
+# helm_release.values can't be asserted here (values is unknown at plan time
+# under the mock provider, same limitation as n8n_extra_env above).
+
+run "worker_pools_default_to_empty" {
+  command = plan
+
+  assert {
+    condition     = length(var.n8n_worker_pools) == 0
+    error_message = "n8n_worker_pools must default to an empty list."
+  }
+
+  assert {
+    condition     = length(var.n8n_worker_extra_env) == 0
+    error_message = "n8n_worker_extra_env must default to an empty list."
+  }
+}
+
+run "worker_pools_with_prerelease_chart_plans_cleanly" {
+  command = plan
+
+  # A prerelease version is taken at the caller's word (the hyphen check in
+  # local.n8n_chart_renders_worker_pools), so the precondition passes without
+  # n8n_worker_pools_chart_verified.
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_worker_pools = [
+      { name = "heavy", min_replicas = 1, max_replicas = 4, concurrency = 5 },
+    ]
+  }
+
+  assert {
+    condition     = length(var.n8n_worker_pools) == 1
+    error_message = "n8n_worker_pools should accept a minimal pool entry."
+  }
+
+  assert {
+    condition     = var.n8n_worker_pools[0].name == "heavy"
+    error_message = "n8n_worker_pools name should propagate correctly."
+  }
+}
+
+run "worker_pools_with_numbered_chart_fails_precondition" {
+  command = plan
+
+  # The default n8n_chart_version (a numbered release) cannot be trusted to
+  # render queueMode.workerGroups, and n8n_worker_pools_chart_verified is not
+  # set, so helm_release.n8n's precondition must fail the plan rather than
+  # apply cleanly with the pools silently unrendered.
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [helm_release.n8n]
+}
+
+run "worker_pools_with_numbered_chart_and_verified_attestation_plans_cleanly" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+    n8n_worker_pools_chart_verified = true
+  }
+
+  assert {
+    condition     = var.n8n_worker_pools_chart_verified == true
+    error_message = "n8n_worker_pools_chart_verified should accept true."
+  }
+}
+
+run "worker_pools_reject_default_name" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "default" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_uppercase_name" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "ITop" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_duplicate_names" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy" },
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_reversed_replica_bounds" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy", min_replicas = 5, max_replicas = 1 },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_accept_scale_to_zero" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_worker_pools = [
+      { name = "itop", min_replicas = 0, max_replicas = 3 },
+    ]
+  }
+
+  assert {
+    condition     = var.n8n_worker_pools[0].min_replicas == 0
+    error_message = "n8n_worker_pools min_replicas must accept 0 for scale-to-zero pools."
+  }
+}
+
+run "worker_pools_reject_pool_name_env_override" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "N8N_WORKER_POOL_NAME", value = "other" },
+        ]
+      },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_pools_reject_unsupported_cpu_quantity" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      { name = "heavy", cpu_request = "1 core" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_extra_env_rejects_pool_name_var" {
+  command = plan
+
+  variables {
+    n8n_worker_extra_env = [
+      { name = "N8N_WORKER_POOL_NAME", value = "heavy" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_extra_env]
+}
+
+run "worker_pools_old_image_tag_triggers_check_warning" {
+  command = plan
+
+  # check.worker_pools_require_n8n_2_39 warns (not a hard failure) when an
+  # image predating worker pools is pinned alongside a non-empty
+  # n8n_worker_pools. Listed in expect_failures because a triggered `check`
+  # block counts as a failure for terraform test even though it does not
+  # block the plan.
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_image_tag     = "2.38.7"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [check.worker_pools_require_n8n_2_39]
+}
+
+run "worker_pools_new_image_tag_plans_cleanly" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_image_tag     = "2.39.0"
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = var.n8n_image_tag == "2.39.0"
+    error_message = "n8n_image_tag should accept a version at the worker pools floor."
+  }
+}
+
+run "worker_pools_with_managed_redis_tls_ca_trigger_check_warning" {
+  command = plan
+
+  # check.worker_pools_with_managed_redis_tls_ca (worker-pools.tf) warns when
+  # pools are combined with module-managed Memorystore transit encryption,
+  # whose private CA a pool's metadata-only KEDA trigger cannot trust.
+  variables {
+    n8n_chart_version                = "1.11.0-preview.workerpools.1"
+    redis_transit_encryption_enabled = true
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  expect_failures = [check.worker_pools_with_managed_redis_tls_ca]
+}
+
+run "worker_pools_with_external_tls_redis_plans_cleanly" {
+  command = plan
+
+  # External TLS Redis has no module-managed CA, so the check stays quiet and
+  # the pool metadata carries enableTLS the same way the default worker does.
+  variables {
+    n8n_chart_version     = "1.11.0-preview.workerpools.1"
+    create_redis_instance = false
+    redis_host            = "redis.example.internal"
+    redis_tls_enabled     = true
+    n8n_worker_pools = [
+      { name = "heavy" },
+    ]
+  }
+
+  assert {
+    condition     = try(local.n8n_worker_pool_keda_metadata.enableTLS, null) == "true"
+    error_message = "pool trigger metadata must carry enableTLS=\"true\" against an external TLS Redis, matching the default worker's trigger rule."
+  }
+}

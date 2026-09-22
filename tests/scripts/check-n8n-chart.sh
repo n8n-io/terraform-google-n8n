@@ -36,7 +36,7 @@ cd "$(dirname "$0")/../.."
 
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
-CHART_VERSION="1.10.1"
+CHART_VERSION="1.11.0"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT

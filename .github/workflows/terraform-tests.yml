@@ -97,6 +97,10 @@ jobs:
         working-directory: examples/customer-managed-everything
         run: terraform-docs --output-check .
 
+      - name: terraform-docs --output-check (examples/worker-pools)
+        working-directory: examples/worker-pools
+        run: terraform-docs --output-check .
+
       # modules/controllers is not the recursive-path default for a bare
       # `terraform-docs .` invocation from inside modules/, so it needs the
       # root config passed explicitly (see AGENTS.md).
@@ -107,6 +111,41 @@ jobs:
       - name: terraform-docs --output-check (modules/controllers/examples/direct-use)
         working-directory: modules/controllers/examples/direct-use
         run: terraform-docs --config ../../../../.terraform-docs.yml --output-check .
+
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    env:
+      # Pinned so a floating `latest` cannot introduce a new rule (like
+      # MD060/table-column-style, added in a recent markdownlint release)
+      # that silently starts failing this job with no corresponding repo
+      # change. Bump deliberately, alongside .markdownlint.json if the new
+      # version needs a new suppression.
+      MARKDOWNLINT_VERSION: "0.23.2"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: install markdownlint-cli2
+        run: npm install -g "markdownlint-cli2@${MARKDOWNLINT_VERSION}"
+
+      - name: markdownlint-cli2
+        # Lints README.md, AGENTS.md, and docs/*.md. The generated
+        # <!-- BEGIN_TF_DOCS -->/<!-- END_TF_DOCS --> block in README.md is
+        # wrapped in markdownlint-disable/-restore comments (placed outside
+        # the block) to suppress false positives from terraform-docs output
+        # (anchor tags, placeholder tokens) without hand-editing the
+        # generated content itself. .markdownlint.json disables MD013
+        # (line-length; this repo does not hard-wrap prose), MD036
+        # (emphasis-as-heading; docs/troubleshooting.md's deliberate
+        # Symptom/Cause/Fix convention), MD040 (fenced-code-language; a
+        # handful of pre-existing shell-prompt-style fences), and MD060
+        # (table-column-style; a new pipe-alignment-style rule this repo's
+        # existing tables were never written against).
+        run: markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
 
   validate:
     name: terraform validate (${{ matrix.target }})
@@ -127,6 +166,7 @@ jobs:
             "examples/customer-managed-redis",
             "examples/customer-managed-gcs",
             "examples/customer-managed-everything",
+            "examples/worker-pools",
             "modules/controllers",
             "modules/controllers/examples/direct-use",
           ]
@@ -174,6 +214,7 @@ jobs:
             "examples/customer-managed-redis",
             "examples/customer-managed-gcs",
             "examples/customer-managed-everything",
+            "examples/worker-pools",
             "modules/controllers",
             "modules/controllers/examples/direct-use",
           ]
@@ -230,6 +271,7 @@ jobs:
             "examples/customer-managed-redis",
             "examples/customer-managed-gcs",
             "examples/customer-managed-everything",
+            "examples/worker-pools",
             "modules/controllers",
             "modules/controllers/examples/direct-use",
           ]
@@ -288,3 +330,28 @@ jobs:
           soft_fail: false
           output_format: cli
           output_file_path: console
+
+  checkov-opt-in:
+    name: checkov (opt-in resources)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: install checkov
+        # Same pin as the checkov job above (bridgecrewio/checkov-action@v12.3123.0
+        # bundles checkov 3.3.17); installed directly here because
+        # tests/scripts/check-checkov.sh's reachability check needs checkov's
+        # own JSON output, which the Action does not expose.
+        run: pip install "checkov==3.3.17"
+
+      - name: check-checkov.sh
+        # Runs both the default-tfvars pass and the tests/checkov/opt-in.tfvars
+        # pass, then verifies the opt-in pass actually reached every
+        # opt-in-gated resource (redis_exporter today) rather than silently
+        # staying at count 0 - see AGENTS.md, "Static analysis", for why a
+        # count-0 resource is otherwise invisible to checkov.
+        run: tests/scripts/check-checkov.sh

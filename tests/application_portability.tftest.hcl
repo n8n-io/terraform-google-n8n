@@ -192,6 +192,42 @@ run "image_pull_secrets_rejects_duplicates" {
   expect_failures = [var.n8n_image_pull_secrets]
 }
 
+run "image_pull_secrets_rejects_overlong_label" {
+  command = plan
+
+  variables {
+    n8n_image_repository   = "us-docker.pkg.dev/test-project/n8n/n8n"
+    n8n_image_pull_secrets = ["${join("", [for i in range(64) : "a"])}.pull-creds"]
+  }
+
+  expect_failures = [var.n8n_image_pull_secrets]
+}
+
+run "image_pull_secrets_rejects_empty_label" {
+  command = plan
+
+  variables {
+    n8n_image_repository   = "us-docker.pkg.dev/test-project/n8n/n8n"
+    n8n_image_pull_secrets = ["ar..pull-creds"]
+  }
+
+  expect_failures = [var.n8n_image_pull_secrets]
+}
+
+run "image_pull_secrets_accepts_max_length_label" {
+  command = plan
+
+  variables {
+    n8n_image_repository   = "us-docker.pkg.dev/test-project/n8n/n8n"
+    n8n_image_pull_secrets = ["${join("", [for i in range(63) : "a"])}.pull-creds"]
+  }
+
+  assert {
+    condition     = length(kubernetes_service_account_v1.n8n) == 1
+    error_message = "A 63-character label is valid and must be accepted."
+  }
+}
+
 run "image_pull_secrets_without_image_repository_triggers_check_warning" {
   command = plan
 

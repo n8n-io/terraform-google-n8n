@@ -14,6 +14,7 @@
 # n8n is actually running on.
 
 resource "kubernetes_deployment_v1" "redis_exporter" {
+  #checkov:skip=CKV_K8S_11:Deliberate: memory is capped (below) but CPU is not, so a CFS-throttled exporter never reports late during exactly the incident it exists to surface, and one pod without a CPU limit cannot starve a node.
   count = var.redis_exporter_enabled ? 1 : 0
 
   metadata {

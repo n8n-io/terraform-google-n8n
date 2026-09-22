@@ -69,3 +69,18 @@ run "overridden_boot_disk_and_pool_size_produce_valid_plan" {
     error_message = "overriding gke_node_disk_size_gb, gke_node_disk_type, and db_postgresdb_pool_size through this example must still produce a valid plan."
   }
 }
+
+run "backup_tuning_and_additional_domains_passthrough" {
+  command = plan
+
+  variables {
+    postgres_backup_retained_backups        = 14
+    postgres_transaction_log_retention_days = 3
+    n8n_additional_domains                  = ["alt.example.com"]
+  }
+
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
+    error_message = "New backup-tuning and additional-domains passthrough must not break the base plan."
+  }
+}

@@ -105,6 +105,16 @@ terraform apply
 If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 `static_ip` output. Status: preliminary / not scale-validated.
 
+## Production considerations
+
+This example's defaults favor easy teardown over production hardening. Before running this against a real workload, review:
+
+- `postgres_deletion_protection` (default `true`) blocks `terraform destroy` of the Cloud SQL instance.
+- `postgres_backup_retained_backups` / `postgres_transaction_log_retention_days` (both default `null`, meaning "Cloud SQL's own default") let you raise backup/PITR retention beyond the provider default.
+- `gcs_force_destroy` (default `false`) blocks `terraform destroy` from deleting a non-empty GCS bucket.
+
+See [`docs/destroy-cleanup.md`](../../docs/destroy-cleanup.md) for the full teardown sequence, including why a retained snapshot or bucket becomes unrecoverable once a module-managed Cloud KMS key finishes its deletion window.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -115,7 +125,7 @@ If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
-| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 2.0 |
+| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 3.0 |
 
 ## Providers
 
@@ -152,6 +162,7 @@ If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 | <a name="input_gke_node_min_per_zone"></a> [gke\_node\_min\_per\_zone](#input\_gke\_node\_min\_per\_zone) | Autoscaling min nodes per zone (regional cluster ~3 zones). | `number` | `3` | no |
 | <a name="input_gke_node_type"></a> [gke\_node\_type](#input\_gke\_node\_type) | GKE node machine type. | `string` | `"e2-standard-16"` | no |
 | <a name="input_manage_sa_key_org_policy"></a> [manage\_sa\_key\_org\_policy](#input\_manage\_sa\_key\_org\_policy) | Opt-in: let Terraform turn OFF iam.disableServiceAccountKeyCreation for this project so the GCS HMAC key can be created. Requires roles/orgpolicy.policyAdmin. Default false; disable the policy out-of-band otherwise. | `bool` | `false` | no |
+| <a name="input_n8n_additional_domains"></a> [n8n\_additional\_domains](#input\_n8n\_additional\_domains) | Additional hostnames to give the full main/webhook route set alongside n8n\_fqdn. Passed straight through to the module's n8n\_additional\_domains. Default empty (no aliases). | `list(string)` | `[]` | no |
 | <a name="input_n8n_execution_concurrency_limit"></a> [n8n\_execution\_concurrency\_limit](#input\_n8n\_execution\_concurrency\_limit) | n8n production execution concurrency limit. | `number` | `400` | no |
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. | `string` | n/a | yes |
 | <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n image tag to deploy, passed straight through to the module's n8n\_image\_tag. Null (the default) keeps the chart's floating `stable` tag, which resolves to whatever n8n version is current when each pod starts. Pin a concrete version (for example "2.39.7") for reproducible deployments and controlled upgrades. | `string` | `null` | no |
@@ -164,9 +175,11 @@ If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 | <a name="input_n8n_worker_keda_max_replicas"></a> [n8n\_worker\_keda\_max\_replicas](#input\_n8n\_worker\_keda\_max\_replicas) | KEDA worker ceiling (pair with gke\_node\_max\_per\_zone). | `number` | `80` | no |
 | <a name="input_n8n_worker_keda_min_replicas"></a> [n8n\_worker\_keda\_min\_replicas](#input\_n8n\_worker\_keda\_min\_replicas) | KEDA worker floor. | `number` | `3` | no |
 | <a name="input_postgres_availability_type"></a> [postgres\_availability\_type](#input\_postgres\_availability\_type) | REGIONAL (HA failover) or ZONAL. | `string` | `"REGIONAL"` | no |
+| <a name="input_postgres_backup_retained_backups"></a> [postgres\_backup\_retained\_backups](#input\_postgres\_backup\_retained\_backups) | Number of automated backups Cloud SQL retains. Null (the default) preserves the provider's own default retention. Passed straight through to the module's postgres\_backup\_retained\_backups. | `number` | `null` | no |
 | <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
 | <a name="input_postgres_disk_size"></a> [postgres\_disk\_size](#input\_postgres\_disk\_size) | Cloud SQL data disk size in GB. | `number` | `250` | no |
 | <a name="input_postgres_machine_type"></a> [postgres\_machine\_type](#input\_postgres\_machine\_type) | Cloud SQL machine tier (ENTERPRISE edition). | `string` | `"db-custom-8-30720"` | no |
+| <a name="input_postgres_transaction_log_retention_days"></a> [postgres\_transaction\_log\_retention\_days](#input\_postgres\_transaction\_log\_retention\_days) | Days of transaction logs Cloud SQL retains for point-in-time recovery. Null (the default) preserves the provider's own default. Passed straight through to the module's postgres\_transaction\_log\_retention\_days. | `number` | `null` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID. | `string` | n/a | yes |
 | <a name="input_redis_memory_size_gb"></a> [redis\_memory\_size\_gb](#input\_redis\_memory\_size\_gb) | Memorystore capacity in GB. | `number` | `8` | no |
 | <a name="input_redis_tier"></a> [redis\_tier](#input\_redis\_tier) | Memorystore tier: BASIC or STANDARD\_HA. | `string` | `"STANDARD_HA"` | no |

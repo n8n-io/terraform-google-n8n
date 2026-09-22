@@ -261,11 +261,15 @@ resource "helm_release" "n8n" {
     # election staging; chart default ({}) above one. Other roles are unchanged.
     strategy = local.n8n_main_strategy
 
-    queueMode = {
+    queueMode = merge({
       enabled            = true
       workerReplicaCount = local.n8n_effective_worker_replica_count
       workerConcurrency  = var.n8n_worker_concurrency
-    }
+      }, length(var.n8n_worker_extra_env) > 0 ? {
+      workerExtraEnv = var.n8n_worker_extra_env
+      } : {}, length(local.n8n_worker_groups) > 0 ? {
+      workerGroups = local.n8n_worker_groups
+    } : {})
 
     webhookProcessor = {
       enabled                                = true
@@ -736,6 +740,14 @@ resource "helm_release" "n8n" {
           ] : [],
         ) : [],
 
+        # Flags every n8n pod (main, worker, webhook-processor) that pool
+        # routing is available once any n8n_worker_pools entry exists; n8n
+        # reads this to decide whether a project can be assigned to a named
+        # pool at all (worker-pools.tf).
+        length(var.n8n_worker_pools) > 0 ? [
+          { name = "N8N_WORKER_POOLS_ENABLED", value = "true" },
+        ] : [],
+
         # Caller-supplied escape hatch, appended last. Kubernetes resolves
         # duplicate env names last-wins, so this would override anything above
         # it; var.n8n_extra_env is validated against local.n8n_managed_env_names
@@ -854,6 +866,17 @@ resource "helm_release" "n8n" {
     # server rejects as an invalid pod spec. The local strips unset keys.
     local.n8n_dns_config == null ? {} : { dnsConfig = local.n8n_dns_config },
   ))]
+
+  lifecycle {
+    precondition {
+      # See worker-pools.tf: a chart that predates queueMode.workerGroups
+      # accepts the key and renders nothing for it, so N8N_WORKER_POOLS_ENABLED
+      # would land on every pod with no pool Deployment or ScaledObject behind
+      # it, and this would otherwise apply cleanly.
+      condition     = length(var.n8n_worker_pools) > 0 ? local.n8n_chart_renders_worker_pools : true
+      error_message = local.n8n_worker_pools_chart_error
+    }
+  }
 
   depends_on = [
     google_container_node_pool.n8n,

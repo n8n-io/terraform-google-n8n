@@ -91,6 +91,16 @@ terraform init
 terraform apply
 ```
 
+## Production considerations
+
+This example's defaults favor easy teardown over production hardening. Before running this against a real workload, review:
+
+- `postgres_deletion_protection` (default `true`) blocks `terraform destroy` of the Cloud SQL instance.
+- `postgres_backup_retained_backups` / `postgres_transaction_log_retention_days` (both default `null`, meaning "Cloud SQL's own default") let you raise backup/PITR retention beyond the provider default.
+- `gcs_force_destroy` (default `false`) blocks `terraform destroy` from deleting a non-empty GCS bucket.
+
+See [`docs/destroy-cleanup.md`](../../docs/destroy-cleanup.md) for the full teardown sequence, including why a retained snapshot or bucket becomes unrecoverable once a module-managed Cloud KMS key finishes its deletion window.
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
@@ -101,7 +111,7 @@ terraform apply
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
-| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 2.0 |
+| <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 3.0 |
 
 ## Providers
 
@@ -109,7 +119,7 @@ terraform apply
 | ---- | ------- |
 | <a name="provider_google"></a> [google](#provider\_google) | ~> 6.0 |
 | <a name="provider_kubectl"></a> [kubectl](#provider\_kubectl) | ~> 1.14 |
-| <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | ~> 2.0 |
+| <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | ~> 3.0 |
 
 ## Modules
 
@@ -151,7 +161,9 @@ terraform apply
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Private hostname n8n's editor/API is served on. Reachable only through the internal ingress (google\_compute\_address.private); not publicly resolvable. Also used as N8N\_EDITOR\_BASE\_URL by the module. | `string` | n/a | yes |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key (multi-main requires Enterprise). | `string` | `""` | no |
 | <a name="input_n8n_main_hpa_min_replicas"></a> [n8n\_main\_hpa\_min\_replicas](#input\_n8n\_main\_hpa\_min\_replicas) | Minimum replica count for n8n main pods, passed straight through to the module's own n8n\_main\_hpa\_min\_replicas. Leave null (the default) to use the module's default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n\_main\_hpa\_enabled description for the required license edition and maintenance implications. | `number` | `null` | no |
+| <a name="input_postgres_backup_retained_backups"></a> [postgres\_backup\_retained\_backups](#input\_postgres\_backup\_retained\_backups) | Number of automated backups Cloud SQL retains. Null (the default) preserves the provider's own default retention. Passed straight through to the module's postgres\_backup\_retained\_backups. | `number` | `null` | no |
 | <a name="input_postgres_deletion_protection"></a> [postgres\_deletion\_protection](#input\_postgres\_deletion\_protection) | Block terraform destroy of the Cloud SQL instance. | `bool` | `true` | no |
+| <a name="input_postgres_transaction_log_retention_days"></a> [postgres\_transaction\_log\_retention\_days](#input\_postgres\_transaction\_log\_retention\_days) | Days of transaction logs Cloud SQL retains for point-in-time recovery. Null (the default) preserves the provider's own default. Passed straight through to the module's postgres\_transaction\_log\_retention\_days. | `number` | `null` | no |
 | <a name="input_project_id"></a> [project\_id](#input\_project\_id) | GCP project ID. | `string` | n/a | yes |
 | <a name="input_proxy_only_subnet_cidr"></a> [proxy\_only\_subnet\_cidr](#input\_proxy\_only\_subnet\_cidr) | CIDR range for the regional proxy-only subnet the internal Application Load Balancer's managed proxies use to reach backends. Must not overlap the module's VPC (network.tf's subnet\_cidr/pods\_cidr/services\_cidr) or this subnet's own firewall rule's source range. See Google's example range in the internal-ingress guide. | `string` | `"10.129.0.0/23"` | no |
 | <a name="input_public_webhook_fqdn"></a> [public\_webhook\_fqdn](#input\_public\_webhook\_fqdn) | Public hostname n8n's webhooks are served on. Reachable through the public ingress (google\_compute\_global\_address.public); passed to the module as n8n\_webhook\_url so WEBHOOK\_URL/N8N\_WEBHOOK\_URL resolve externally while the editor stays private. | `string` | n/a | yes |

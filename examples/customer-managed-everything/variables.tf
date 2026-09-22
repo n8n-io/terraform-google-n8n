@@ -32,6 +32,12 @@ variable "n8n_main_fixed_replicas" {
   default     = 2
 }
 
+variable "n8n_additional_domains" {
+  description = "Additional hostnames to give the full main/webhook route set alongside n8n_fqdn. Passed straight through to the module's n8n_additional_domains. Default empty (no aliases)."
+  type        = list(string)
+  default     = []
+}
+
 # ── Network ────────────────────────────────────────────────────────────────
 
 variable "existing_network_name" {

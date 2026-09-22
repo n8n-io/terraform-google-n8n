@@ -13,7 +13,10 @@ This module is pre-1.0 and, as stated in
 [README.md, Stability & versioning](../README.md#stability--versioning), no
 tagged version has shipped this interface yet: there is no automatic state
 migration for any change below. Apply the manual steps in this guide yourself,
-or start a fresh `terraform apply` against new state.
+or start a fresh `terraform apply` against new state. See
+[`versioning.md`](./versioning.md) for the full inventory of every provider,
+chart, and CI-toolchain pin this module makes and which bump tier each falls
+into.
 
 ## GKE Dataplane V2 requires cluster replacement
 
