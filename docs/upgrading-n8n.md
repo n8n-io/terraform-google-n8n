@@ -225,14 +225,86 @@ the error above. See
 
 This is existing chart behavior, not new in this release, but it interacts
 directly with the topology transitions above: the module always renders an
-unconditional `replicaCount` (the effective HPA minimum, or the fixed count),
-regardless of how many replicas an HPA has actually scaled a Deployment to at
-apply time. Every `terraform apply` that triggers a Helm upgrade of the n8n
-release resets main and webhook-processor replicas back down to that floor,
-even if the HPA had previously scaled them higher. This is not a regression
-from this release; it means an operator relying on HPA-scaled headroom should
-not be surprised to see replica counts drop back to the configured minimum
-immediately after any `apply` that touches the Helm release.
+unconditional `replicaCount` (the effective HPA minimum, or the fixed count)
+for the main and webhook-processor Deployments, regardless of how many
+replicas an HPA has actually scaled them to at apply time. Every `terraform
+apply` that triggers a Helm upgrade of the n8n release resets main and
+webhook-processor replicas back down to that floor, even if the HPA had
+previously scaled them higher. An operator relying on HPA-scaled headroom
+should not be surprised to see those two counts drop back to the configured
+minimum immediately after any `apply` that touches the Helm release.
+
+### Workers on chart 1.13.0 and later
+
+Chart `1.13.0` ([n8n-hosting#201](https://github.com/n8n-io/n8n-hosting/pull/201))
+stops rendering the **worker** Deployment's `replicas` field whenever
+`keda.enabled` is on with triggers, which is this module's default
+(`n8n_worker_keda_enabled = true`). From that chart on, a Helm upgrade no
+longer touches the worker count at all: KEDA owns it, and
+`n8n_worker_keda_min_replicas` is the floor KEDA enforces rather than a value
+the chart re-stamps. The main and webhook-processor behavior above is
+unchanged, because the chart only defers to an autoscaler it can see through
+its own `hpa.*`/`keda.*` switches, and this module scales the webhook
+processor with an external `HorizontalPodAutoscaler` (`scaling.tf`) instead.
+
+**One-time effect on the first apply that moves an existing release from a
+chart `<= 1.12.0` to `1.13.0` or later:** Helm removes the `replicas` field it
+previously managed from the worker Deployment, and Kubernetes falls back to
+its default of `1` for the field, so the worker Deployment drops to one
+replica until KEDA's next poll (15 seconds) scales it back to at least
+`n8n_worker_keda_min_replicas`. The removed pods get the same graceful
+shutdown as any worker scale-in (`n8n_termination_grace_period`), so
+in-flight executions that finish inside that window are unaffected. To
+avoid the dip, upgrade in a quiet window, or let the queue drain first; a
+temporarily higher `n8n_worker_keda_min_replicas` does not help, since KEDA
+only reacts after the drop. Later applies on the new chart have no such
+effect.
+
+### Pausing worker autoscaling (chart 1.13.0 and later)
+
+`n8n_worker_keda_pause = true` maps to the chart's `keda.worker.pause` and
+annotates the worker `ScaledObject` with `autoscaling.keda.sh/paused=true`, so
+KEDA stops reconciling and the workers hold their current count. Add
+`n8n_worker_keda_paused_replica_count` to hold a specific count instead;
+`0` drains the workers to zero while new jobs wait in Redis, which is the
+shape to use for a maintenance window or ahead of a database migration
+(pause, wait for in-flight executions to finish, migrate, then unpause).
+Setting `n8n_worker_keda_pause` back to `false` clears both annotations and
+KEDA scales to the queue depth again on its next poll. The count is ignored
+by the chart unless `pause` is true, and the module warns about that
+combination at plan time. Webhook processors have no pause input: the module
+scales them with its own HPA, not a chart `ScaledObject`, so the chart's
+`keda.webhookProcessor.pause` has nothing to act on here. The same two
+inputs exist under the same names in terraform-aws-n8n and
+terraform-azurerm-n8n.
+
+## Main pods lose the task-runner sidecar (chart 1.12.0 and later)
+
+n8n-hosting [#179](https://github.com/n8n-io/n8n-hosting/pull/179), shipped
+in chart `1.12.0` and unchanged through `1.13.0`, renders the task-runner
+sidecar, its env, and the launcher ConfigMap mount on the main Deployment
+only in standalone mode (`taskRunners.enabled && !queueMode.enabled`). This
+module always runs queue mode, where n8n offloads manual executions to
+workers and starts no runner broker on main, so from chart `1.12.0` on only
+worker pods carry the `task-runner` container. Effects on an existing
+deployment moving from `1.11.0` (this bump skips `1.12.0`, so a `1.11.0`
+deployment takes both releases at once):
+
+- Main pods roll once on the upgrade apply to drop the container (the same
+  rollout that moves them to the new image); nothing to do.
+- `n8n_task_runner_cpu_*`/`n8n_task_runner_memory_*`,
+  `n8n_task_runner_custom_config`, and `n8n_task_runner_timeout` now apply
+  to worker pods only, **while the pinned chart is one this module has
+  verified carries the fix**: its own OCI repository
+  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0` or `1.13.0`
+  exactly (`local.n8n_chart_has_worker_only_runners` in `capacity.tf`). Any
+  other `n8n_chart_version` (a private mirror, a preview build such as
+  `examples/worker-pools`' `1.11.0-preview.workerpools.1`, which predates
+  #179, or a future/older numbered release) keeps the conservative
+  main-sidecar allowance in the capacity estimate, since the module has no
+  way to see what an arbitrary pin's templates actually render.
+- `tests/scripts/smoke-test.sh` checks the sidecar on a worker pod and
+  reports one on main as a warning.
 
 ## License Secret delivery
 

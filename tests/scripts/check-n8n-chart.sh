@@ -36,7 +36,7 @@ cd "$(dirname "$0")/../.."
 
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
-CHART_VERSION="1.11.0"
+CHART_VERSION="1.13.0"
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -462,7 +462,21 @@ EOF
     RENDERED="$WORKDIR/rendered-election-staging.yaml"
     SM_RENDERED="$RENDERED"
     assert_deployment_replicas "n8n-main" "1"
-    assert_deployment_replicas "n8n-worker" "3"
+    # keda.enabled=true with the chart's default worker triggers makes the
+    # chart (>= 1.13.0, n8n-hosting#201) omit the worker Deployment's
+    # `replicas` and leave the count to the ScaledObject; the webhook
+    # processor below has no chart-side owner here and keeps its count.
+    STAGING_WORKER_REPLICAS="$(awk '
+      /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+      in_deploy && $0 == "  name: n8n-worker" { found_name = 1; next }
+      in_deploy && found_name && /^  replicas:/ { print $2; exit }
+      /^---$/ { in_deploy = 0; found_name = 0 }
+    ' "$RENDERED")"
+    if [ -z "$STAGING_WORKER_REPLICAS" ]; then
+      pass "election staging (keda on): Deployment/n8n-worker renders no replicas field (KEDA owns the count)"
+    else
+      fail "election staging (keda on): Deployment/n8n-worker still renders replicas: ${STAGING_WORKER_REPLICAS}"
+    fi
     assert_deployment_replicas "n8n-webhook-processor" "1"
     assert_deployment_strategy "n8n-main" "Recreate"
     assert_deployment_strategy "n8n-worker" ""
@@ -925,6 +939,166 @@ else
     pass "caller Secret volume's decimal defaultMode (288, converted from octal 0440) reaches all 3 rendered pod specs"
   else
     fail "caller Secret volume defaultMode: expected 3 occurrences of 288, found ${CV_SECRET_DEFAULT_MODE_COUNT}"
+  fi
+fi
+
+# ── Replica ownership with KEDA on (n8n-hosting#201, chart >= 1.13.0) ───────
+# The default fixture above never sets `keda`, so its replica assertions only
+# prove the no-autoscaler branch. The module runs with keda.enabled=true and
+# worker triggers (n8n.tf), and since chart 1.13.0 that makes the chart omit
+# the worker Deployment's `replicas` field entirely (KEDA owns it). The
+# webhook-processor Deployment must still carry `replicas`: the module keeps
+# hpa.webhookProcessor.enabled=false and never sets keda.webhookProcessor, so
+# the chart sees no owner there and the external HPA in scaling.tf keeps
+# being reset on every apply. Pinning both halves here means a future chart
+# bump that changes either behaviour fails this script instead of silently
+# changing what `terraform apply` does to live replica counts.
+cat >"$WORKDIR/fixture-keda-on.yaml" <<'EOF'
+keda:
+  enabled: true
+  worker:
+    minReplicaCount: 2
+    maxReplicaCount: 10
+    triggers:
+      - type: redis
+        metadata:
+          listName: "bull:jobs:wait"
+          listLength: "5"
+          address: "synthetic-redis.internal:6379"
+          enableTLS: "false"
+EOF
+
+echo "==> helm template (keda-on fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "$CHART_VERSION" \
+  --namespace n8n \
+  -f "$WORKDIR/fixture-values.yaml" \
+  -f "$WORKDIR/fixture-keda-on.yaml" \
+  >"$WORKDIR/rendered-keda-on.yaml" 2>"$WORKDIR/helm-stderr-keda-on.log"; then
+  fail "helm template (keda-on fixture) failed: $(cat "$WORKDIR/helm-stderr-keda-on.log")"
+else
+  KEDA_WORKER_REPLICAS="$(awk '
+    /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+    in_deploy && $0 == "  name: n8n-worker" { found_name = 1; next }
+    in_deploy && found_name && /^  replicas:/ { print $2; exit }
+    /^---$/ { in_deploy = 0; found_name = 0 }
+  ' "$WORKDIR/rendered-keda-on.yaml")"
+  if [ -z "$KEDA_WORKER_REPLICAS" ]; then
+    pass "keda-on: Deployment/n8n-worker renders no replicas field (KEDA owns the count)"
+  else
+    fail "keda-on: Deployment/n8n-worker still renders replicas: ${KEDA_WORKER_REPLICAS}; chart no longer defers the worker count to KEDA"
+  fi
+
+  KEDA_WEBHOOK_REPLICAS="$(awk '
+    /^kind: Deployment$/ { in_deploy = 1; found_name = 0; next }
+    in_deploy && $0 == "  name: n8n-webhook-processor" { found_name = 1; next }
+    in_deploy && found_name && /^  replicas:/ { print $2; exit }
+    /^---$/ { in_deploy = 0; found_name = 0 }
+  ' "$WORKDIR/rendered-keda-on.yaml")"
+  if [ "$KEDA_WEBHOOK_REPLICAS" = "1" ]; then
+    pass "keda-on: Deployment/n8n-webhook-processor still renders replicas: 1 (no chart-side owner; external HPA resets it each apply)"
+  else
+    fail "keda-on: Deployment/n8n-webhook-processor replicas: expected 1, got '${KEDA_WEBHOOK_REPLICAS:-<not found>}'; the chart's webhook ownership rule changed, re-check scaling.tf's external HPA"
+  fi
+
+  if grep -q '^kind: ScaledObject$' "$WORKDIR/rendered-keda-on.yaml"; then
+    pass "keda-on: a ScaledObject is rendered for the worker"
+  else
+    fail "keda-on: no ScaledObject rendered despite keda.enabled=true with worker triggers"
+  fi
+fi
+
+# ── Worker KEDA pause annotations (n8n_worker_keda_pause, chart #177) ───────
+# The keda-on render above leaves pause at its default: the worker
+# ScaledObject must carry neither pause annotation. A second render with
+# pause=true and pausedReplicaCount=0 (the scale-to-zero case; 0 is falsy in
+# Go templates, which the chart guards against by kind) must carry both.
+scaledobject_annotation() {
+  # scaledobject_annotation <rendered-file> <annotation-key>
+  awk -v key="$2" '
+    /^kind: ScaledObject$/ { in_so = 1; next }
+    in_so && $0 == "  name: n8n-worker" { found = 1; next }
+    in_so && found && $1 == key ":" { print $2; exit }
+    /^---$/ { in_so = 0; found = 0 }
+  ' "$1"
+}
+if [ -n "$(scaledobject_annotation "$WORKDIR/rendered-keda-on.yaml" "autoscaling.keda.sh/paused")" ]; then
+  fail "keda-on default: worker ScaledObject carries autoscaling.keda.sh/paused although keda.worker.pause is unset"
+else
+  pass "keda-on default: worker ScaledObject has no pause annotation"
+fi
+
+cat >"$WORKDIR/fixture-keda-paused.yaml" <<'EOF'
+keda:
+  worker:
+    pause: true
+    pausedReplicaCount: 0
+EOF
+echo "==> helm template (keda paused fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "$CHART_VERSION" \
+  --namespace n8n \
+  -f "$WORKDIR/fixture-values.yaml" \
+  -f "$WORKDIR/fixture-keda-on.yaml" \
+  -f "$WORKDIR/fixture-keda-paused.yaml" \
+  >"$WORKDIR/rendered-keda-paused.yaml" 2>"$WORKDIR/helm-stderr-keda-paused.log"; then
+  fail "helm template (keda paused fixture) failed: $(cat "$WORKDIR/helm-stderr-keda-paused.log")"
+else
+  PAUSED="$(scaledobject_annotation "$WORKDIR/rendered-keda-paused.yaml" "autoscaling.keda.sh/paused")"
+  PAUSED_REPLICAS="$(scaledobject_annotation "$WORKDIR/rendered-keda-paused.yaml" "autoscaling.keda.sh/paused-replicas")"
+  if [ "$PAUSED" = '"true"' ]; then
+    pass "keda paused: worker ScaledObject carries autoscaling.keda.sh/paused: \"true\""
+  else
+    fail "keda paused: autoscaling.keda.sh/paused expected \"true\", got '${PAUSED:-<not found>}'"
+  fi
+  if [ "$PAUSED_REPLICAS" = '"0"' ]; then
+    pass "keda paused: worker ScaledObject carries autoscaling.keda.sh/paused-replicas: \"0\" (scale-to-zero hold survives Go's falsy zero)"
+  else
+    fail "keda paused: autoscaling.keda.sh/paused-replicas expected \"0\", got '${PAUSED_REPLICAS:-<not found>}'"
+  fi
+fi
+
+# ── Task-runner sidecar placement (n8n-hosting#179, chart >= 1.13.0) ────────
+# In queue mode (always, here) the chart renders the task-runner sidecar on
+# worker pods only; main offloads manual executions to workers and starts no
+# runner broker. capacity.tf's node-capacity model relies on this (main
+# ceiling carries no sidecar term), so pin it against the default render.
+deployment_has_container() {
+  # deployment_has_container <rendered-file> <deployment-name> <container-name>
+  awk -v dep="$2" -v ctr="$3" '
+    /^kind: Deployment$/ { in_dep = 1; found = 0; next }
+    in_dep && $0 == "  name: " dep { found = 1; next }
+    in_dep && found && $0 == "        - name: " ctr { print "yes"; exit }
+    /^---$/ { in_dep = 0; found = 0 }
+  ' "$1"
+}
+cat >"$WORKDIR/fixture-task-runners.yaml" <<'EOF'
+taskRunners:
+  enabled: true
+EOF
+echo "==> helm template (task-runners fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "$CHART_VERSION" \
+  --namespace n8n \
+  -f "$WORKDIR/fixture-values.yaml" \
+  -f "$WORKDIR/fixture-task-runners.yaml" \
+  >"$WORKDIR/rendered-task-runners.yaml" 2>"$WORKDIR/helm-stderr-task-runners.log"; then
+  fail "helm template (task-runners fixture) failed: $(cat "$WORKDIR/helm-stderr-task-runners.log")"
+else
+  if [ "$(deployment_has_container "$WORKDIR/rendered-task-runners.yaml" "n8n-worker" "task-runner")" = "yes" ]; then
+    pass "task runners: Deployment/n8n-worker carries the task-runner sidecar"
+  else
+    fail "task runners: Deployment/n8n-worker has no task-runner sidecar with taskRunners.enabled=true"
+  fi
+  if [ -n "$(deployment_has_container "$WORKDIR/rendered-task-runners.yaml" "n8n-main" "task-runner")" ]; then
+    fail "task runners: Deployment/n8n-main renders a task-runner sidecar in queue mode; capacity.tf's main ceiling assumes none (chart #179)"
+  else
+    pass "task runners: Deployment/n8n-main renders no task-runner sidecar in queue mode (chart #179)"
+  fi
+  if [ -n "$(deployment_has_container "$WORKDIR/rendered-task-runners.yaml" "n8n-webhook-processor" "task-runner")" ]; then
+    fail "task runners: Deployment/n8n-webhook-processor renders a task-runner sidecar"
+  else
+    pass "task runners: Deployment/n8n-webhook-processor renders no task-runner sidecar"
   fi
 fi
 

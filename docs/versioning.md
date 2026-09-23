@@ -42,7 +42,7 @@ identical.
 
 | Chart | Default (`variables.tf`) | Tier to bump |
 | --- | --- | --- |
-| n8n (`n8n_chart_version`, `oci://ghcr.io/n8n-io/n8n-helm-chart`) | `1.11.0` | Minor-required: re-run `tests/scripts/check-n8n-chart.sh` and read the chart's own changelog for a Helm-values shape change before bumping |
+| n8n (`n8n_chart_version`, `oci://ghcr.io/n8n-io/n8n-helm-chart`) | `1.13.0` | Minor-required: run `tests/scripts/chart-values-diff.sh <candidate>`, **and diff `charts/n8n/templates/` between the two tags** (the 1.11.0 to 1.13.0 values diff showed only the pause keys and the `image.tag` default, while the template diff carried the two changes that actually mattered: worker `replicas` ownership and the main task-runner sidecar), then re-run `tests/scripts/check-n8n-chart.sh` against the new default |
 | KEDA (`keda_chart_version`, `https://kedacore.github.io/charts`) | `2.20.1` | Minor-required: KEDA's own compatibility matrix pins a Kubernetes-version floor independent of this module's |
 
 ## Database (`variables_gcp.tf`)

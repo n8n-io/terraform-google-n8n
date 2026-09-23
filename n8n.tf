@@ -13,7 +13,8 @@ resource "random_id" "n8n_encryption_key" {
 
 # ── Task runner auth token ─────────────────────────────────────────────────────
 # Generated once and stored in state. Used as the shared secret between the n8n
-# task broker (port 5679) and the runner sidecars on main and worker pods.
+# task broker (port 5679) and the runner sidecars on worker pods (main pods
+# carry no sidecar in queue mode since chart 1.13.0, n8n-hosting#179).
 # Only active when n8n_task_runners_enabled = true.
 
 resource "random_password" "task_runner_token" {
@@ -241,9 +242,16 @@ resource "helm_release" "n8n" {
 
     # Fixed replica counts fall back to n8n_*_fixed_replicas when the caller
     # owns that pod's scaling (n8n_main_hpa_enabled / n8n_webhook_hpa_enabled /
-    # n8n_worker_keda_enabled = false); otherwise they seed the initial
-    # replica count at the scaler's own minimum, which the HPA/KEDA
-    # ScaledObject immediately takes over (D9).
+    # n8n_worker_keda_enabled = false). Otherwise the main count seeds the
+    # Deployment at the HPA's own minimum, which the HPA takes over (D9).
+    # For the worker, chart >= 1.13.0 omits `replicas` entirely whenever
+    # keda.enabled is on with triggers (n8n-hosting#201), so workerReplicaCount
+    # is never rendered in that mode: Kubernetes creates the Deployment at 1
+    # and KEDA raises it to n8n_worker_keda_min_replicas. The webhook
+    # processor still gets its count stamped every apply, because the chart
+    # only sees an owner through its own hpa.webhookProcessor/keda.
+    # webhookProcessor switches, neither of which this module enables; the
+    # external HPA in scaling.tf scales it back after each apply.
     #
     # The chart rejects multiMain.enabled with fewer than two replicas.
     # At one replica, stage runtime election via the module-owned extraEnv
@@ -461,6 +469,13 @@ resource "helm_release" "n8n" {
         cooldownPeriod  = 60
         minReplicaCount = var.n8n_worker_keda_min_replicas
         maxReplicaCount = var.n8n_worker_keda_max_replicas
+        # Rendered by the chart as ScaledObject annotations
+        # (autoscaling.keda.sh/paused, autoscaling.keda.sh/paused-replicas).
+        # A null count yamlencodes to `null`, which the chart's own guard
+        # treats as unset, so no conditional merge is needed. Same wiring as
+        # terraform-aws-n8n / terraform-azurerm-n8n.
+        pause              = var.n8n_worker_keda_pause
+        pausedReplicaCount = var.n8n_worker_keda_paused_replica_count
         # authenticationRef is attached when a Redis password is present
         # (managed AUTH or external direct/Secret-reference password) or when
         # module-managed Memorystore TLS needs its private CA trusted. An empty
@@ -842,7 +857,8 @@ resource "helm_release" "n8n" {
     }
     },
     # Override the app image only where the caller asks for it; otherwise the
-    # chart's own defaults apply untouched (docker.n8n.io/n8nio/n8n:stable).
+    # chart's own defaults apply untouched (docker.n8n.io/n8nio/n8n at the
+    # chart's appVersion).
     # Repository, tag, and pull policy are merged key by key rather than as a
     # whole `image` map so setting one does not blank the others: yamlencode
     # would emit e.g. `repository: null`, which the chart renders into an
@@ -1092,7 +1108,7 @@ check "external_secrets_update_interval_requires_master_switch" {
 # the env var is simply ignored: pods come up healthy and execution data keeps
 # going to PostgreSQL, entirely silently. Only a tag shaped like
 # MAJOR.MINOR.<rest> is compared (covers "2.27.4" and "2.27.4-alpine");
-# anything else, including null (the chart's floating `stable`) and
+# anything else, including null (the chart's own default tag) and
 # pre-release/channel tags, is left alone rather than guessed at. Written as
 # nested ternaries because Terraform does not short-circuit && / || (see
 # AGENTS.md), so the numeric comparisons must sit on a branch that is only
@@ -1141,7 +1157,7 @@ check "custom_image_tag_requires_task_runner_tag" {
         var.n8n_image_tag == null || var.n8n_task_runner_image_tag != null
       ) : true
     ) : true
-    error_message = "A custom n8n image (n8n_image_repository + n8n_image_tag) is set with task runners enabled, but n8n_task_runner_image_tag is null. The chart tags the runner sidecar from the app image by default, so the sidecar resolves to <runner repository>:<n8n_image_tag> and every main and worker pod fails with ImagePullBackOff unless that exact tag exists upstream. Set n8n_task_runner_image_tag to the n8n version the custom image is built from. Ignore this warning if the custom image's tag is itself a published n8n version."
+    error_message = "A custom n8n image (n8n_image_repository + n8n_image_tag) is set with task runners enabled, but n8n_task_runner_image_tag is null. The chart tags the runner sidecar from the app image by default, so the sidecar resolves to <runner repository>:<n8n_image_tag> and every worker pod fails with ImagePullBackOff unless that exact tag exists upstream. Set n8n_task_runner_image_tag to the n8n version the custom image is built from. Ignore this warning if the custom image's tag is itself a published n8n version."
   }
 }
 

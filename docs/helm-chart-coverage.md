@@ -1,7 +1,7 @@
 # n8n Helm chart coverage
 
 Every top-level key in the pinned n8n Helm chart's `values.yaml`
-(`n8n_chart_version` default: **1.11.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
+(`n8n_chart_version` default: **1.13.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
 and how this module surfaces it, if at all. Kept honest by
 `tests/scripts/check-helm-chart-coverage.sh`, which fails when this file's
 declared chart version disagrees with `variables.tf`'s `n8n_chart_version`
@@ -18,7 +18,7 @@ this table never mentions.
 | `queueMode` | `n8n_worker_concurrency`, worker replica/resource inputs | `queueMode.enabled` is always `true`; this module runs queue mode only |
 | `webhookProcessor` | Webhook replica/resource inputs (`n8n_webhook_*`) | Always enabled |
 | `multiMain` | `n8n_main_hpa_min_replicas`/`n8n_main_fixed_replicas` (topology derivation) | Single-main vs multi-main is derived from the effective main replica count, not set directly |
-| `taskRunners` | `n8n_task_runners_enabled`, `n8n_task_runner_timeout`, `n8n_task_runner_custom_config` | |
+| `taskRunners` | `n8n_task_runners_enabled`, `n8n_task_runner_timeout`, `n8n_task_runner_custom_config` | Since chart 1.13.0 the sidecar renders on worker pods only in queue mode (n8n-hosting#179); main and webhook-processor pods carry none |
 | `strategy` | Derived (`local.n8n_main_strategy`) | `Recreate` at one main replica (election staging), chart default above one |
 | `podLabels` | Not surfaced | No caller need identified |
 | `replicaCount` | Derived (`local.n8n_effective_main_replica_count`) | Always set explicitly, alongside `multiMain.replicas`, so an upstream chart default change cannot silently change single-main replica count unnoticed (see `CHANGELOG.md`, the 0.5.0 entry) |
@@ -43,7 +43,7 @@ this table never mentions.
 | `probes` | Not surfaced (chart defaults retained) | |
 | `lifecycle` | `n8n_termination_grace_period` (main preStop only) | |
 | `hpa` | `n8n_main_hpa_*`, standalone webhook HPA | |
-| `keda` | `n8n_worker_keda_enabled` and worker KEDA tuning inputs | |
+| `keda` | `n8n_worker_keda_enabled`, worker KEDA tuning inputs, `n8n_worker_keda_pause`/`n8n_worker_keda_paused_replica_count` | `keda.webhookProcessor.*` (including its `pause`) is not surfaced: webhook processors are scaled by the module's own external HPA (`scaling.tf`), so no chart `ScaledObject` exists for it |
 | `pdb` | Derived (`local.n8n_main_pdb_min_available`) | Always enabled; `minAvailable` is 0 for single-main, 1 otherwise |
 | `webhook` | See `webhookProcessor` | The chart's top-level `webhook` values namespace (as distinct from `webhookProcessor`) is not separately surfaced; verify against the pinned chart's schema before assuming they are the same key |
 | `executions` | `n8n_execution_timeout`, `n8n_execution_timeout_max`, `n8n_execution_concurrency_limit`, `n8n_executions_data_save_*` | |

@@ -33,7 +33,7 @@ variable "n8n_license_key" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Required by this example (no default): worker pools need n8n >= 2.39.0, which predates the chart's floating `stable` tag at the time of writing. See README.md."
+  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Required by this example (no default): worker pools need n8n >= 2.39.0; the chart's own default tag (its appVersion) may sit below that, so pin explicitly. See README.md."
   type        = string
 }
 

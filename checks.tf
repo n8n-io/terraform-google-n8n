@@ -244,3 +244,14 @@ check "ingress_annotations_ignored_when_existing" {
     error_message = "create_ingress is false, but ingress_annotations is set. These annotations only apply to the module-managed Ingress; they are ignored when the caller owns ingress out of band."
   }
 }
+
+# The chart only renders autoscaling.keda.sh/paused-replicas while the
+# ScaledObject is paused (templates/_helpers.tpl, n8n.kedaAnnotations), so a
+# held count without n8n_worker_keda_pause = true is silently inert. Same
+# check name as terraform-aws-n8n / terraform-azurerm-n8n.
+check "worker_keda_paused_replica_count_requires_pause" {
+  assert {
+    condition     = var.n8n_worker_keda_paused_replica_count == null ? true : var.n8n_worker_keda_pause
+    error_message = "n8n_worker_keda_paused_replica_count is set while n8n_worker_keda_pause is false. The chart only renders autoscaling.keda.sh/paused-replicas while the worker ScaledObject is paused, so the count is inert. Set n8n_worker_keda_pause = true or clear the count."
+  }
+}

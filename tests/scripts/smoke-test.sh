@@ -337,26 +337,42 @@ if [[ -n "$N8N_POD" ]]; then
 fi
 
 # ── Task runner sidecar (single) ──────────────────────────────────────────────
+# Since chart 1.13.0 (n8n-hosting#179) the sidecar renders on worker pods only
+# in queue mode, which this module always runs; main offloads manual
+# executions to workers and starts no runner broker. Check the worker pod.
 
 header "Task Runner Sidecar"
 
-containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+containers=$(kubectl get deployment n8n-worker -n "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
 
-info "Containers in pod spec: $containers"
+info "Containers in n8n-worker pod spec: $containers"
+
+main_containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
+if echo "$main_containers" | grep -qiE "runner"; then
+  warn "Task runner sidecar present on n8n-main; expected on workers only since chart 1.13.0 (queue mode)"
+else
+  pass "No task runner sidecar on n8n-main (queue mode offloads execution to workers)"
+fi
+
+WORKER_POD=$(kubectl get pods -n "$NAMESPACE" \
+  -l "app.kubernetes.io/component=worker" \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if echo "$containers" | grep -qiE "runner"; then
   runner_container=$(echo "$containers" | tr ' ' '\n' | grep -iE "runner" | head -1)
-  pass "Task runner sidecar found: $runner_container"
+  pass "Task runner sidecar found on n8n-worker: $runner_container"
 
   # ── Python runner ──────────────────────────────────────────────────────────
 
   header "Python Runner"
 
-  if [[ -n "$N8N_POD" ]]; then
-    python_version=$(kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
+  if [[ -n "$WORKER_POD" ]]; then
+    python_version=$(kubectl exec "$WORKER_POD" -n "$NAMESPACE" -c "$runner_container" \
       -- python3 --version 2>/dev/null || \
-      kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
+      kubectl exec "$WORKER_POD" -n "$NAMESPACE" -c "$runner_container" \
       -- python --version 2>/dev/null || echo "")
 
     if [[ -n "$python_version" ]]; then
@@ -367,7 +383,7 @@ if echo "$containers" | grep -qiE "runner"; then
     fi
 
     # Check runner sidecar logs for broker connection
-    runner_logs=$(kubectl logs "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
+    runner_logs=$(kubectl logs "$WORKER_POD" -n "$NAMESPACE" -c "$runner_container" \
       --tail=50 2>/dev/null || true)
 
     if echo "$runner_logs" | grep -qiE "connected|ready|broker|listening"; then
@@ -377,7 +393,7 @@ if echo "$containers" | grep -qiE "runner"; then
     else
       warn "No broker connection confirmation found in runner logs (last 50 lines)"
       info "This may be normal if the runner starts on-demand. Check manually:"
-      info "kubectl logs $N8N_POD -n $NAMESPACE -c $runner_container"
+      info "kubectl logs $WORKER_POD -n $NAMESPACE -c $runner_container"
     fi
   else
     skip "Python runner exec checks (no running pod found)"
@@ -442,7 +458,17 @@ check_deployment() {
 }
 
 check_deployment "n8n-main"              "$MAIN_MIN"    "Main pods"
-check_deployment "n8n-worker"            "$WORKER_MIN"  "Worker pods"
+# A paused worker ScaledObject (n8n_worker_keda_pause = true) legitimately
+# holds the Deployment at any count, including 0, so the floor does not apply.
+worker_paused=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
+  -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused}' 2>/dev/null || true)
+if [[ "$worker_paused" == "true" ]]; then
+  worker_held=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
+    -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}' 2>/dev/null || true)
+  skip "Worker pods floor check (ScaledObject paused via n8n_worker_keda_pause; held at ${worker_held:-current count})"
+else
+  check_deployment "n8n-worker"            "$WORKER_MIN"  "Worker pods"
+fi
 check_deployment "n8n-webhook-processor" "$WEBHOOK_MIN" "Webhook processor pods"
 
 # ── Task runner sidecars (multi: workers only) ────────────────────────────────
@@ -1462,12 +1488,18 @@ if [[ -n "$main_pod" ]]; then
     info "n8n_credentials_overwrite_secret_ref not configured (CREDENTIALS_OVERWRITE_DATA_FILE unset)"
   fi
 
-  runner_config_volume=$(kubectl get pod "$main_pod" -n "$NAMESPACE" \
+  # Since chart 1.13.0 the task-runner sidecar (and its launcher-config
+  # volume) renders on worker pods only in queue mode.
+  runner_cfg_pod=$(kubectl get pods -n "$NAMESPACE" \
+    -l "app.kubernetes.io/component=worker" \
+    --field-selector=status.phase=Running \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+  runner_config_volume=$(kubectl get pod "${runner_cfg_pod:-$main_pod}" -n "$NAMESPACE" \
     -o jsonpath='{.spec.volumes[?(@.name=="task-runner-config")].configMap.name}' 2>/dev/null || true)
   if [[ -n "$runner_config_volume" ]]; then
-    pass "Task-runner custom launcher configuration mounted from ConfigMap '$runner_config_volume' (volume 'task-runner-config')"
+    pass "Task-runner custom launcher configuration mounted from ConfigMap '$runner_config_volume' (volume 'task-runner-config' on ${runner_cfg_pod:-$main_pod})"
   else
-    info "n8n_task_runner_custom_config not configured (no 'task-runner-config' volume on n8n-main)"
+    info "n8n_task_runner_custom_config not configured (no 'task-runner-config' volume on worker pod ${runner_cfg_pod:-<none>})"
   fi
 
   heap_ceiling=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
