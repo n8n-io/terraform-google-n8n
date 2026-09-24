@@ -53,6 +53,39 @@ this project adheres to the stability contract in
   `1.11.0-preview.workerpools.1`, so pools and the default worker
   authenticate to Redis identically.
 
+- **`n8n_worker_keda_pause` and `n8n_worker_keda_paused_replica_count`**
+  (chart `keda.worker.pause` / `pausedReplicaCount`, n8n-hosting#177, shipped
+  in chart 1.12.0; reliable from 1.13.0, see below). `pause = true` annotates the worker `ScaledObject` with
+  `autoscaling.keda.sh/paused` so workers hold their current count; a
+  `paused_replica_count` (0 included) adds `paused-replicas` and scales to
+  that count while new jobs wait in Redis, e.g. before a migration. Scaling
+  down stops running workers after n8n's graceful shutdown window, so let
+  active executions finish before setting a lower count. A count set
+  without `pause` draws a plan-time warning
+  (`check.worker_keda_paused_replica_count_requires_pause`) since the chart
+  ignores it. `check.worker_keda_pause_requires_a_supported_chart` warns when
+  either input is set on a default-repository chart older than 1.13.0:
+  charts before 1.12.0 ignore the key, and 1.12.0 re-renders the worker
+  replica count on every Helm upgrade, overriding a held count. Only the
+  default worker is paused; `n8n_worker_pools` pools are not. Same input
+  names, semantics, and check names as terraform-aws-n8n. The chart's matching `keda.webhookProcessor.pause`
+  is deliberately not exposed: this module scales webhook processors with its
+  own HPA (`scaling.tf`), so no webhook `ScaledObject` exists for the
+  annotation to land on. `tests/scripts/smoke-test.sh` skips the worker
+  floor assertion, the queue workflow run, the load test, and (with no
+  running worker) the worker Redis probe while the `ScaledObject` is paused. Live-verified
+  2026-09-23 on a fresh scratch `examples/small` at chart `1.13.0`: paused
+  with `n8n_worker_keda_paused_replica_count = 0` scaled the worker
+  Deployment `2 -> 0` inside the same `terraform apply` (no separate KEDA
+  reconcile needed to reach zero), `ScaledObject` reported `PAUSED=True`
+  with both annotations set; clearing the pause resumed `0 -> 2` in the
+  next apply (49s to `2/2` ready) and `ScaledObject` returned to
+  `PAUSED=False` with the annotations removed; `smoke-test.sh` (multi-main)
+  passed 33/34, the one miss unrelated to this change (a transient
+  `/healthz` timing check), with the worker sidecar, launcher-config
+  volume, and KEDA `ScaledObject` checks all correctly pointed at the
+  worker pod.
+
 - `docs/versioning.md`: the full inventory of every version this module
   pins (providers, the n8n and KEDA Helm charts, `postgres_version`, the
   GKE release channel, and the CI toolchain), which file it lives in, and
@@ -893,6 +926,85 @@ this project adheres to the stability contract in
   `/mcp/` webhook Ingress rule) are already inert here, since this module
   sets `listName` itself and manages its own Ingress `/mcp` route rather
   than the chart's.
+- Default `n8n_chart_version` bumped to `1.13.0` (was `1.11.0`; n8n-hosting
+  v1.13.0, 2026-09-23, which bundles n8n `2.40.5` as its `appVersion`). Three
+  chart-side behavior changes reach this module. The `values.yaml` diff
+  (`tests/scripts/chart-values-diff.sh`) shows only the pause keys and the
+  `image.tag` default; the other two live in `templates/`, so diff those too
+  on a future bump (see `docs/versioning.md`).
+  - **Default n8n version is now pinned, not floating.** The chart's
+    `image.tag` default moved from the mutable `stable` tag to its own
+    `appVersion`, so a deployment leaving `n8n_image_tag = null` now runs
+    exactly n8n `2.40.5` and only moves when `n8n_chart_version` does,
+    instead of picking up whatever `stable` resolved to on each pod
+    (re)start. Reproducibility improvement; if you relied on the floating
+    tag for hands-off n8n upgrades, pin `n8n_image_tag` yourself from now
+    on. `n8n_image_tag`'s description and the `examples/*` passthroughs no
+    longer describe `stable` as the default.
+  - **Worker replicas are left to KEDA on every apply** (n8n-hosting#201).
+    With `n8n_worker_keda_enabled = true` (the default) the chart no longer
+    renders the worker Deployment's `replicas` field, so a `terraform apply`
+    that upgrades the Helm release no longer resets KEDA-scaled workers back
+    to `n8n_worker_keda_min_replicas`. One-time effect on the **first**
+    apply on this chart for a stack already applied from an earlier commit:
+    Helm removes the field it used to manage and the worker Deployment drops
+    to 1 replica whatever the floor. The HPA that KEDA manages restores
+    `n8n_worker_keda_min_replicas` (not the earlier live count), and a
+    running execution can be interrupted once n8n's 30-second
+    `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` passes; see
+    [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#replica-floor-reset-on-every-helm-upgrade).
+    The webhook-processor Deployment is **not** affected: this module keeps
+    the chart's own webhook HPA/KEDA switches off and scales it through
+    `scaling.tf`'s external `HorizontalPodAutoscaler`, which the chart cannot
+    see, so its `replicas` is still stamped on every apply as before.
+    `tests/scripts/check-n8n-chart.sh` now renders a KEDA-on fixture and
+    asserts both halves (worker `replicas` absent, webhook-processor
+    `replicas` present) so a later chart bump cannot flip either silently.
+  - **Main pods lose the task-runner sidecar** (n8n-hosting#179, shipped in
+    chart 1.12.0, unchanged through 1.13.0). The chart now renders the
+    sidecar, its env, and the launcher ConfigMap mount on main only in
+    standalone mode (`n8n.mainTaskRunnersEnabled`); in queue mode, which
+    this module always runs, n8n offloads manual executions to workers and
+    starts no runner broker on main, so only worker pods carry the
+    sidecar. Main pods roll once on the upgrade to drop the container.
+    `n8n_task_runner_*` sizing, `n8n_task_runner_custom_config`, and
+    `n8n_task_runner_timeout` now apply to workers only. `capacity.tf`'s
+    node-capacity guardrail no longer adds the sidecar request to the main
+    ceiling, but only for a pinned chart it can verify carries the fix
+    (`local.n8n_chart_has_worker_only_runners`: the default's own OCI
+    repository and a chart version of `1.12.0` or `1.13.0`); any other
+    `n8n_chart_version` (a private mirror, an unnumbered preview build such
+    as `examples/worker-pools`' `1.11.0-preview.workerpools.1`, which
+    predates #179, or a future/older numbered release) keeps the
+    conservative allowance, since the module cannot see what an arbitrary
+    pin's templates actually render. Same shape and same local name as
+    terraform-aws-n8n's/terraform-azurerm-n8n's own
+    `n8n_chart_has_worker_only_runners`. `tests/scripts/check-n8n-chart.sh`
+    asserts the sidecar renders on the worker Deployment and not on main
+    or webhook-processor at the pinned default; `defaults.tftest.hcl` pins
+    both the verified and unverified branches of the capacity formula;
+    `tests/scripts/smoke-test.sh` looks for the sidecar on the worker pod.
+    Same change as terraform-aws-n8n / terraform-azurerm-n8n.
+  - The chart's new `keda.worker.pause`/`pausedReplicaCount` are exposed as
+    `n8n_worker_keda_pause`/`n8n_worker_keda_paused_replica_count` (see
+    **Added**). The `keda.webhookProcessor` equivalents are deliberately not
+    exposed: no webhook `ScaledObject` exists here for the annotation to act
+    on (external HPA, above).
+  - Live-verified 2026-09-23 as an in-place upgrade of a scratch
+    `examples/small` deployment (`n8n_worker_keda_min_replicas = 2` so the
+    dip is observable; Cloudflare A-record, `tls_mode = google_managed`):
+    baseline apply on `1.11.0` (46 added, pods on `n8n:stable`), then
+    `terraform plan` on `1.13.0` was exactly `0 to add, 1 to change, 0 to
+    destroy`, `helm_release.n8n` `version` only. During the 2m43s Helm
+    upgrade a 1s watcher saw the worker Deployment's `spec.replicas` go
+    `2 -> 1` at +8s, KEDA restore it to `2` at +23s (one 15s poll), and
+    ready replicas return to 2 at +74s once the new image rolled; the
+    main and webhook-processor Deployments stayed at 2 throughout. After
+    the upgrade: release revision 2 `deployed`, chart `n8n-1.13.0`, app
+    version `2.40.5`, all six pods `Running` on `n8n:2.40.5`, the rendered
+    worker manifest carries no `replicas` field while the webhook-processor
+    manifest still does, and the immediately following `terraform plan`
+    reported "No changes."
 - `gke_node_max_per_zone` now defaults to `4` (was `2`). With the previous
   default the module's own replica maxima (`n8n_main_hpa_max_replicas = 20`,
   `n8n_webhook_hpa_max_replicas = 50`, `n8n_worker_keda_max_replicas = 10`,

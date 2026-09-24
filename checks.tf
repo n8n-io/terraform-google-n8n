@@ -244,3 +244,25 @@ check "ingress_annotations_ignored_when_existing" {
     error_message = "create_ingress is false, but ingress_annotations is set. These annotations only apply to the module-managed Ingress; they are ignored when the caller owns ingress out of band."
   }
 }
+
+# The chart only renders autoscaling.keda.sh/paused-replicas while the
+# ScaledObject is paused (templates/_helpers.tpl, n8n.kedaAnnotations), so a
+# held count without n8n_worker_keda_pause = true is silently inert. Same
+# check name as terraform-aws-n8n / terraform-azurerm-n8n.
+check "worker_keda_paused_replica_count_requires_pause" {
+  assert {
+    condition     = var.n8n_worker_keda_paused_replica_count == null ? true : var.n8n_worker_keda_pause
+    error_message = "n8n_worker_keda_paused_replica_count is set while n8n_worker_keda_pause is false. The chart only renders autoscaling.keda.sh/paused-replicas while the worker ScaledObject is paused, so the count is inert. Set n8n_worker_keda_pause = true or clear the count."
+  }
+}
+
+# Pause is only reliable from chart 1.13.0 (local.n8n_worker_keda_pause_supported
+# in scaling.tf): older charts ignore it, and 1.12.0 re-renders the worker's
+# spec.replicas on every Helm upgrade, overriding a held count. Skipped for a
+# custom n8n_chart_repository. Same check name as terraform-aws-n8n.
+check "worker_keda_pause_requires_a_supported_chart" {
+  assert {
+    condition     = (var.n8n_worker_keda_pause || var.n8n_worker_keda_paused_replica_count != null) ? local.n8n_worker_keda_pause_supported : true
+    error_message = "n8n_worker_keda_pause or n8n_worker_keda_paused_replica_count is set, but n8n_chart_version predates 1.13.0. Charts older than 1.12.0 do not read keda.worker.pause at all. Chart 1.12.0 reads it but still sets the worker Deployment's spec.replicas on every Helm upgrade, so any later apply while paused can write the replica floor back over the held count. Bump n8n_chart_version to 1.13.0 or newer, or clear these inputs."
+  }
+}

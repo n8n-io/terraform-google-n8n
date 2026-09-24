@@ -114,10 +114,28 @@ locals {
   capacity_worker_max_replicas  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_max_replicas : var.n8n_worker_fixed_replicas
   capacity_webhook_max_replicas = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_max_replicas : var.n8n_webhook_fixed_replicas
 
-  # Task runners run as a sidecar container inside every main and worker pod
-  # (n8n.tf taskRunners block), never webhook-processor pods, so their
-  # resource requests are added once per main replica and once per worker
-  # replica, only while n8n_task_runners_enabled.
+  # Task runners run as a sidecar container inside every worker pod (n8n.tf
+  # taskRunners block), never webhook-processor pods. Whether main also gets
+  # one depends on the pinned chart: n8n-hosting#179 (n8n.mainTaskRunnersEnabled)
+  # gates the main sidecar on standalone mode only, shipped in chart 1.12.0 and
+  # unchanged through 1.13.0 (verified by diffing deployment-main.yaml between
+  # the two). Since this module always runs queue mode, main carries no
+  # sidecar on those two verified releases; an unverified n8n_chart_version
+  # (a different mirror, a preview build such as examples/worker-pools'
+  # "1.11.0-preview.workerpools.1", or a future/older numbered release) keeps
+  # the conservative allowance: an older or unrelated chart may still render
+  # the main sidecar, and this module cannot see which templates an
+  # arbitrary pin actually renders. Same shape
+  # as terraform-aws-n8n's/terraform-azurerm-n8n's own
+  # n8n_chart_has_worker_only_runners. tests/scripts/check-n8n-chart.sh
+  # asserts the rendered main Deployment has no task-runner container at the
+  # pinned default.
+  n8n_chart_has_worker_only_runners = (
+    var.n8n_chart_repository == "oci://ghcr.io/n8n-io/n8n-helm-chart" &&
+    contains(["1.12.0", "1.13.0"], split("+", var.n8n_chart_version)[0])
+  )
+  capacity_main_task_runner_cpu_millis = (var.n8n_task_runners_enabled && !local.n8n_chart_has_worker_only_runners) ? local.capacity_cpu_millicores_by_role.task_runner : 0
+  capacity_main_task_runner_memory_mib = (var.n8n_task_runners_enabled && !local.n8n_chart_has_worker_only_runners) ? local.capacity_memory_mib_by_role.task_runner : 0
   # The opt-in Redis exporter (observability.tf) runs one fixed-size replica
   # regardless of any scaler, so its requests add a flat amount rather than
   # multiplying by a replica ceiling. Matches the resources block in
@@ -158,7 +176,7 @@ locals {
   ]))
 
   capacity_requested_max_cpu_millicores = (
-    local.capacity_main_max_replicas * (local.capacity_cpu_millicores_by_role.main + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
+    local.capacity_main_max_replicas * (local.capacity_cpu_millicores_by_role.main + local.capacity_main_task_runner_cpu_millis) +
     local.capacity_worker_max_replicas * (local.capacity_cpu_millicores_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
     local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook +
     local.capacity_exporter_cpu_millicores +
@@ -166,7 +184,7 @@ locals {
   )
 
   capacity_requested_max_memory_mib = (
-    local.capacity_main_max_replicas * (local.capacity_memory_mib_by_role.main + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
+    local.capacity_main_max_replicas * (local.capacity_memory_mib_by_role.main + local.capacity_main_task_runner_memory_mib) +
     local.capacity_worker_max_replicas * (local.capacity_memory_mib_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
     local.capacity_webhook_max_replicas * local.capacity_memory_mib_by_role.webhook +
     local.capacity_exporter_memory_mib +

@@ -1248,6 +1248,229 @@ run "worker_keda_jobs_per_replica_rejects_zero" {
   expect_failures = [var.n8n_worker_keda_jobs_per_replica]
 }
 
+# ── Worker KEDA pause (chart keda.worker.pause / pausedReplicaCount) ─────────
+# helm_release.n8n.values is unknown at plan time under the mock providers
+# (see AGENTS.md), so the wiring into keda.worker.pause/pausedReplicaCount is
+# proven by tests/scripts/check-n8n-chart.sh's paused render, and these runs
+# pin the variable contract, the chart-version gate, and the advisory checks.
+# Verify the Helm values themselves with a real `terraform plan` or
+# `helm get values` on a live release.
+run "worker_keda_pause_defaults_off" {
+  command = plan
+
+  assert {
+    condition     = var.n8n_worker_keda_pause == false && var.n8n_worker_keda_paused_replica_count == null
+    error_message = "Worker KEDA autoscaling must not be paused by default, with no held replica count."
+  }
+}
+
+# The plan succeeding is the assertion: 0 (scale to zero while paused) sits on
+# the validation boundary between a valid count and a rejected negative one.
+run "worker_keda_pause_accepts_zero_hold_count" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 0
+  }
+}
+
+run "worker_keda_paused_replica_count_rejects_negative" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = -1
+  }
+
+  expect_failures = [var.n8n_worker_keda_paused_replica_count]
+}
+
+run "worker_keda_paused_replica_count_rejects_fractional" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 1.5
+  }
+
+  expect_failures = [var.n8n_worker_keda_paused_replica_count]
+}
+
+run "worker_keda_paused_replica_count_warns_when_inert" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_paused_replica_count = 2
+  }
+
+  expect_failures = [check.worker_keda_paused_replica_count_requires_pause]
+}
+
+# keda.worker.pause has no effect on a chart that predates 1.12.0
+# (n8n-hosting#177). examples/worker-pools pins exactly this shape.
+run "worker_keda_pause_warns_on_a_chart_that_predates_it" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "1.11.0-preview.workerpools.1"
+    n8n_worker_keda_pause = true
+  }
+
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported == false
+    error_message = "A 1.11.x preview build must not count as pause-capable, even though its string sorts after 1.1x."
+  }
+
+  expect_failures = [check.worker_keda_pause_requires_a_supported_chart]
+}
+
+# Chart 1.12.0 reads keda.worker.pause but still renders the worker's
+# spec.replicas, so a later Helm upgrade while paused overrides the held count.
+run "worker_keda_pause_warns_on_chart_1_12_0" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "1.12.0"
+    n8n_worker_keda_pause = true
+  }
+
+  expect_failures = [check.worker_keda_pause_requires_a_supported_chart]
+}
+
+# A preview off the 1.13 line is new enough; the prerelease suffix is ignored.
+run "worker_keda_pause_allowed_on_a_1_13_preview" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "1.13.0-preview.1"
+    n8n_worker_keda_pause = true
+  }
+
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported
+    error_message = "A 1.13.x prerelease must count as pause-capable."
+  }
+}
+
+# A future major is new enough without a minor >= 13.
+run "worker_keda_pause_allowed_on_a_future_major" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "2.0.0"
+    n8n_worker_keda_pause = true
+  }
+
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported
+    error_message = "A chart major above 1 must count as pause-capable."
+  }
+}
+
+# A custom chart repository's version numbering is not verifiable against
+# upstream, so the guard stays silent there rather than guessing.
+run "worker_keda_pause_allowed_on_a_custom_chart_repository" {
+  command = plan
+
+  variables {
+    n8n_chart_repository  = "oci://registry.example.com/charts"
+    n8n_chart_version     = "1.11.0"
+    n8n_worker_keda_pause = true
+  }
+
+  # No expect_failures: this run must NOT warn.
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported
+    error_message = "A custom chart repository must not trigger the chart-version pause guard."
+  }
+}
+
+# ── Capacity model: main sidecar allowance is chart-version-gated ──────────
+# n8n-hosting#179 renders the task-runner sidecar on main only in standalone
+# mode, shipped in chart 1.12.0 and unchanged through 1.13.0. At the
+# verified default pin, the main ceiling term must exclude the sidecar; the
+# worker term still adds it while n8n_task_runners_enabled. Same shape as
+# terraform-aws-n8n's/terraform-azurerm-n8n's own
+# n8n_chart_has_worker_only_runners tests.
+run "capacity_main_ceiling_excludes_task_runner_sidecar_on_verified_chart" {
+  command = plan
+
+  variables {
+    n8n_task_runners_enabled = true
+    n8n_worker_pools         = []
+    redis_exporter_enabled   = false
+  }
+
+  assert {
+    condition     = local.n8n_chart_has_worker_only_runners == true
+    error_message = "The default n8n_chart_version/n8n_chart_repository must be recognized as a verified worker-only-runners chart."
+  }
+
+  assert {
+    condition = local.capacity_requested_max_cpu_millicores == (
+      local.capacity_main_max_replicas * local.capacity_cpu_millicores_by_role.main +
+      local.capacity_worker_max_replicas * (local.capacity_cpu_millicores_by_role.worker + local.capacity_cpu_millicores_by_role.task_runner) +
+      local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook
+    )
+    error_message = "Peak CPU demand must add the task-runner sidecar request per worker replica only, not per main replica, on a chart verified to carry n8n-hosting#179."
+  }
+
+  assert {
+    condition = local.capacity_requested_max_memory_mib == (
+      local.capacity_main_max_replicas * local.capacity_memory_mib_by_role.main +
+      local.capacity_worker_max_replicas * (local.capacity_memory_mib_by_role.worker + local.capacity_memory_mib_by_role.task_runner) +
+      local.capacity_webhook_max_replicas * local.capacity_memory_mib_by_role.webhook
+    )
+    error_message = "Peak memory demand must add the task-runner sidecar request per worker replica only, not per main replica, on a chart verified to carry n8n-hosting#179."
+  }
+}
+
+# An unverified pin (a preview build, a different mirror, or a future/older
+# numbered release the module hasn't checked) must keep the conservative
+# main-sidecar allowance: this module cannot see what an arbitrary chart's
+# templates actually render. examples/worker-pools pins exactly this shape
+# ("1.11.0-preview.workerpools.1", which predates #179), so a regression
+# here would silently underestimate that example's real peak demand.
+run "capacity_main_ceiling_includes_task_runner_sidecar_on_unverified_chart" {
+  command = plan
+
+  variables {
+    n8n_chart_version        = "1.11.0-preview.workerpools.1"
+    n8n_task_runners_enabled = true
+    n8n_worker_pools         = []
+    redis_exporter_enabled   = false
+  }
+
+  assert {
+    condition     = local.n8n_chart_has_worker_only_runners == false
+    error_message = "A prerelease/preview chart version must not be treated as a verified worker-only-runners chart."
+  }
+
+  assert {
+    condition = local.capacity_requested_max_cpu_millicores == (
+      local.capacity_main_max_replicas * (local.capacity_cpu_millicores_by_role.main + local.capacity_cpu_millicores_by_role.task_runner) +
+      local.capacity_worker_max_replicas * (local.capacity_cpu_millicores_by_role.worker + local.capacity_cpu_millicores_by_role.task_runner) +
+      local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook
+    )
+    error_message = "Peak CPU demand must keep the conservative main-sidecar allowance on an unverified chart pin."
+  }
+}
+
+run "capacity_chart_has_worker_only_runners_rejects_mismatched_repository" {
+  command = plan
+
+  variables {
+    n8n_chart_repository = "oci://ghcr.example.com/mirror/n8n-helm-chart"
+  }
+
+  assert {
+    condition     = local.n8n_chart_has_worker_only_runners == false
+    error_message = "A private mirror must not be assumed to carry the same template as the verified upstream OCI repository, even at a matching version string."
+  }
+}
+
+
 run "gke_node_per_zone_bounds_reject_fractional" {
   command = plan
 
