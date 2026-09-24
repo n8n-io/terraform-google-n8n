@@ -295,7 +295,7 @@ variable "create_pd_balanced_storage_class" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.13.0 that is the chart's appVersion (2.40.5 for 1.13.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.13.0 defaulted to the floating `stable` tag instead. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
+  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.40.5 for the default 1.13.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
   type        = string
   default     = null
 
@@ -961,7 +961,7 @@ variable "n8n_task_runner_image_repository" {
 }
 
 variable "n8n_task_runner_image_tag" {
-  description = "Image tag for the task runner sidecar (n8nio/runners, or n8n_task_runner_image_repository when set). When it is null (the default), the chart falls back to the n8n application image's tag, which is correct as long as that tag is a published n8n version. Set this to the underlying n8n version when running a custom application image whose tag is not one (e.g. n8n_image_tag = \"2.27.4-mypackages\" together with n8n_task_runner_image_tag = \"2.27.4\"); otherwise the sidecar tries to pull an image tag that does not exist and every main and worker pod stays in ImagePullBackOff. Ignored when n8n_task_runners_enabled = false."
+  description = "Image tag for the task runner sidecar (n8nio/runners, or n8n_task_runner_image_repository when set). When it is null (the default), the chart falls back to the n8n application image's tag, which is correct as long as that tag is a published n8n version. Set this to the underlying n8n version when running a custom application image whose tag is not one (e.g. n8n_image_tag = \"2.27.4-mypackages\" together with n8n_task_runner_image_tag = \"2.27.4\"); otherwise the sidecar tries to pull an image tag that does not exist and every worker pod stays in ImagePullBackOff. Ignored when n8n_task_runners_enabled = false."
   type        = string
   default     = null
 
@@ -978,7 +978,7 @@ variable "n8n_task_runner_request_timeout" {
 }
 
 variable "n8n_task_runner_timeout" {
-  description = "Seconds a task runner is allowed to spend executing an already-accepted Code node task before n8n cancels it. Wired to the N8N_RUNNERS_TASK_TIMEOUT env var on the worker pods (the only role carrying a runner sidecar in queue mode since chart 1.13.0). Distinct from n8n_task_runner_request_timeout, which bounds how long n8n waits for a runner to accept a task in the first place, not how long the task itself may run; the two are deliberately independent so a busy runner (acceptance) and a long-running script (execution) can be tuned separately."
+  description = "Seconds a task runner is allowed to spend executing an already-accepted Code node task before n8n cancels it. Wired to the N8N_RUNNERS_TASK_TIMEOUT env var on the worker pods (the only role carrying a runner sidecar in queue mode since chart 1.12.0). Distinct from n8n_task_runner_request_timeout, which bounds how long n8n waits for a runner to accept a task in the first place, not how long the task itself may run; the two are deliberately independent so a busy runner (acceptance) and a long-running script (execution) can be tuned separately."
   type        = number
   default     = 300
   nullable    = false
@@ -990,7 +990,7 @@ variable "n8n_task_runner_timeout" {
 }
 
 variable "n8n_task_runner_custom_config" {
-  description = "Reference to an existing ConfigMap (in the n8n namespace) holding a custom task-runner launcher configuration file (n8n-task-runners.json by default), mounted read-only at /etc/n8n-task-runners.json on the task-runner sidecar of every worker pod via the chart's taskRunners.customConfig (since chart 1.13.0 main pods carry no sidecar in queue mode; n8n offloads manual executions to workers). Use this to allowlist additional JavaScript/Python packages for the Code node; the module never reads the referenced ConfigMap's contents, so the whole file's contents (not a merge or patch) come from the caller and must match the exact task-runner image/version in use (n8n_task_runner_image_tag, or the inherited n8n application image tag). Changing only the ConfigMap's contents does not trigger an automatic rollout: restart the n8n-main and n8n-worker deployments to pick up new data. Leave null (the default) to leave the launcher at the chart's built-in configuration. Requires n8n_task_runners_enabled = true."
+  description = "Reference to an existing ConfigMap (in the n8n namespace) holding a custom task-runner launcher configuration file (n8n-task-runners.json by default), mounted read-only at /etc/n8n-task-runners.json on the task-runner sidecar of every worker pod via the chart's taskRunners.customConfig (since chart 1.12.0 main pods carry no sidecar in queue mode; n8n offloads manual executions to workers). Use this to allowlist additional JavaScript/Python packages for the Code node; the module never reads the referenced ConfigMap's contents, so the whole file's contents (not a merge or patch) come from the caller and must match the exact task-runner image/version in use (n8n_task_runner_image_tag, or the inherited n8n application image tag). Changing only the ConfigMap's contents does not trigger an automatic rollout: restart the n8n-main and n8n-worker deployments to pick up new data. Leave null (the default) to leave the launcher at the chart's built-in configuration. Requires n8n_task_runners_enabled = true."
   type = object({
     config_map_name = string
     config_map_key  = optional(string, "n8n-task-runners.json")
@@ -1702,14 +1702,14 @@ variable "n8n_worker_keda_max_replicas" {
 }
 
 variable "n8n_worker_keda_pause" {
-  description = "Pause KEDA autoscaling of the worker Deployment. Maps to the chart's keda.worker.pause, which annotates the worker ScaledObject with autoscaling.keda.sh/paused=true so KEDA stops reconciling and the workers hold their current replica count (or n8n_worker_keda_paused_replica_count while that is set). Use it for a maintenance window or to drain the queue before a migration without disabling KEDA; set back to false to resume, and KEDA scales to the queue depth again on its next poll. No effect when n8n_worker_keda_enabled = false. The chart's matching webhook-processor pause is not exposed: this module scales webhook processors with its own HorizontalPodAutoscaler (scaling.tf), not a chart ScaledObject, so there is nothing for that annotation to act on. Same input name and semantics as terraform-aws-n8n and terraform-azurerm-n8n."
+  description = "Pause KEDA autoscaling of the worker Deployment. Maps to the chart's keda.worker.pause, which annotates the worker ScaledObject with autoscaling.keda.sh/paused=true so KEDA stops reconciling and the workers hold their current replica count (or n8n_worker_keda_paused_replica_count while that is set). Use it for a maintenance window or before a migration without disabling KEDA; set back to false to resume, and KEDA scales to the queue depth again on its next poll. No effect when n8n_worker_keda_enabled = false. Requires n8n_chart_version 1.13.0 or newer: older charts ignore the key, and 1.12.0 re-renders the worker replica count on every Helm upgrade, overriding the held count (check.worker_keda_pause_requires_a_supported_chart warns). Pauses only the default worker Deployment; n8n_worker_pools pools keep scaling on their own ScaledObjects. The chart's matching webhook-processor pause is not exposed: this module scales webhook processors with its own HorizontalPodAutoscaler (scaling.tf), not a chart ScaledObject, so there is nothing for that annotation to act on. Same input name and semantics as terraform-aws-n8n and terraform-azurerm-n8n."
   type        = bool
   default     = false
   nullable    = false
 }
 
 variable "n8n_worker_keda_paused_replica_count" {
-  description = "Replica count to hold the worker Deployment at while n8n_worker_keda_pause = true. Maps to the chart's keda.worker.pausedReplicaCount (the autoscaling.keda.sh/paused-replicas annotation). Null (the default) freezes the workers at whatever count they had when paused; 0 scales them to zero, e.g. to stop consuming jobs while they queue in Redis ahead of a migration. Ignored by the chart unless n8n_worker_keda_pause is true (check.worker_keda_paused_replica_count_requires_pause warns about that combination). Same input name and semantics as terraform-aws-n8n and terraform-azurerm-n8n."
+  description = "Replica count to hold the worker Deployment at while n8n_worker_keda_pause = true. Maps to the chart's keda.worker.pausedReplicaCount (the autoscaling.keda.sh/paused-replicas annotation). Null (the default) freezes the workers at whatever count they had when paused; 0 scales them to zero, e.g. to stop consuming jobs while they queue in Redis ahead of a migration. Scaling down does not wait for running executions beyond n8n's graceful shutdown window (N8N_GRACEFUL_SHUTDOWN_TIMEOUT, 30 seconds by default), so let active work finish first. Ignored by the chart unless n8n_worker_keda_pause is true (check.worker_keda_paused_replica_count_requires_pause warns about that combination). Same input name and semantics as terraform-aws-n8n and terraform-azurerm-n8n."
   type        = number
   default     = null
 

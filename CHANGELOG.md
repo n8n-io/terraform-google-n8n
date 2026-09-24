@@ -55,18 +55,25 @@ this project adheres to the stability contract in
 
 - **`n8n_worker_keda_pause` and `n8n_worker_keda_paused_replica_count`**
   (chart `keda.worker.pause` / `pausedReplicaCount`, n8n-hosting#177, shipped
-  in chart 1.13.0). `pause = true` annotates the worker `ScaledObject` with
+  in chart 1.12.0; reliable from 1.13.0, see below). `pause = true` annotates the worker `ScaledObject` with
   `autoscaling.keda.sh/paused` so workers hold their current count; a
-  `paused_replica_count` (0 included) adds `paused-replicas` and drains to
-  that count while jobs wait in Redis, e.g. before a migration. A count set
+  `paused_replica_count` (0 included) adds `paused-replicas` and scales to
+  that count while new jobs wait in Redis, e.g. before a migration. Scaling
+  down stops running workers after n8n's graceful shutdown window, so let
+  active executions finish before setting a lower count. A count set
   without `pause` draws a plan-time warning
   (`check.worker_keda_paused_replica_count_requires_pause`) since the chart
-  ignores it. Same input names and semantics as terraform-aws-n8n and
-  terraform-azurerm-n8n. The chart's matching `keda.webhookProcessor.pause`
+  ignores it. `check.worker_keda_pause_requires_a_supported_chart` warns when
+  either input is set on a default-repository chart older than 1.13.0:
+  charts before 1.12.0 ignore the key, and 1.12.0 re-renders the worker
+  replica count on every Helm upgrade, overriding a held count. Only the
+  default worker is paused; `n8n_worker_pools` pools are not. Same input
+  names, semantics, and check names as terraform-aws-n8n. The chart's matching `keda.webhookProcessor.pause`
   is deliberately not exposed: this module scales webhook processors with its
   own HPA (`scaling.tf`), so no webhook `ScaledObject` exists for the
   annotation to land on. `tests/scripts/smoke-test.sh` skips the worker
-  floor assertion while the `ScaledObject` is paused. Live-verified
+  floor assertion, the queue workflow run, the load test, and (with no
+  running worker) the worker Redis probe while the `ScaledObject` is paused. Live-verified
   2026-09-23 on a fresh scratch `examples/small` at chart `1.13.0`: paused
   with `n8n_worker_keda_paused_replica_count = 0` scaled the worker
   Deployment `2 -> 0` inside the same `terraform apply` (no separate KEDA
@@ -939,9 +946,12 @@ this project adheres to the stability contract in
     renders the worker Deployment's `replicas` field, so a `terraform apply`
     that upgrades the Helm release no longer resets KEDA-scaled workers back
     to `n8n_worker_keda_min_replicas`. One-time effect on the **first**
-    apply on this chart: Helm removes the field it used to manage and the
-    worker Deployment drops to Kubernetes' default of 1 replica until KEDA's
-    next poll (15s) restores the minimum; see
+    apply on this chart for a stack already applied from an earlier commit:
+    Helm removes the field it used to manage and the worker Deployment drops
+    to 1 replica whatever the floor. The HPA that KEDA manages restores
+    `n8n_worker_keda_min_replicas` (not the earlier live count), and a
+    running execution can be interrupted once n8n's 30-second
+    `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` passes; see
     [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#replica-floor-reset-on-every-helm-upgrade).
     The webhook-processor Deployment is **not** affected: this module keeps
     the chart's own webhook HPA/KEDA switches off and scales it through

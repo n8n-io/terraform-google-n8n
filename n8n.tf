@@ -14,7 +14,7 @@ resource "random_id" "n8n_encryption_key" {
 # ── Task runner auth token ─────────────────────────────────────────────────────
 # Generated once and stored in state. Used as the shared secret between the n8n
 # task broker (port 5679) and the runner sidecars on worker pods (main pods
-# carry no sidecar in queue mode since chart 1.13.0, n8n-hosting#179).
+# carry no sidecar in queue mode since chart 1.12.0, n8n-hosting#179).
 # Only active when n8n_task_runners_enabled = true.
 
 resource "random_password" "task_runner_token" {
@@ -472,8 +472,8 @@ resource "helm_release" "n8n" {
         # Rendered by the chart as ScaledObject annotations
         # (autoscaling.keda.sh/paused, autoscaling.keda.sh/paused-replicas).
         # A null count yamlencodes to `null`, which the chart's own guard
-        # treats as unset, so no conditional merge is needed. Same wiring as
-        # terraform-aws-n8n / terraform-azurerm-n8n.
+        # treats as unset, so no conditional merge is needed. Reliable only
+        # from chart 1.13.0 (check.worker_keda_pause_requires_a_supported_chart).
         pause              = var.n8n_worker_keda_pause
         pausedReplicaCount = var.n8n_worker_keda_paused_replica_count
         # authenticationRef is attached when a Redis password is present

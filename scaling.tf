@@ -1,3 +1,25 @@
+# ── Worker KEDA pause (chart keda.worker.pause / pausedReplicaCount) ─────────
+# Pause is only reliable from chart 1.13.0 on the upstream repository. Charts
+# before 1.12.0 do not read keda.worker.pause at all. Chart 1.12.0 reads it but
+# still renders the worker Deployment's spec.replicas on every Helm upgrade, so
+# a later apply while paused writes the floor back over the held count; 1.13.0
+# (n8n-hosting#201) stops rendering it. The version core drops any
+# +build and -prerelease suffix first, so a preview off an older line (e.g.
+# examples/worker-pools' "1.11.0-preview.workerpools.1") reads as 1.11. A
+# custom n8n_chart_repository is not checked, because its version numbering
+# cannot be verified against upstream (same reasoning as
+# local.n8n_chart_has_worker_only_runners in capacity.tf). Nested ternaries,
+# because Terraform 1.9 does not short-circuit && / || (AGENTS.md).
+locals {
+  n8n_chart_version_core = split(".", split("-", split("+", var.n8n_chart_version)[0])[0])
+
+  n8n_worker_keda_pause_supported = var.n8n_chart_repository != "oci://ghcr.io/n8n-io/n8n-helm-chart" ? true : (
+    tonumber(local.n8n_chart_version_core[0]) > 1 ? true : (
+      tonumber(local.n8n_chart_version_core[0]) < 1 ? false : tonumber(local.n8n_chart_version_core[1]) >= 13
+    )
+  )
+}
+
 # ── HPA: n8n webhook processor pods (CPU-based) ───────────────────────────────
 # The n8n Helm chart skips creating the webhook-processor HPA when keda.enabled
 # is true. Since we always use KEDA for workers, this external HPA is always

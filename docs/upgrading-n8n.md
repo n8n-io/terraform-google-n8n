@@ -247,28 +247,48 @@ unchanged, because the chart only defers to an autoscaler it can see through
 its own `hpa.*`/`keda.*` switches, and this module scales the webhook
 processor with an external `HorizontalPodAutoscaler` (`scaling.tf`) instead.
 
-**One-time effect on the first apply that moves an existing release from a
-chart `<= 1.12.0` to `1.13.0` or later:** Helm removes the `replicas` field it
-previously managed from the worker Deployment, and Kubernetes falls back to
-its default of `1` for the field, so the worker Deployment drops to one
-replica until KEDA's next poll (15 seconds) scales it back to at least
-`n8n_worker_keda_min_replicas`. The removed pods get the same graceful
-shutdown as any worker scale-in (`n8n_termination_grace_period`), so
-in-flight executions that finish inside that window are unaffected. To
-avoid the dip, upgrade in a quiet window, or let the queue drain first; a
-temporarily higher `n8n_worker_keda_min_replicas` does not help, since KEDA
-only reacts after the drop. Later applies on the new chart have no such
-effect.
+**One-time effect on an existing release moved from chart `<= 1.12.0` to
+`1.13.0` or later.** This only matters for a stack already applied from an
+earlier commit of this unreleased module; a fresh apply is not affected.
+
+- Helm removes the `replicas` field it used to manage, and Kubernetes resets
+  the worker Deployment to `1` replica, whatever the configured floor.
+- The HPA that KEDA manages behind the `ScaledObject` raises it back, on that
+  controller's own schedule. It restores `n8n_worker_keda_min_replicas`, not
+  the count running before the upgrade. KEDA scales higher only when the
+  queue needs it.
+- Surplus worker pods stop gracefully, but n8n itself waits only
+  `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` (the chart's `redis.worker.timeout`, 30
+  seconds by default, which this module does not change). An execution still
+  running after that can be interrupted, even though
+  `n8n_termination_grace_period` is longer.
+- Raising `n8n_worker_keda_min_replicas` first does not help. Upgrade in a
+  low-traffic window and let running work drain first.
+
+Later applies on the new chart have no such effect.
 
 ### Pausing worker autoscaling (chart 1.13.0 and later)
+
+Pause needs chart `1.13.0` or newer. Charts before `1.12.0` ignore the key.
+Chart `1.12.0` reads it but still sets the worker replica count on every Helm
+upgrade, so a later apply while paused overrides the held count.
+`check.worker_keda_pause_requires_a_supported_chart` warns at plan time for
+an older chart from the default repository. This includes
+`examples/worker-pools`' `1.11.0-preview.workerpools.1` pin. Only the default
+worker Deployment is paused: `n8n_worker_pools` pools keep scaling on their
+own `ScaledObject`s.
 
 `n8n_worker_keda_pause = true` maps to the chart's `keda.worker.pause` and
 annotates the worker `ScaledObject` with `autoscaling.keda.sh/paused=true`, so
 KEDA stops reconciling and the workers hold their current count. Add
 `n8n_worker_keda_paused_replica_count` to hold a specific count instead;
-`0` drains the workers to zero while new jobs wait in Redis, which is the
-shape to use for a maintenance window or ahead of a database migration
-(pause, wait for in-flight executions to finish, migrate, then unpause).
+`0` scales the workers to zero while new jobs wait in Redis, for a
+maintenance window or ahead of a database migration. Scaling to zero does
+not wait for running executions: each worker gets only n8n's graceful
+shutdown window (`N8N_GRACEFUL_SHUTDOWN_TIMEOUT`, 30 seconds by default)
+before it stops. So stop new submissions and let active executions finish
+first, then pause at `0`, migrate, and unpause. Anything still running when
+the workers stop can be interrupted.
 Setting `n8n_worker_keda_pause` back to `false` clears both annotations and
 KEDA scales to the queue depth again on its next poll. The count is ignored
 by the chart unless `pause` is true, and the module warns about that

@@ -18,7 +18,7 @@ this table never mentions.
 | `queueMode` | `n8n_worker_concurrency`, worker replica/resource inputs | `queueMode.enabled` is always `true`; this module runs queue mode only |
 | `webhookProcessor` | Webhook replica/resource inputs (`n8n_webhook_*`) | Always enabled |
 | `multiMain` | `n8n_main_hpa_min_replicas`/`n8n_main_fixed_replicas` (topology derivation) | Single-main vs multi-main is derived from the effective main replica count, not set directly |
-| `taskRunners` | `n8n_task_runners_enabled`, `n8n_task_runner_timeout`, `n8n_task_runner_custom_config` | Since chart 1.13.0 the sidecar renders on worker pods only in queue mode (n8n-hosting#179); main and webhook-processor pods carry none |
+| `taskRunners` | `n8n_task_runners_enabled`, `n8n_task_runner_timeout`, `n8n_task_runner_custom_config` | Since chart 1.12.0 the sidecar renders on worker pods only in queue mode (n8n-hosting#179); main and webhook-processor pods carry none |
 | `strategy` | Derived (`local.n8n_main_strategy`) | `Recreate` at one main replica (election staging), chart default above one |
 | `podLabels` | Not surfaced | No caller need identified |
 | `replicaCount` | Derived (`local.n8n_effective_main_replica_count`) | Always set explicitly, alongside `multiMain.replicas`, so an upstream chart default change cannot silently change single-main replica count unnoticed (see `CHANGELOG.md`, the 0.5.0 entry) |

@@ -337,42 +337,26 @@ if [[ -n "$N8N_POD" ]]; then
 fi
 
 # ── Task runner sidecar (single) ──────────────────────────────────────────────
-# Since chart 1.13.0 (n8n-hosting#179) the sidecar renders on worker pods only
-# in queue mode, which this module always runs; main offloads manual
-# executions to workers and starts no runner broker. Check the worker pod.
 
 header "Task Runner Sidecar"
 
-containers=$(kubectl get deployment n8n-worker -n "$NAMESPACE" \
+containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
 
-info "Containers in n8n-worker pod spec: $containers"
-
-main_containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
-if echo "$main_containers" | grep -qiE "runner"; then
-  warn "Task runner sidecar present on n8n-main; expected on workers only since chart 1.13.0 (queue mode)"
-else
-  pass "No task runner sidecar on n8n-main (queue mode offloads execution to workers)"
-fi
-
-WORKER_POD=$(kubectl get pods -n "$NAMESPACE" \
-  -l "app.kubernetes.io/component=worker" \
-  --field-selector=status.phase=Running \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+info "Containers in pod spec: $containers"
 
 if echo "$containers" | grep -qiE "runner"; then
   runner_container=$(echo "$containers" | tr ' ' '\n' | grep -iE "runner" | head -1)
-  pass "Task runner sidecar found on n8n-worker: $runner_container"
+  pass "Task runner sidecar found: $runner_container"
 
   # ── Python runner ──────────────────────────────────────────────────────────
 
   header "Python Runner"
 
-  if [[ -n "$WORKER_POD" ]]; then
-    python_version=$(kubectl exec "$WORKER_POD" -n "$NAMESPACE" -c "$runner_container" \
+  if [[ -n "$N8N_POD" ]]; then
+    python_version=$(kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
       -- python3 --version 2>/dev/null || \
-      kubectl exec "$WORKER_POD" -n "$NAMESPACE" -c "$runner_container" \
+      kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
       -- python --version 2>/dev/null || echo "")
 
     if [[ -n "$python_version" ]]; then
@@ -383,7 +367,7 @@ if echo "$containers" | grep -qiE "runner"; then
     fi
 
     # Check runner sidecar logs for broker connection
-    runner_logs=$(kubectl logs "$WORKER_POD" -n "$NAMESPACE" -c "$runner_container" \
+    runner_logs=$(kubectl logs "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
       --tail=50 2>/dev/null || true)
 
     if echo "$runner_logs" | grep -qiE "connected|ready|broker|listening"; then
@@ -393,7 +377,7 @@ if echo "$containers" | grep -qiE "runner"; then
     else
       warn "No broker connection confirmation found in runner logs (last 50 lines)"
       info "This may be normal if the runner starts on-demand. Check manually:"
-      info "kubectl logs $WORKER_POD -n $NAMESPACE -c $runner_container"
+      info "kubectl logs $N8N_POD -n $NAMESPACE -c $runner_container"
     fi
   else
     skip "Python runner exec checks (no running pod found)"
@@ -476,7 +460,17 @@ check_deployment "n8n-webhook-processor" "$WEBHOOK_MIN" "Webhook processor pods"
 header "Task Runner Sidecars"
 
 # In queue mode, Code nodes execute on worker pods, the task runner sidecar
-# belongs on workers, not on main or webhook-processor pods.
+# belongs on workers, not on main or webhook-processor pods. Since chart
+# 1.12.0 (n8n-hosting#179) the chart renders it on main only in standalone
+# mode, so a sidecar on main here means an older or unexpected chart.
+main_containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+  -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
+if echo "$main_containers" | grep -qiE "runner"; then
+  warn "Task runner sidecar present on n8n-main; expected on workers only in queue mode since chart 1.12.0"
+else
+  pass "No task runner sidecar on n8n-main (queue mode runs Code nodes on workers)"
+fi
+
 worker_containers=$(kubectl get deployment n8n-worker -n "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
 
@@ -594,7 +588,9 @@ worker_pod=$(kubectl get pods -n "$NAMESPACE" \
   --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-if [[ -z "$worker_pod" ]]; then
+if [[ -z "$worker_pod" && "${worker_paused:-}" == "true" ]]; then
+  skip "Redis probe from a worker pod (worker ScaledObject paused with no running worker)"
+elif [[ -z "$worker_pod" ]]; then
   fail "No running worker pod found to probe Redis connectivity"
 else
   info "Using worker pod: $worker_pod"
@@ -767,6 +763,10 @@ fi
 
 if [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Workflow execution test (requires N8N_URL and N8N_API_KEY)"
+elif [[ "$DEPLOY_MODE" == "multi" && "${worker_paused:-}" == "true" ]]; then
+  # A paused worker ScaledObject may hold zero workers, so a queued
+  # execution could wait until the pause is cleared.
+  skip "Workflow execution via queue (worker ScaledObject paused via n8n_worker_keda_pause)"
 else
   webhook_path="smoke-test-$$"
 
@@ -1001,6 +1001,8 @@ if [[ "$LOAD_TEST" != "true" ]]; then
   skip "Load scaling test (set LOAD_TEST=true to enable)"
 elif [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Load scaling test (requires N8N_URL and N8N_API_KEY)"
+elif [[ "${worker_paused:-}" == "true" ]]; then
+  skip "Load scaling test (worker ScaledObject paused; KEDA does not scale while paused)"
 else
   SCALER_MODE=""
   if kubectl get hpa n8n-worker -n "$NAMESPACE" &>/dev/null; then

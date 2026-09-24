@@ -1252,7 +1252,9 @@ run "worker_keda_jobs_per_replica_rejects_zero" {
 # helm_release.n8n.values is unknown at plan time under the mock providers
 # (see AGENTS.md), so the wiring into keda.worker.pause/pausedReplicaCount is
 # proven by tests/scripts/check-n8n-chart.sh's paused render, and these runs
-# pin the variable contract and the advisory check.
+# pin the variable contract, the chart-version gate, and the advisory checks.
+# Verify the Helm values themselves with a real `terraform plan` or
+# `helm get values` on a live release.
 run "worker_keda_pause_defaults_off" {
   command = plan
 
@@ -1262,17 +1264,14 @@ run "worker_keda_pause_defaults_off" {
   }
 }
 
+# The plan succeeding is the assertion: 0 (scale to zero while paused) sits on
+# the validation boundary between a valid count and a rejected negative one.
 run "worker_keda_pause_accepts_zero_hold_count" {
   command = plan
 
   variables {
     n8n_worker_keda_pause                = true
     n8n_worker_keda_paused_replica_count = 0
-  }
-
-  assert {
-    condition     = var.n8n_worker_keda_pause && var.n8n_worker_keda_paused_replica_count == 0
-    error_message = "A zero hold count (scale workers to zero while paused) must be accepted."
   }
 }
 
@@ -1306,6 +1305,85 @@ run "worker_keda_paused_replica_count_warns_when_inert" {
   }
 
   expect_failures = [check.worker_keda_paused_replica_count_requires_pause]
+}
+
+# keda.worker.pause has no effect on a chart that predates 1.12.0
+# (n8n-hosting#177). examples/worker-pools pins exactly this shape.
+run "worker_keda_pause_warns_on_a_chart_that_predates_it" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "1.11.0-preview.workerpools.1"
+    n8n_worker_keda_pause = true
+  }
+
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported == false
+    error_message = "A 1.11.x preview build must not count as pause-capable, even though its string sorts after 1.1x."
+  }
+
+  expect_failures = [check.worker_keda_pause_requires_a_supported_chart]
+}
+
+# Chart 1.12.0 reads keda.worker.pause but still renders the worker's
+# spec.replicas, so a later Helm upgrade while paused overrides the held count.
+run "worker_keda_pause_warns_on_chart_1_12_0" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "1.12.0"
+    n8n_worker_keda_pause = true
+  }
+
+  expect_failures = [check.worker_keda_pause_requires_a_supported_chart]
+}
+
+# A preview off the 1.13 line is new enough; the prerelease suffix is ignored.
+run "worker_keda_pause_allowed_on_a_1_13_preview" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "1.13.0-preview.1"
+    n8n_worker_keda_pause = true
+  }
+
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported
+    error_message = "A 1.13.x prerelease must count as pause-capable."
+  }
+}
+
+# A future major is new enough without a minor >= 13.
+run "worker_keda_pause_allowed_on_a_future_major" {
+  command = plan
+
+  variables {
+    n8n_chart_version     = "2.0.0"
+    n8n_worker_keda_pause = true
+  }
+
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported
+    error_message = "A chart major above 1 must count as pause-capable."
+  }
+}
+
+# A custom chart repository's version numbering is not verifiable against
+# upstream, so the guard stays silent there rather than guessing.
+run "worker_keda_pause_allowed_on_a_custom_chart_repository" {
+  command = plan
+
+  variables {
+    n8n_chart_repository  = "oci://registry.example.com/charts"
+    n8n_chart_version     = "1.11.0"
+    n8n_worker_keda_pause = true
+  }
+
+  # No expect_failures: this run must NOT warn.
+  assert {
+    condition     = local.n8n_worker_keda_pause_supported
+    error_message = "A custom chart repository must not trigger the chart-version pause guard."
+  }
 }
 
 # ── Capacity model: main sidecar allowance is chart-version-gated ──────────
