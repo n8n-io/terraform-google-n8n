@@ -509,6 +509,22 @@ variable "n8n_queue_worker_stalled_interval" {
   }
 }
 
+variable "n8n_graceful_shutdown_timeout" {
+  description = "Seconds n8n gives in-flight executions to finish once it receives SIGTERM, before it exits on its own rather than waiting for Kubernetes to force-kill it (the chart's redis.worker.timeout, N8N_GRACEFUL_SHUTDOWN_TIMEOUT on every n8n container). Null (the default) omits the override so the chart's own default (30s) applies. Must go through this input rather than n8n_extra_env / n8n_worker_extra_env: the chart's ConfigMap entry for this key, unlike the three lock/renew/stall settings above, has no per-setting guard and renders unconditionally, so a caller duplicate would not fail, Kubernetes silently keeps the last of the two same-named entries and replaces the chart's real value with no plan- or apply-time warning. n8n_termination_grace_period is a hard ceiling on top of this: Kubernetes force-kills the pod that many seconds after SIGTERM no matter what n8n or the preStop hook are still doing, so this value plus n8n_prestop_sleep must leave a strict margin under that ceiling."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_graceful_shutdown_timeout == null ? true : (var.n8n_graceful_shutdown_timeout >= 1 && floor(var.n8n_graceful_shutdown_timeout) == var.n8n_graceful_shutdown_timeout)
+    error_message = "n8n_graceful_shutdown_timeout must be a whole number of seconds of at least 1, or null to omit the override; the pinned chart schema also forbids a value below 1."
+  }
+
+  validation {
+    condition     = coalesce(var.n8n_graceful_shutdown_timeout, 30) + var.n8n_prestop_sleep < var.n8n_termination_grace_period
+    error_message = "n8n_graceful_shutdown_timeout (or the chart's 30s default, if left null) plus n8n_prestop_sleep must leave a strict margin under n8n_termination_grace_period, not just meet it. Kubernetes starts the terminationGracePeriodSeconds countdown when it invokes preStop, not after preStop finishes, so a sum equal to the ceiling leaves n8n's own shutdown handler no margin before SIGKILL."
+  }
+}
+
 # ── Memorystore ───────────────────────────────────────────────────────────────
 
 variable "redis_tier" {

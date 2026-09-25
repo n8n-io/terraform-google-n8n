@@ -1008,6 +1008,44 @@ else
   fi
 fi
 
+# ── Graceful shutdown timeout (redis.worker.timeout) ────────────────────────
+# local.n8n_queue_worker_chart_overrides (locals.tf) merges timeout into the
+# chart's redis.worker map only when n8n_graceful_shutdown_timeout is set
+# (n8n.tf); helm_release.values is unknown at plan time under the mock
+# provider, so tftest.hcl asserts only the local's shape. This renders the
+# real chart's configmap.yaml to prove an override actually reaches the
+# N8N_GRACEFUL_SHUTDOWN_TIMEOUT key, and that omitting it still resolves to
+# the chart's own 30s default.
+cat >"$WORKDIR/fixture-graceful-shutdown-default.yaml" <<'EOF'
+redis:
+  worker: {}
+EOF
+cat >"$WORKDIR/fixture-graceful-shutdown-overridden.yaml" <<'EOF'
+redis:
+  worker:
+    timeout: 45
+EOF
+for scenario in default overridden; do
+  if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+    --version "${CHART_VERSION}" \
+    -f "$WORKDIR/fixture-values.yaml" \
+    -f "$WORKDIR/fixture-graceful-shutdown-$scenario.yaml" \
+    --show-only templates/configmap.yaml \
+    >"$WORKDIR/configmap-$scenario.yaml" 2>"$WORKDIR/helm-graceful-shutdown-$scenario.err"; then
+    fail "helm template (graceful-shutdown-$scenario fixture) failed: $(cat "$WORKDIR/helm-graceful-shutdown-$scenario.err")"
+  fi
+done
+if grep -q 'N8N_GRACEFUL_SHUTDOWN_TIMEOUT: "30"' "$WORKDIR/configmap-default.yaml"; then
+  pass "graceful shutdown timeout omitted resolves to the chart's own 30s default"
+else
+  fail "graceful shutdown timeout omitted did not resolve to the chart's 30s default"
+fi
+if grep -q 'N8N_GRACEFUL_SHUTDOWN_TIMEOUT: "45"' "$WORKDIR/configmap-overridden.yaml"; then
+  pass "n8n_graceful_shutdown_timeout override reaches N8N_GRACEFUL_SHUTDOWN_TIMEOUT in the ConfigMap"
+else
+  fail "n8n_graceful_shutdown_timeout override did not reach N8N_GRACEFUL_SHUTDOWN_TIMEOUT in the ConfigMap"
+fi
+
 # ── Worker KEDA pause annotations (n8n_worker_keda_pause, chart #177) ───────
 # The keda-on render above leaves pause at its default: the worker
 # ScaledObject must carry neither pause annotation. A second render with

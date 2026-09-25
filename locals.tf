@@ -79,6 +79,14 @@ locals {
     "EXECUTIONS_DATA_SAVE_ON_ERROR",
     "EXECUTIONS_DATA_SAVE_ON_PROGRESS",
     "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS",
+    # Chart-rendered from redis.worker.timeout (values.yaml), gated only on
+    # queueMode.enabled (always set here) with no per-setting guard, unlike
+    # the three lockDuration/lockRenewTime/stalledInterval names covered by
+    # the QUEUE_ prefix below: this key always renders, so a config.extraEnv
+    # duplicate would silently override it (Kubernetes last-wins) with no
+    # plan- or apply-time warning. n8n_graceful_shutdown_timeout is the
+    # supported way to change this value.
+    "N8N_GRACEFUL_SHUTDOWN_TIMEOUT",
     # Rendered by the chart from module values (identity, topology, storage,
     # license). DB_*, QUEUE_*, N8N_RUNNERS_*, N8N_EXTERNAL_STORAGE_S3_*,
     # N8N_MULTI_MAIN_*, and AWS_* are covered by n8n_managed_env_prefixes.
@@ -266,16 +274,17 @@ locals {
     active  = "${local.effective_redis_key_prefix}:jobs:active"
   }
 
-  # Queue lock/stall tuning (redis.worker in the chart): built as one nested
-  # map, not three independent top-level merge() calls in n8n.tf, so setting
-  # only one of the three values cannot shallow-merge over and discard the
-  # chart's own defaults for the other two (each key is present in this map
-  # only when its corresponding variable is non-null; Helm still supplies its
-  # own default for any key absent here).
+  # Queue lock/stall tuning and graceful shutdown timeout (redis.worker in
+  # the chart): built as one nested map, not four independent top-level
+  # merge() calls in n8n.tf, so setting only one of the four values cannot
+  # shallow-merge over and discard the chart's own defaults for the others
+  # (each key is present in this map only when its corresponding variable is
+  # non-null; Helm still supplies its own default for any key absent here).
   n8n_queue_worker_chart_overrides = merge(
     var.n8n_queue_worker_lock_duration != null ? { lockDuration = var.n8n_queue_worker_lock_duration } : {},
     var.n8n_queue_worker_lock_renew_time != null ? { lockRenewTime = var.n8n_queue_worker_lock_renew_time } : {},
     var.n8n_queue_worker_stalled_interval != null ? { stalledInterval = var.n8n_queue_worker_stalled_interval } : {},
+    var.n8n_graceful_shutdown_timeout != null ? { timeout = var.n8n_graceful_shutdown_timeout } : {},
   )
 
   # GCS bucket. HMAC identity/key ownership (gcs.tf) is independent of bucket

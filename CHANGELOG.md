@@ -798,9 +798,35 @@ this project adheres to the stability contract in
   maps to an input, fix, or test landed in one of this change's numbered
   sections, and every exclusion remains explicit rather than silently
   dropped.
+- **`n8n_graceful_shutdown_timeout`** (chart `redis.worker.timeout`, renders
+  `N8N_GRACEFUL_SHUTDOWN_TIMEOUT`). Seconds n8n waits for in-flight
+  executions to finish on SIGTERM before exiting on its own. Must go through
+  this input rather than `n8n_extra_env` / `n8n_worker_extra_env`: this key's
+  chart ConfigMap entry renders unconditionally on every n8n container,
+  unlike the three `n8n_queue_worker_*` settings above, so a caller
+  duplicate would not fail, Kubernetes silently keeps the `extraEnv` copy
+  instead of the chart's real value, with no warning (see **Fixed** below).
+  Validated against `n8n_termination_grace_period` and `n8n_prestop_sleep`:
+  this value (or the chart's 30s default, if left null) plus the prestop
+  sleep must leave a strict margin under the termination grace period, or
+  Kubernetes SIGKILLs the pod before n8n finishes shutting down. Left
+  `null`, the module sends no override and the chart keeps its own 30s
+  default, so existing releases see no Helm values change from this
+  addition. Ported from terraform-aws-n8n#148.
 
 ### Fixed
 
+- `n8n_extra_env` and `n8n_worker_extra_env` now reject
+  `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` at plan time. Chart `1.13.0` renders that
+  ConfigMap key unconditionally on every n8n container from
+  `redis.worker.timeout`, and `extraEnv` is appended after it in every
+  deployment template, so a caller-supplied duplicate previously passed
+  `terraform plan` with no error at all: Kubernetes does not reject
+  duplicate env names, it silently keeps the last entry in the list, so the
+  caller's raw value would replace the chart's real one with no plan- or
+  apply-time warning. The same guard already existed for
+  `n8n_queue_worker_lock_duration` and its siblings; this closes the gap for
+  the graceful shutdown timeout. Ported from terraform-aws-n8n#148.
 - `n8n_fqdn`, `n8n_additional_domains`, and `n8n_image_pull_secrets` now
   bound each dot-separated label to the actual DNS-1123 label rule (1 to 63
   characters, alphanumeric start and end), not just a total-length check.

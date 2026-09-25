@@ -259,8 +259,8 @@ earlier commit of this unreleased module; a fresh apply is not affected.
   queue needs it.
 - Surplus worker pods stop gracefully, but n8n itself waits only
   `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` (the chart's `redis.worker.timeout`, 30
-  seconds by default, which this module does not change). An execution still
-  running after that can be interrupted, even though
+  seconds by default, overridable via `n8n_graceful_shutdown_timeout`). An
+  execution still running after that can be interrupted, even though
   `n8n_termination_grace_period` is longer.
 - Raising `n8n_worker_keda_min_replicas` first does not help. Upgrade in a
   low-traffic window and let running work drain first.
@@ -285,10 +285,11 @@ KEDA stops reconciling and the workers hold their current count. Add
 `0` scales the workers to zero while new jobs wait in Redis, for a
 maintenance window or ahead of a database migration. Scaling to zero does
 not wait for running executions: each worker gets only n8n's graceful
-shutdown window (`N8N_GRACEFUL_SHUTDOWN_TIMEOUT`, 30 seconds by default)
-before it stops. So stop new submissions and let active executions finish
-first, then pause at `0`, migrate, and unpause. Anything still running when
-the workers stop can be interrupted.
+shutdown window (`N8N_GRACEFUL_SHUTDOWN_TIMEOUT`, 30 seconds by default,
+overridable via `n8n_graceful_shutdown_timeout`) before it stops. So stop
+new submissions and let active executions finish first, then pause at `0`,
+migrate, and unpause. Anything still running when the workers stop can be
+interrupted.
 Setting `n8n_worker_keda_pause` back to `false` clears both annotations and
 KEDA scales to the queue depth again on its next poll. The count is ignored
 by the chart unless `pause` is true, and the module warns about that
@@ -372,6 +373,7 @@ instead) until you move it to the dedicated input.
 | `N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES` | unconditionally | `n8n_compression_max_decompressed_size_bytes` | `null` (n8n's own default) |
 | `N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES` | unconditionally | `n8n_compression_max_zip_entries` | `null` (n8n's own default) |
 | `CREDENTIALS_OVERWRITE_DATA`, `CREDENTIALS_OVERWRITE_DATA_FILE` | only while `n8n_credentials_overwrite_secret_ref` is non-null | `n8n_credentials_overwrite_secret_ref` | `null` (escape hatch usable again once unset) |
+| `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` | unconditionally | `n8n_graceful_shutdown_timeout` | `null` (chart's own 30s default) |
 
 `N8N_EDITOR_BASE_URL` was already reserved before this release, but the
 module never actually set it; see
