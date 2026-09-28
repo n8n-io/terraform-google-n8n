@@ -57,8 +57,20 @@ opt_in_json="$(mktemp)"
 trap 'rm -f "$opt_in_json"' EXIT
 # Not --quiet: this run's JSON must carry passed_checks for the reachability
 # check below. checkov's own exit code still reflects pass/fail.
+#
+# --skip-path examples: every examples/* directory calls
+# `module "n8n" { source = "../.." }` with its own tfvars (which do not
+# set the opt-in switches this pass exists to flip on). Left in scope,
+# checkov's graph resolution attributes a root-module resource like
+# observability.tf's redis_exporter Deployment/Service to that example's
+# own module call instead of to this pass's --var-file, silently
+# re-evaluating it at the example's default (usually still count 0) and,
+# for the Service, dropping it from the report entirely. Root cause: the
+# opt-in pass only cares about the root module's own count-gated
+# resources under this pass's tfvars, so exclude every other place that
+# also happens to source the same module.
 checkov_exit=0
-checkov -d . --framework terraform --compact --var-file "$OPT_IN_TFVARS" -o json >"$opt_in_json" 2>&1 || checkov_exit=$?
+checkov -d . --framework terraform --compact --skip-path examples --var-file "$OPT_IN_TFVARS" -o json >"$opt_in_json" 2>&1 || checkov_exit=$?
 
 if ! python3 - "$opt_in_json" "$checkov_exit" <<'PYEOF'
 import json

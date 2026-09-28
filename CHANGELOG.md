@@ -834,6 +834,23 @@ this project adheres to the stability contract in
   a wrong PDB. Adapted from the terraform-aws-n8n smoke test.
 
 ### Fixed
+- `tests/scripts/check-checkov.sh`'s opt-in checkov pass now passes
+  `--skip-path examples`. Every `examples/*` directory calls
+  `module "n8n" { source = "../.." }` with its own tfvars (which do not
+  set the opt-in switches this pass exists to flip on); left in scope,
+  checkov's module resolution attributed a root-module resource
+  (`observability.tf`'s opt-in `redis_exporter` Deployment/Service) to
+  one of those examples' calls instead of to this pass's `--var-file`,
+  silently re-evaluating the Deployment at the example's default (still
+  count 0) and dropping the Service from the report entirely. The
+  script's own reachability check caught the Service half of this
+  (`the opt-in pass never evaluated: kubernetes_service_v1.redis_exporter`);
+  the Deployment half passed only because its module-qualified address
+  happened to satisfy the check's substring match despite being the
+  wrong, count-0 evaluation. Both resources now reach real, count=1
+  evaluations with zero failed checks; the default pass (unaffected,
+  still scans every `examples/*` for its own resources) is unchanged at
+  111 passed, 0 failed, 189 skipped.
 
 - `n8n_extra_env`, `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env`
   now reject `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` at plan time. Chart `1.13.0`
