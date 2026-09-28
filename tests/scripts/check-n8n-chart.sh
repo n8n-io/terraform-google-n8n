@@ -28,7 +28,8 @@
 #     passes.
 #
 # Usage: tests/scripts/check-n8n-chart.sh
-# Requires: helm (any version able to pull OCI charts), no other tools.
+# Requires: helm (any version able to pull OCI charts) and python3 (used by
+# tests/scripts/lib/tf-defaults.sh to read the module's chart pins).
 
 set -euo pipefail
 
@@ -37,6 +38,19 @@ cd "$(dirname "$0")/../.."
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
 CHART_VERSION="1.13.0"
+
+# Fail fast if the pins above drift from the module's own chart defaults.
+# Several assertions below (e.g. the graceful shutdown timeout default compared
+# against local.n8n_chart_default_graceful_shutdown_timeout) only prove
+# anything about the module when this script renders the chart it installs.
+# shellcheck source=lib/tf-defaults.sh
+source tests/scripts/lib/tf-defaults.sh
+MODULE_CHART_VERSION="$(tf_var_default variables.tf n8n_chart_version)" || MODULE_CHART_VERSION="<unreadable>"
+MODULE_CHART_REPOSITORY="$(tf_var_default variables.tf n8n_chart_repository)" || MODULE_CHART_REPOSITORY="<unreadable>"
+if [[ "$MODULE_CHART_VERSION" != "$CHART_VERSION" || "$MODULE_CHART_REPOSITORY" != "$CHART_REPOSITORY" ]]; then
+  echo "FAIL: this script pins ${CHART_REPOSITORY} ${CHART_VERSION}, but variables.tf defaults to ${MODULE_CHART_REPOSITORY} ${MODULE_CHART_VERSION}; update CHART_REPOSITORY/CHART_VERSION here" >&2
+  exit 1
+fi
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -1015,7 +1029,16 @@ fi
 # provider, so tftest.hcl asserts only the local's shape. This renders the
 # real chart's configmap.yaml to prove an override actually reaches the
 # N8N_GRACEFUL_SHUTDOWN_TIMEOUT key, and that omitting it still resolves to
-# the chart's own 30s default.
+# the chart's own default. That default is compared against
+# local.n8n_chart_default_graceful_shutdown_timeout (read straight from
+# locals.tf, since this script runs no Terraform), which the
+# graceful_shutdown_fits_grace_period check relies on, so a chart bump that
+# moves the default fails here until that local is updated.
+EXPECTED_DEFAULT_SHUTDOWN_TIMEOUT="$(sed -nE 's/^[[:space:]]*n8n_chart_default_graceful_shutdown_timeout[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' locals.tf)"
+if [[ -z "$EXPECTED_DEFAULT_SHUTDOWN_TIMEOUT" ]]; then
+  fail "could not read local.n8n_chart_default_graceful_shutdown_timeout from locals.tf"
+  EXPECTED_DEFAULT_SHUTDOWN_TIMEOUT="<unreadable>"
+fi
 cat >"$WORKDIR/fixture-graceful-shutdown-default.yaml" <<'EOF'
 redis:
   worker: {}
@@ -1035,10 +1058,10 @@ for scenario in default overridden; do
     fail "helm template (graceful-shutdown-$scenario fixture) failed: $(cat "$WORKDIR/helm-graceful-shutdown-$scenario.err")"
   fi
 done
-if grep -q 'N8N_GRACEFUL_SHUTDOWN_TIMEOUT: "30"' "$WORKDIR/configmap-default.yaml"; then
-  pass "graceful shutdown timeout omitted resolves to the chart's own 30s default"
+if grep -qF "N8N_GRACEFUL_SHUTDOWN_TIMEOUT: \"${EXPECTED_DEFAULT_SHUTDOWN_TIMEOUT}\"" "$WORKDIR/configmap-default.yaml"; then
+  pass "graceful shutdown timeout omitted resolves to the chart's own default (${EXPECTED_DEFAULT_SHUTDOWN_TIMEOUT}s, matching locals.tf)"
 else
-  fail "graceful shutdown timeout omitted did not resolve to the chart's 30s default"
+  fail "graceful shutdown timeout omitted did not resolve to local.n8n_chart_default_graceful_shutdown_timeout (${EXPECTED_DEFAULT_SHUTDOWN_TIMEOUT}s); update that local to the chart's new default"
 fi
 if grep -q 'N8N_GRACEFUL_SHUTDOWN_TIMEOUT: "45"' "$WORKDIR/configmap-overridden.yaml"; then
   pass "n8n_graceful_shutdown_timeout override reaches N8N_GRACEFUL_SHUTDOWN_TIMEOUT in the ConfigMap"
