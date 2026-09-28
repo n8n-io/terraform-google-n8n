@@ -299,7 +299,13 @@ locals {
   # unset and the chart comes from the upstream repository. A custom
   # n8n_chart_repository may carry a different default, so the check stays
   # quiet there rather than warn on a number it cannot verify (same reasoning
-  # as local.n8n_worker_keda_pause_supported in scaling.tf).
+  # as local.n8n_worker_keda_pause_supported in scaling.tf). Deliberately not
+  # gated on n8n_chart_version: every published upstream chart, 1.0.0 through
+  # 1.13.0 including 1.11.0-preview.workerpools.1, defaults redis.worker.timeout
+  # to 30 and renders it unconditionally (verified by pulling each tag), so an
+  # exact-version gate would only silence a correct warning on older pins. A
+  # future chart that moves the default fails check-n8n-chart.sh once the
+  # module's pin reaches it; matches terraform-aws-n8n#148.
   n8n_graceful_shutdown_default_applies = (
     var.n8n_graceful_shutdown_timeout == null &&
     var.n8n_chart_repository == "oci://ghcr.io/n8n-io/n8n-helm-chart"
