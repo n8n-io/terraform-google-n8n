@@ -3,6 +3,8 @@
 # GCP inputs for the module. Shared, provider-agnostic inputs live in
 # variables.tf.
 
+# ── Project and region ──────────────────────────────────────────────────────
+
 variable "project_id" {
   description = "GCP project ID to deploy into."
   type        = string

@@ -1,0 +1,169 @@
+# https://taskfile.dev
+#
+# Wraps the local validation loop documented in AGENTS.md so contributors
+# don't need to hand-type the module-root + per-example matrix. CI runs the
+# same underlying commands directly (see .github/workflows/terraform-tests.yml);
+# this file is a convenience wrapper, not a CI dependency.
+version: "3"
+
+vars:
+  # Must stay in lockstep with the `target:`/`matrix.target` lists in
+  # .github/workflows/terraform-tests.yml (validate/test/tflint/docs jobs all
+  # enumerate the same set). modules/controllers and its own examples/direct-use
+  # are handled separately below since they aren't under examples/.
+  EXAMPLES: small medium large cloudflare godaddy split-ingress customer-managed-cluster customer-managed-redis customer-managed-gcs customer-managed-everything worker-pools
+
+env:
+  # The veksh/godaddy-dns provider requires credentials even in plan-time tests.
+  GODADDY_API_KEY: stub
+  GODADDY_API_SECRET: stub
+
+tasks:
+  init:
+    internal: true
+    run: once
+    cmds:
+      - terraform init -backend=false
+      - for:
+          var: EXAMPLES
+          as: EXAMPLE
+        cmd: cd examples/{{.EXAMPLE}} && terraform init -backend=false
+      - cd modules/controllers && terraform init -backend=false
+      - cd modules/controllers/examples/direct-use && terraform init -backend=false
+
+  fmt:
+    desc: Check Terraform formatting across the module and all examples.
+    cmds:
+      - terraform fmt -check -recursive
+
+  validate:
+    desc: terraform init + validate for the module root, every example, and the controllers submodule.
+    deps: [init]
+    cmds:
+      - terraform validate
+      - for:
+          var: EXAMPLES
+          as: EXAMPLE
+        cmd: cd examples/{{.EXAMPLE}} && terraform validate
+      - cd modules/controllers && terraform validate
+      - cd modules/controllers/examples/direct-use && terraform validate
+
+  test:
+    desc: terraform test (plan-time, mocked providers) for the module root, every example, and the controllers submodule.
+    deps: [init]
+    cmds:
+      - terraform test -verbose
+      - for:
+          var: EXAMPLES
+          as: EXAMPLE
+        cmd: cd examples/{{.EXAMPLE}} && terraform test -verbose
+      - cd modules/controllers && terraform test -verbose
+      - cd modules/controllers/examples/direct-use && terraform test -verbose
+
+  lint:
+    desc: tflint for the module root, every example, and the controllers submodule.
+    deps: [init]
+    cmds:
+      - tflint --init
+      - tflint --format compact
+      - for:
+          var: EXAMPLES
+          as: EXAMPLE
+        cmd: cd examples/{{.EXAMPLE}} && tflint --init && tflint --format compact
+      - cd modules/controllers && tflint --init && tflint --format compact
+      - cd modules/controllers/examples/direct-use && tflint --init && tflint --format compact
+
+  docs:
+    desc: Check README.md is not stale (module root, every example, and the controllers submodule).
+    cmds:
+      - terraform-docs --output-check .
+      - for:
+          var: EXAMPLES
+          as: EXAMPLE
+        cmd: cd examples/{{.EXAMPLE}} && terraform-docs --output-check .
+      - cd modules/controllers && terraform-docs --config ../../.terraform-docs.yml --output-check .
+      - cd modules/controllers/examples/direct-use && terraform-docs --config ../../../../.terraform-docs.yml --output-check .
+
+  docs-generate:
+    desc: Regenerate README.md (module root, every example, and the controllers submodule).
+    cmds:
+      - terraform-docs .
+      - for:
+          var: EXAMPLES
+          as: EXAMPLE
+        cmd: cd examples/{{.EXAMPLE}} && terraform-docs .
+      - cd modules/controllers && terraform-docs --config ../../.terraform-docs.yml .
+      - cd modules/controllers/examples/direct-use && terraform-docs --config ../../../../.terraform-docs.yml .
+
+  chart:
+    desc: Render and check the pinned n8n chart with a synthetic values fixture (requires Helm and jq).
+    cmds:
+      - ./tests/scripts/check-n8n-chart.sh
+
+  chart-coverage:
+    desc: Check docs/helm-chart-coverage.md against the pinned n8n chart's values.yaml (requires Helm).
+    cmds:
+      - ./tests/scripts/check-helm-chart-coverage.sh
+
+  chart-diff:
+    desc: >-
+      Diff the pinned n8n chart's values.yaml against a candidate version
+      (requires Helm). Run before picking up a chart bump, e.g.
+      task chart-diff CANDIDATE=1.12.0
+    cmds:
+      - ./tests/scripts/chart-values-diff.sh "{{.CANDIDATE}}"
+
+  version-drift:
+    desc: Report every version pin that has fallen behind upstream (see docs/versioning.md). Never fails; requires curl and jq.
+    cmds:
+      - ./tests/scripts/check-version-drift.sh
+
+  checkov:
+    desc: >-
+      Static analysis, the same invocation CI runs (both the default-tfvars
+      and opt-in passes). Requires the exact Checkov version
+      tests/scripts/check-checkov.sh pins; the script refuses to run against
+      any other, because which checks apply is version-dependent.
+    cmds:
+      - ./tests/scripts/check-checkov.sh
+
+  banners:
+    desc: >-
+      Check every variable/output block in variables.tf, variables_gcp.tf, and
+      outputs.tf sits under a "# ── Section ──" banner (see AGENTS.md).
+      Local-only for now, not yet a CI-gated check.
+    cmds:
+      - ./scripts/check-variable-banners.sh
+
+  example-parity:
+    desc: >-
+      Diff each example's variable set against examples/small for undeclared
+      drift, and require a "Production considerations" README section
+      wherever the module still creates Cloud SQL and/or GCS. Local-only for
+      now, not yet a CI-gated check.
+    cmds:
+      - ./scripts/check-example-parity.sh
+
+  markdown:
+    desc: markdownlint-cli2 against README.md, AGENTS.md, and docs/*.md (CI-gated; see .markdownlint.json).
+    cmds:
+      - markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
+
+  ci:
+    desc: >-
+      Run the full local loop (fmt, validate, test, chart, chart-coverage,
+      lint, banners, example-parity, docs, markdown). Mirrors every CI job
+      except checkov, which needs a pinned Checkov install that the other
+      tasks do not: run `task checkov` separately once you have it. Also
+      runs banners and example-parity, which CI does not gate on at all.
+    cmds:
+      - task: fmt
+      - task: validate
+      - task: test
+      - task: chart
+      - task: chart-coverage
+      - task: lint
+      - task: banners
+      - task: example-parity
+      - task: docs
+      - task: markdown
