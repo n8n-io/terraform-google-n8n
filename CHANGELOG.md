@@ -1187,6 +1187,10 @@ this project adheres to the stability contract in
   `n8n_kube_svc_account`, and `dns_managed_zone` to `cloud_dns_zone_name`.
   Semantics, types, and defaults are unchanged; only the names move.
 - **Breaking:** output `namespace` is renamed to `n8n_kube_namespace`.
+- `TFLINT_VERSION` bumped to `v0.64.0` (was `v0.53.0`), an 11-minor jump. Re-ran
+  `tflint --init` and `tflint --format compact` across the full target matrix
+  (module root, every example, `modules/controllers`, and its own
+  `examples/direct-use`): zero new findings from rules added since `v0.53.0`.
 
 ### Removed
 

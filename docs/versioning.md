@@ -66,7 +66,7 @@ release channel rather than pinning a Kubernetes minor directly:
 | Tool | Current pin | Tier to bump |
 | --- | --- | --- |
 | Terraform CLI (`TF_VERSION`) | `1.9.8` | **Deliberately not bumped for currency alone.** `AGENTS.md`'s "Known mock provider limitations" section documents validating against this exact floor's stricter `&&`/`\|\|` short-circuit evaluation; bumping it changes what CI proves, not just what CI uses. Treat as verification-required with a specific reason, never a routine bump. |
-| tflint (`TFLINT_VERSION`) | `v0.53.0` | Minor-required: re-run `tflint --init` and the full target matrix; a new ruleset version can add a rule that fails a previously-clean target |
+| tflint (`TFLINT_VERSION`) | `v0.64.0` | Minor-required: re-run `tflint --init` and the full target matrix; a new ruleset version can add a rule that fails a previously-clean target |
 | checkov (`bridgecrewio/checkov-action` ref) | `v12.3126.0` (bundles checkov `3.3.20`) | Verification-required: re-run the curated baseline (`tests/scripts/check-checkov.sh`, both passes) and update the referenced verification report if the finding set changes |
 | terraform-docs (`TERRAFORM_DOCS_VERSION`) | `v0.24.0` | Patch-safe; re-run `terraform-docs --output-check .` at every target after bumping, since output formatting can shift |
 
