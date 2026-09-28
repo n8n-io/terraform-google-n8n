@@ -117,8 +117,8 @@ Concretely, in this repo:
   the same list drives the local loop below).
 - **`tflint`** against every target in that same matrix, with the ruleset
   initialized via `tflint --init`.
-- **`checkov`** (`bridgecrewio/checkov-action@v12.3123.0`, pinned to Checkov
-  `3.3.17`) against the Terraform framework, repository root, at the
+- **`checkov`** (`bridgecrewio/checkov-action@v12.3126.0`, pinned to Checkov
+  `3.3.20`) against the Terraform framework, repository root, at the
   **default** tfvars. `soft_fail` is `false`: an unapproved new finding fails
   the job. See
   `openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/verification-report.md`

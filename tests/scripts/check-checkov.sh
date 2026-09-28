@@ -31,7 +31,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 if ! command -v checkov >/dev/null 2>&1; then
   echo "check-checkov.sh: checkov is not on PATH. Install the pinned version" >&2
   echo "named in .github/workflows/terraform-tests.yml's checkov job comment" >&2
-  echo "(e.g. uv tool install checkov==3.3.17)." >&2
+  echo "(e.g. uv tool install checkov==3.3.20)." >&2
   exit 1
 fi
 

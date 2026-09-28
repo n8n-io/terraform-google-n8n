@@ -959,6 +959,15 @@ this project adheres to the stability contract in
   15 final verification; Checkov `CKV_GCP_73`).
 
 ### Changed
+- CI checkov pin bumped `bridgecrewio/checkov-action@v12.3123.0` →
+  `v12.3126.0` (bundled Checkov `3.3.17` → `3.3.20`); local installs should
+  move to `checkov==3.3.20` to match. `3.3.20`'s only change is a
+  `terraform_plan` parser fix for `forget`-action resources, re-verified
+  against this module's curated baseline: unchanged at 111 passed, 0
+  failed, 189 skipped on both the default and opt-in passes. `TF_VERSION`
+  is also behind upstream (see `docs/versioning.md`'s CI toolchain table)
+  but is deliberately not bumped here: it needs a specific reason per its
+  own tier note, not a routine bump.
 
 - **Breaking:** the `kubernetes` provider floor is bumped to `~> 3.0` (was
   `~> 2.0`), across the root module, `modules/controllers`, and every
