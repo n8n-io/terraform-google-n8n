@@ -407,7 +407,7 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   directory.
 
 - **`markdownlint`** (CI job, `markdownlint-cli2`) lints `README.md`,
-  `AGENTS.md`, and `docs/*.md`. `.markdownlint.json` disables MD013
+  `AGENTS.md`, `CHANGELOG.md`, and `docs/*.md`. `.markdownlint.json` disables MD013
   (line-length; this repo's prose is not hard-wrapped), MD036
   (emphasis-as-heading; `docs/troubleshooting.md`'s deliberate
   Symptom/Cause/Fix convention), MD040 (fenced-code-language; a handful of
@@ -417,7 +417,7 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   wrapped in `<!-- markdownlint-disable -->`/`<!-- markdownlint-restore -->`
   comments placed outside the block, so its anchor tags and placeholder
   tokens don't need hand-editing to pass MD033. Run locally with
-  `markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"`.
+  `markdownlint-cli2 "README.md" "AGENTS.md" "CHANGELOG.md" "docs/*.md"`.
 
 - Each example has its own `README.md` documenting the runnable example.
 - `docs/post-deployment.md` and `docs/destroy-cleanup.md` cover operator-facing
@@ -464,7 +464,7 @@ tests/scripts/check-n8n-chart.sh
 tests/scripts/check-checkov.sh
 
 # Markdown lint, same command as the `markdownlint` CI job.
-markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
+markdownlint-cli2 "README.md" "AGENTS.md" "CHANGELOG.md" "docs/*.md"
 
 # Local-only structure checks (not CI-gated).
 scripts/check-variable-banners.sh

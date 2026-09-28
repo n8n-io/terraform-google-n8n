@@ -133,7 +133,7 @@ jobs:
         run: npm install -g "markdownlint-cli2@${MARKDOWNLINT_VERSION}"
 
       - name: markdownlint-cli2
-        # Lints README.md, AGENTS.md, and docs/*.md. The generated
+        # Lints README.md, AGENTS.md, CHANGELOG.md, and docs/*.md. The generated
         # <!-- BEGIN_TF_DOCS -->/<!-- END_TF_DOCS --> block in README.md is
         # wrapped in markdownlint-disable/-restore comments (placed outside
         # the block) to suppress false positives from terraform-docs output
@@ -145,7 +145,7 @@ jobs:
         # handful of pre-existing shell-prompt-style fences), and MD060
         # (table-column-style; a new pipe-alignment-style rule this repo's
         # existing tables were never written against).
-        run: markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
+        run: markdownlint-cli2 "README.md" "AGENTS.md" "CHANGELOG.md" "docs/*.md"
 
   validate:
     name: terraform validate (${{ matrix.target }})
@@ -381,12 +381,12 @@ jobs:
         # checkov-version input; its own action.yml bakes in a Checkov tag per
         # release, so the action ref itself is the pin). Local runs install
         # the matching `checkov==3.3.20` (e.g. `uv tool install checkov==3.3.20`)
-        # so `checkov -d .` locally and this job agree; see the security
-        # baseline report referenced from CHANGELOG.md for the curated,
-        # remaining-finding-free baseline this version was pinned against.
+        # so `checkov -d .` locally and this job agree; see
+        # openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/verification-report.md
+        # for the curated, remaining-finding-free baseline.
         # 3.3.17 -> 3.3.20 adds CKV_AWS_394 (AWS-only) and a terraform_plan
-        # 'forget'-action parser fix; see CHANGELOG.md for the baseline
-        # re-verification.
+        # 'forget'-action parser fix; CHANGELOG.md's 0.1.0 entry records the
+        # re-verified pass/fail/skip counts.
         uses: bridgecrewio/checkov-action@v12.3126.0
         with:
           directory: .
