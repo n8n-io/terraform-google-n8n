@@ -798,9 +798,49 @@ this project adheres to the stability contract in
   maps to an input, fix, or test landed in one of this change's numbered
   sections, and every exclusion remains explicit rather than silently
   dropped.
+- **`n8n_graceful_shutdown_timeout`** (chart `redis.worker.timeout`, renders
+  `N8N_GRACEFUL_SHUTDOWN_TIMEOUT`). Seconds n8n waits for in-flight
+  executions to finish on SIGTERM before exiting on its own. Must go through
+  this input rather than any `extra_env` input: chart `1.13.0` renders this
+  ConfigMap key unconditionally on every n8n container, unlike the three
+  `n8n_queue_worker_*` settings above, and `extraEnv` is appended after it,
+  so a caller duplicate would not fail, Kubernetes silently keeps the
+  `extraEnv` copy instead of the chart's real value, with no warning (see
+  **Fixed** below). An explicit value plus `n8n_prestop_sleep` must stay
+  strictly below `n8n_termination_grace_period`, or validation fails,
+  because Kubernetes would SIGKILL the pod before n8n finishes shutting
+  down. Left `null`, the module sends no override, the chart keeps its own
+  30s default, and existing releases see no Helm values change. In that case
+  the same rule applied to the 30s default is only a warning, the new
+  `graceful_shutdown_fits_grace_period` check, so configurations that
+  planned before still plan. The warning is skipped for a custom
+  `n8n_chart_repository`, whose default the module cannot verify.
+  `tests/scripts/check-n8n-chart.sh` fails if the pinned chart's rendered
+  default drifts from `local.n8n_chart_default_graceful_shutdown_timeout`.
+  Ported from terraform-aws-n8n#148 (fixes terraform-aws-n8n#147).
 
 ### Fixed
 
+- `n8n_extra_env`, `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env`
+  now reject `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` at plan time. Chart `1.13.0`
+  renders that ConfigMap key unconditionally on every n8n container from
+  `redis.worker.timeout`, and `extraEnv` is appended after it in every
+  deployment template, so a caller-supplied duplicate previously passed
+  `terraform plan` with no error at all: Kubernetes does not reject
+  duplicate env names, it silently keeps the last entry in the list, so the
+  caller's raw value would replace the chart's real one with no plan- or
+  apply-time warning. The same guard already existed for
+  `n8n_queue_worker_lock_duration` and its siblings; this closes the gap for
+  the graceful shutdown timeout. **Breaking for callers who set this name
+  through any of these inputs:** their `terraform plan` now fails. Remove the
+  `extra_env` entry and set `n8n_graceful_shutdown_timeout` (a number of
+  seconds) instead. Two differences to check first: the input applies to
+  every n8n container, so a value that was set only on workers
+  (`n8n_worker_extra_env`) or only on one pool now also reaches mains and
+  webhook processors, and different values per pool can no longer be kept;
+  and the value plus `n8n_prestop_sleep` must stay below
+  `n8n_termination_grace_period`, which the old `extra_env` route never
+  checked. Ported from terraform-aws-n8n#148 (fixes terraform-aws-n8n#147).
 - `n8n_fqdn`, `n8n_additional_domains`, and `n8n_image_pull_secrets` now
   bound each dot-separated label to the actual DNS-1123 label rule (1 to 63
   characters, alphanumeric start and end), not just a total-length check.

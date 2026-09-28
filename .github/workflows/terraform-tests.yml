@@ -311,6 +311,13 @@ jobs:
         with:
           version: ${{ env.HELM_VERSION }}
 
+      # check-n8n-chart.sh sources tests/scripts/lib/tf-defaults.sh, which
+      # uses python3 to read the module's chart pins from variables.tf.
+      # Same pin as the checkov jobs.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
       - name: tests/scripts/check-n8n-chart.sh
         run: tests/scripts/check-n8n-chart.sh
 

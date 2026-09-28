@@ -330,9 +330,9 @@ resource "helm_release" "n8n" {
         key  = local.effective_redis_password_secret_key
       }
       } : {}, length(local.n8n_queue_worker_chart_overrides) > 0 ? {
-      # Queue lock/stall tuning (task 5.1): one nested map so an omitted
-      # sibling value falls through to the chart's own redis.worker default
-      # instead of being reset by this override.
+      # Queue lock/stall tuning and graceful shutdown timeout: one nested map
+      # so an omitted sibling value falls through to the chart's own
+      # redis.worker default instead of being reset by this override.
       worker = local.n8n_queue_worker_chart_overrides
     } : {})
 
