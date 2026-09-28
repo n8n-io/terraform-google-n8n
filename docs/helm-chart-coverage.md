@@ -51,7 +51,7 @@ this table never mentions.
 | `license` | `n8n_license_key`, `n8n_license_key_secret_ref` | |
 | `secretRefs` | Derived (`local.effective_core_secret_name`) | |
 | `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs | |
-| `redis` | `redis_*` inputs, KEDA/queue wiring | |
+| `redis` | `redis_*` inputs, KEDA/queue wiring, `n8n_queue_worker_lock_duration`/`n8n_queue_worker_lock_renew_time`/`n8n_queue_worker_stalled_interval`/`n8n_graceful_shutdown_timeout` (`redis.worker.*`) | `redis.worker.maxStalledCount` is not surfaced |
 | `s3` | `gcs_*` inputs (S3-compatible driver over GCS + HMAC) | |
 
 ## Verifying this table
