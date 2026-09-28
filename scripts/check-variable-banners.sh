@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # check-variable-banners.sh — every variable/output block in variables.tf,
 # variables_gcp.tf, and outputs.tf must sit under a "# ── Section ──" banner
-# comment (see AGENTS.md, "Clear documentation"). Catches two drift patterns:
+# comment (see AGENTS.md, "Clear documentation"). Catches:
 #
-#   1. A block appended with no banner above it at all.
+#   1. A block appearing before the first banner in the file, i.e. a file
+#      whose sections have been wiped out entirely (a block appended after
+#      the last banner instead inherits it and is indistinguishable from a
+#      genuine member of that section, so that drift pattern is NOT caught).
 #   2. A banner-like comment that doesn't match the established format
 #      (wrong dashes, missing padding, typo'd style).
 #
 # What this script deliberately does NOT check: whether a variable was filed
 # under the *correct* banner for its meaning (e.g. a new toggle landing in
-# "Execution settings" vs "Task runners"). That judgment call still needs a
-# human/CODEOWNERS review — this only guarantees the convention itself can't
-# silently rot to "no sections at all".
+# "Execution settings" vs "Task runners"), nor whether a block appended at
+# the end of a section actually belongs there. Both still need a
+# human/CODEOWNERS review.
 
 set -euo pipefail
 
@@ -41,7 +44,7 @@ VARIABLES_GCP_BANNERS=("Project and region" "Networking ownership (infrastructur
 OUTPUT_BANNERS=("App DNS" "Secrets (retrieve with terraform output -raw <name>)" "Infrastructure (ownership-neutral effective coordinates)" "Cluster (wire the kubernetes/helm/kubectl providers in your root/example)" "Service and route contract (build a customer-managed ingress from these)")
 BANNER_LOOSE_RE='^#[[:space:]]+[─—-]'
 BANNER_STRICT_RE='^# ── (.+) ─{2,}$'
-BLOCK_RE='^(variable|output) "'
+BLOCK_RE='^[[:space:]]*(variable|output)[[:space:]]+"'
 
 fail=0
 

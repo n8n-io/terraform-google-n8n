@@ -40,11 +40,14 @@ under each example directory (`examples/small`, `examples/medium`,
 mirrors the CI matrix exactly. CI will run the same matrix on your PR.
 
 If you have [`task`](https://taskfile.dev) installed (`brew install
-go-task`), `task ci` runs the same fmt/validate/test/lint/docs matrix
-across the module root and every example in one command. See
+go-task`), `task ci` runs the fmt/validate/test/lint/docs matrix plus
+chart-rendering and markdown checks across the module root and every
+example in one command; it additionally needs Helm, jq, and
+markdownlint-cli2 on `PATH` (see `AGENTS.md` for install steps). See
 [`Taskfile.yml`](./Taskfile.yml) for the individual targets (`task fmt`,
 `task validate`, `task test`, `task lint`, `task docs`,
-`task docs-generate`).
+`task docs-generate`), including `task checkov` and `task version-drift`,
+which `task ci` deliberately does not run.
 
 ## Commit messages
 

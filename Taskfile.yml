@@ -152,10 +152,13 @@ tasks:
   ci:
     desc: >-
       Run the full local loop (fmt, validate, test, chart, chart-coverage,
-      lint, banners, example-parity, docs, markdown). Mirrors every CI job
-      except checkov, which needs a pinned Checkov install that the other
-      tasks do not: run `task checkov` separately once you have it. Also
-      runs banners and example-parity, which CI does not gate on at all.
+      lint, banners, example-parity, docs, markdown). Covers every CI job
+      except checkov (needs a pinned Checkov install the other tasks do not:
+      run `task checkov` separately once you have it) and version-drift
+      (never fails by design, so it isn't a gate: run `task version-drift`
+      separately). Also runs chart-coverage, banners, and example-parity,
+      none of which are CI jobs at all, local-only checks bundled here for
+      convenience.
     cmds:
       - task: fmt
       - task: validate
