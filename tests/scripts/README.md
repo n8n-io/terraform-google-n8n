@@ -45,8 +45,13 @@ with a synthetic values fixture and asserts on the rendered Kubernetes
 manifests: replica-count floor seeding on the main/worker/webhook-processor
 Deployments, the `service.annotations` BackendConfig annotation reaching both
 the main and webhook-processor Services, and the four
-`EXECUTIONS_DATA_SAVE_*` env vars. It needs only `helm` on `PATH`, no
-Terraform, no Kubernetes cluster, and no cloud credentials:
+`EXECUTIONS_DATA_SAVE_*` env vars, plus the `N8N_GRACEFUL_SHUTDOWN_TIMEOUT`
+ConfigMap entry against `local.n8n_chart_default_graceful_shutdown_timeout`.
+It first fails fast if its own chart pins differ from the module's
+`n8n_chart_repository` / `n8n_chart_version` defaults. It needs `helm` and
+`python3` on `PATH` (`python3` for `lib/tf-defaults.sh`, which reads those
+defaults from `variables.tf`), no Terraform, no Kubernetes cluster, and no
+cloud credentials:
 
 ```bash
 tests/scripts/check-n8n-chart.sh
