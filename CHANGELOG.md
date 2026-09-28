@@ -944,6 +944,19 @@ this project adheres to the stability contract in
   `ingress_source_cidrs` is non-empty (`add-full-stack-modularity`, section
   15 final verification; Checkov `CKV_GCP_73`).
 
+### Removed
+
+- The single-instance code path from `tests/scripts/smoke-test.sh` (the
+  SQLite PVC check, task runner sidecar and Python runner checks on
+  `n8n-main`, and the JS + Python execution workflow), the `DEPLOY_MODE`
+  variable, and every mode branch. This module always deploys the
+  multi-main topology (queue mode with dedicated worker pods), so the
+  branch tested a topology the module never creates, and, worse, a
+  broken deployment missing its `n8n-worker` Deployment was silently
+  tested as that other topology instead of failing. The script now has
+  one code path and fails when `n8n-worker` is absent. Ported from
+  terraform-aws-n8n#152.
+
 ### Changed
 
 - **Breaking:** the `kubernetes` provider floor is bumped to `~> 3.0` (was

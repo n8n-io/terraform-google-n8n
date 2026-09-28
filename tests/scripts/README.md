@@ -190,7 +190,6 @@ All settings can be overridden via environment variables or a `.env` file.
 | `N8N_URL` | *(from `terraform output`)* | Base URL of the n8n deployment |
 | `NAMESPACE` | *(from `terraform output`)* | Kubernetes namespace |
 | `N8N_API_KEY` |, | API key for API and workflow execution tests |
-| `DEPLOY_MODE` | *(auto-detect)* | Force `multi` (or `single`) and skip detection |
 | `LOAD_TEST` | `false` | Set to `true` to run the worker scaling test |
 | `LOAD_REQUESTS` | `100` | Webhook executions to fire during the load test |
 | `LOAD_CONCURRENCY` | `20` | Concurrent in-flight webhook calls |

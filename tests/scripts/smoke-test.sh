@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # smoke-test.sh, post-deployment smoke test for terraform-google-n8n.
 #
-# This module deploys the multi-main topology (multiple main + worker +
-# webhook-processor pods, PostgreSQL, Redis, KEDA). The script auto-detects
-# the topology by probing the namespace; for this module that is always the
-# multi-main path, main/worker/webhook-processor pod health, queue mode,
-# Redis connectivity, KEDA ScaledObject, HTTPS, API, and end-to-end execution.
+# This module always deploys the multi-main topology (multiple main +
+# worker + webhook-processor pods, PostgreSQL, Redis, KEDA), and that is
+# the only topology this script tests: main/worker/webhook-processor pod
+# health, queue mode, Redis connectivity, KEDA ScaledObject, HTTPS, API,
+# and end-to-end execution. A missing n8n-worker Deployment is a failure,
+# not a different kind of install.
 #
 # It also runs a set of customer-managed infrastructure checks that apply
 # the same way regardless of which layers are module-managed vs
@@ -27,9 +28,6 @@
 #   # or next to terraform.tfstate):
 #   cp tests/scripts/.env.example tests/scripts/.env
 #   # edit .env, then run the script.
-#
-#   # Force mode (skip auto-detection):
-#   DEPLOY_MODE=multi ./tests/scripts/smoke-test.sh
 #
 # Priority: .env explicit values > Terraform outputs > built-in defaults.
 
@@ -137,7 +135,6 @@ fi
 NAMESPACE="${NAMESPACE:-${N8N_NAMESPACE:-n8n}}"
 N8N_URL="${N8N_URL:-}"
 N8N_API_KEY="${N8N_API_KEY:-}"
-DEPLOY_MODE="${DEPLOY_MODE:-}"        # set to 'single' or 'multi' to skip auto-detect
 
 # Customer-managed infrastructure checks (below): each of these is populated
 # from the module's ownership-neutral outputs when read from Terraform state
@@ -154,7 +151,7 @@ N8N_WEBHOOK_ROUTE_PREFIXES_JSON="${N8N_WEBHOOK_ROUTE_PREFIXES_JSON:-}"
 N8N_INGRESS_HOSTS_JSON="${N8N_INGRESS_HOSTS_JSON:-}"
 REDIS_EXPORTER_SERVICE="${REDIS_EXPORTER_SERVICE:-}"
 
-# Multi-mode optional load test settings
+# Optional load test settings
 LOAD_TEST="${LOAD_TEST:-false}"
 LOAD_REQUESTS="${LOAD_REQUESTS:-100}"
 LOAD_CONCURRENCY="${LOAD_CONCURRENCY:-20}"
@@ -232,172 +229,17 @@ fi
 
 header "Deployment Mode"
 
-if [[ -n "$DEPLOY_MODE" ]]; then
-  info "Mode forced via DEPLOY_MODE=$DEPLOY_MODE"
-elif kubectl get deployment n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
-  DEPLOY_MODE="multi"
-else
-  DEPLOY_MODE="single"
-fi
-
-if [[ "$DEPLOY_MODE" == "multi" ]]; then
+if kubectl get deployment n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
   pass "Multi-main deployment detected (n8n-worker present)"
   info "Checks: queue mode, HPA/KEDA, Redis, leader election"
 else
-  pass "Single-instance deployment detected"
-  info "Checks: SQLite PVC, task runner sidecar, Python runner"
+  fail "Deployment 'n8n-worker' not found: this module always renders it, so the deployment is broken"
+  info "Check: helm status n8n -n $NAMESPACE, and kubectl get deploy -n $NAMESPACE"
 fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SINGLE-INSTANCE CHECKS
-# ══════════════════════════════════════════════════════════════════════════════
-
-if [[ "$DEPLOY_MODE" == "single" ]]; then
-
-# ── Pod health (single) ───────────────────────────────────────────────────────
-
-header "Pod Health"
-
-if ! kubectl get deployment n8n-main -n "$NAMESPACE" &>/dev/null; then
-  fail "Deployment 'n8n-main' not found in namespace '$NAMESPACE'"
-  echo -e "${RED}Cannot continue, no n8n deployment found.${RESET}" >&2
-  exit 1
-fi
-
-ready=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-ready="${ready:-0}"
-desired=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
-
-if [[ "$ready" -eq "$desired" && "$ready" -gt 0 ]]; then
-  pass "n8n-main pod: $ready/$desired ready"
-else
-  fail "n8n-main pod: $ready/$desired ready"
-fi
-
-# Surface any pods not in Running state
-bad_pods=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=n8n" \
-  --no-headers 2>/dev/null \
-  | awk '{print $1, $3}' \
-  | grep -v "Running\|Completed" || true)
-if [[ -n "$bad_pods" ]]; then
-  warn "Unhealthy pods detected:"
-  while IFS= read -r line; do info "$line"; done <<< "$bad_pods"
-fi
-
-# Grab the running pod name for subsequent checks
-N8N_POD=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=n8n" \
-  --field-selector=status.phase=Running \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-if [[ -z "$N8N_POD" ]]; then
-  fail "Could not find a running n8n pod, remaining checks will be limited"
-else
-  info "Using pod: $N8N_POD"
-fi
-
-# ── SQLite PVC ────────────────────────────────────────────────────────────────
-
-header "SQLite Persistent Volume"
-
-pvc=$(kubectl get pvc -n "$NAMESPACE" --no-headers 2>/dev/null \
-  | grep -i "n8n\|sqlite\|data" | head -3 || true)
-
-if [[ -n "$pvc" ]]; then
-  bound=$(echo "$pvc" | grep -c "Bound" || true)
-  total=$(echo "$pvc" | wc -l | tr -d ' ')
-  if [[ "$bound" -eq "$total" ]]; then
-    pass "PVC(s) bound ($bound/$total)"
-    while IFS= read -r line; do info "$line"; done <<< "$pvc"
-  else
-    fail "One or more PVCs not bound ($bound/$total)"
-    while IFS= read -r line; do info "$line"; done <<< "$pvc"
-  fi
-else
-  warn "No PVCs found matching n8n, SQLite data may not be persisted"
-  info "Check: kubectl get pvc -n $NAMESPACE"
-fi
-
-# Verify the data directory is writable inside the running pod
-if [[ -n "$N8N_POD" ]]; then
-  data_dir=$(kubectl exec "$N8N_POD" -n "$NAMESPACE" -c n8n \
-    -- printenv N8N_USER_FOLDER 2>/dev/null \
-    || kubectl exec "$N8N_POD" -n "$NAMESPACE" -c n8n \
-    -- printenv HOME 2>/dev/null || echo "")
-
-  if [[ -n "$data_dir" ]]; then
-    if kubectl exec "$N8N_POD" -n "$NAMESPACE" -c n8n \
-        -- sh -c "test -w $data_dir" &>/dev/null; then
-      pass "Data directory is writable: $data_dir"
-    else
-      warn "Data directory may not be writable: $data_dir"
-    fi
-  fi
-fi
-
-# ── Task runner sidecar (single) ──────────────────────────────────────────────
-
-header "Task Runner Sidecar"
-
-containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
-
-info "Containers in pod spec: $containers"
-
-if echo "$containers" | grep -qiE "runner"; then
-  runner_container=$(echo "$containers" | tr ' ' '\n' | grep -iE "runner" | head -1)
-  pass "Task runner sidecar found: $runner_container"
-
-  # ── Python runner ──────────────────────────────────────────────────────────
-
-  header "Python Runner"
-
-  if [[ -n "$N8N_POD" ]]; then
-    python_version=$(kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
-      -- python3 --version 2>/dev/null || \
-      kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
-      -- python --version 2>/dev/null || echo "")
-
-    if [[ -n "$python_version" ]]; then
-      pass "Python binary present in runner sidecar: $python_version"
-    else
-      fail "Python binary not found in runner sidecar"
-      info "Verify the runner image includes Python support"
-    fi
-
-    # Check runner sidecar logs for broker connection
-    runner_logs=$(kubectl logs "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
-      --tail=50 2>/dev/null || true)
-
-    if echo "$runner_logs" | grep -qiE "connected|ready|broker|listening"; then
-      connected_line=$(echo "$runner_logs" | grep -iE "connected|ready|broker|listening" | tail -1)
-      pass "Runner sidecar connected to broker"
-      info "$connected_line"
-    else
-      warn "No broker connection confirmation found in runner logs (last 50 lines)"
-      info "This may be normal if the runner starts on-demand. Check manually:"
-      info "kubectl logs $N8N_POD -n $NAMESPACE -c $runner_container"
-    fi
-  else
-    skip "Python runner exec checks (no running pod found)"
-  fi
-
-else
-  warn "Task runner sidecar not detected, task runners may be disabled"
-  info "Set n8n_task_runners_enabled = true in terraform.tfvars and re-apply"
-
-  header "Python Runner"
-  skip "Python runner checks (task runner sidecar not present)"
-fi
-
-fi  # end single-instance checks
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MULTI-MAIN CHECKS
 # ══════════════════════════════════════════════════════════════════════════════
-
-if [[ "$DEPLOY_MODE" == "multi" ]]; then
 
 # ── Pod health (multi) ────────────────────────────────────────────────────────
 
@@ -618,8 +460,6 @@ else
   fi
 fi
 
-fi  # end multi-main checks
-
 # ══════════════════════════════════════════════════════════════════════════════
 # COMMON CHECKS (Storage, HTTP, API, Workflow execution)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -748,121 +588,61 @@ fi
 
 # ── Workflow execution ────────────────────────────────────────────────────────
 #
-# Single mode: Webhook → JS Code → Python Code
-#   Exercises both task runner language runtimes end-to-end.
-#
-# Multi mode: Webhook → Set
+# Webhook → Set
 #   Lightweight, verifies queue routing; task runner is covered by the
 #   sidecar check above.
 
-if [[ "$DEPLOY_MODE" == "single" ]]; then
-  header "Workflow Execution (JS + Python runners)"
-else
-  header "Workflow Execution via Queue"
-fi
+header "Workflow Execution via Queue"
 
 if [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Workflow execution test (requires N8N_URL and N8N_API_KEY)"
-elif [[ "$DEPLOY_MODE" == "multi" && "${worker_paused:-}" == "true" ]]; then
+elif [[ "${worker_paused:-}" == "true" ]]; then
   # A paused worker ScaledObject may hold zero workers, so a queued
   # execution could wait until the pause is cleared.
   skip "Workflow execution via queue (worker ScaledObject paused via n8n_worker_keda_pause)"
 else
   webhook_path="smoke-test-$$"
 
-  if [[ "$DEPLOY_MODE" == "single" ]]; then
-    # Single: Webhook → JS Code → Python Code (exercises both runners)
-    workflow_payload="{
-      \"name\": \"__smoke-test__\",
-      \"nodes\": [
-        {
-          \"id\": \"a1b2c3d4-0001-0001-0001-000000000001\",
-          \"name\": \"Webhook\",
-          \"type\": \"n8n-nodes-base.webhook\",
-          \"typeVersion\": 1,
-          \"position\": [250, 300],
-          \"webhookId\": \"${webhook_path}\",
-          \"parameters\": {
-            \"httpMethod\": \"POST\",
-            \"path\": \"${webhook_path}\",
-            \"responseMode\": \"onReceived\"
-          }
-        },
-        {
-          \"id\": \"a1b2c3d4-0002-0002-0002-000000000002\",
-          \"name\": \"JS Code\",
-          \"type\": \"n8n-nodes-base.code\",
-          \"typeVersion\": 2,
-          \"position\": [450, 300],
-          \"parameters\": {
-            \"jsCode\": \"return [{ json: { js_runner: 'passed' } }];\"
-          }
-        },
-        {
-          \"id\": \"a1b2c3d4-0003-0003-0003-000000000003\",
-          \"name\": \"Python Code\",
-          \"type\": \"n8n-nodes-base.code\",
-          \"typeVersion\": 2,
-          \"position\": [650, 300],
-          \"parameters\": {
-            \"language\": \"python\",
-            \"pythonCode\": \"return [{'json': {'python_runner': 'passed'}}]\"
-          }
-        }
-      ],
-      \"connections\": {
-        \"Webhook\": {
-          \"main\": [[{ \"node\": \"JS Code\", \"type\": \"main\", \"index\": 0 }]]
-        },
-        \"JS Code\": {
-          \"main\": [[{ \"node\": \"Python Code\", \"type\": \"main\", \"index\": 0 }]]
+  # Webhook → Set (lightweight queue-mode test)
+  workflow_payload="{
+    \"name\": \"__smoke-test__\",
+    \"nodes\": [
+      {
+        \"id\": \"a1b2c3d4-0001-0001-0001-000000000001\",
+        \"name\": \"Webhook\",
+        \"type\": \"n8n-nodes-base.webhook\",
+        \"typeVersion\": 1,
+        \"position\": [250, 300],
+        \"webhookId\": \"${webhook_path}\",
+        \"parameters\": {
+          \"httpMethod\": \"POST\",
+          \"path\": \"${webhook_path}\",
+          \"responseMode\": \"onReceived\"
         }
       },
-      \"settings\": {}
-    }"
-    exec_success_msg="Execution completed successfully, JS and Python runners both processed"
-  else
-    # Multi: Webhook → Set (lightweight queue-mode test)
-    workflow_payload="{
-      \"name\": \"__smoke-test__\",
-      \"nodes\": [
-        {
-          \"id\": \"a1b2c3d4-0001-0001-0001-000000000001\",
-          \"name\": \"Webhook\",
-          \"type\": \"n8n-nodes-base.webhook\",
-          \"typeVersion\": 1,
-          \"position\": [250, 300],
-          \"webhookId\": \"${webhook_path}\",
-          \"parameters\": {
-            \"httpMethod\": \"POST\",
-            \"path\": \"${webhook_path}\",
-            \"responseMode\": \"onReceived\"
-          }
-        },
-        {
-          \"id\": \"a1b2c3d4-0002-0002-0002-000000000002\",
-          \"name\": \"Set\",
-          \"type\": \"n8n-nodes-base.set\",
-          \"typeVersion\": 3.4,
-          \"position\": [450, 300],
-          \"parameters\": {
-            \"assignments\": {
-              \"assignments\": [
-                { \"id\": \"1\", \"name\": \"smoke_test\", \"value\": \"passed\", \"type\": \"string\" }
-              ]
-            }
+      {
+        \"id\": \"a1b2c3d4-0002-0002-0002-000000000002\",
+        \"name\": \"Set\",
+        \"type\": \"n8n-nodes-base.set\",
+        \"typeVersion\": 3.4,
+        \"position\": [450, 300],
+        \"parameters\": {
+          \"assignments\": {
+            \"assignments\": [
+              { \"id\": \"1\", \"name\": \"smoke_test\", \"value\": \"passed\", \"type\": \"string\" }
+            ]
           }
         }
-      ],
-      \"connections\": {
-        \"Webhook\": {
-          \"main\": [[{ \"node\": \"Set\", \"type\": \"main\", \"index\": 0 }]]
-        }
-      },
-      \"settings\": {}
-    }"
-    exec_success_msg="Execution completed successfully, queue mode is working"
-  fi
+      }
+    ],
+    \"connections\": {
+      \"Webhook\": {
+        \"main\": [[{ \"node\": \"Set\", \"type\": \"main\", \"index\": 0 }]]
+      }
+    },
+    \"settings\": {}
+  }"
+  exec_success_msg="Execution completed successfully, queue mode is working"
 
   # Create workflow
   create_response=$(curl -sk -w "\n%{http_code}" \
@@ -883,9 +663,6 @@ else
   else
     workflow_id=$(echo "$create_body" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
     pass "Test workflow created (id: $workflow_id)"
-    if [[ "$DEPLOY_MODE" == "single" ]]; then
-      info "Webhook → JS Code node → Python Code node (exercises both runners)"
-    fi
 
     # Activate so the webhook listener starts
     activate_status=$(curl -sk -o /dev/null -w "%{http_code}" \
@@ -901,39 +678,17 @@ else
     else
       pass "Test workflow activated"
 
-      if [[ "$DEPLOY_MODE" == "multi" ]]; then
-        info "Waiting 5s for webhook-processor to register the new webhook..."
-        sleep 5
-        info "Triggering execution via webhook, will be queued to a worker"
+      info "Waiting 5s for webhook-processor to register the new webhook..."
+      sleep 5
+      info "Triggering execution via webhook, will be queued to a worker"
 
-        trigger_status=$(curl -sk -o /dev/null -w "%{http_code}" \
-          --max-time 15 \
-          -X POST \
-          -H "Content-Type: application/json" \
-          -d '{"smoke_test": true}' \
-          "${N8N_URL%/}/webhook/${webhook_path}" 2>/dev/null || echo "000")
-        trigger_body=""
-      else
-        info "Triggering execution via webhook → Code node (exercises task runner)"
-
-        # Poll until the webhook is registered (up to 15s)
-        trigger_status="000"
-        trigger_body=""
-        for _w in $(seq 1 5); do
-          sleep 3
-          trigger_response=$(curl -sk -w "\n%{http_code}" \
-            --max-time 15 \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -d '{"smoke_test": true}' \
-            "${N8N_URL%/}/webhook/${webhook_path}" 2>/dev/null || echo -e "\n000")
-          trigger_status=$(echo "$trigger_response" | tail -1)
-          trigger_body=$(echo "$trigger_response" | sed '$d')
-          [[ "$trigger_status" =~ ^2 ]] && break
-          [[ "$trigger_status" == "404" ]] && continue
-          break
-        done
-      fi
+      trigger_status=$(curl -sk -o /dev/null -w "%{http_code}" \
+        --max-time 15 \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -d '{"smoke_test": true}' \
+        "${N8N_URL%/}/webhook/${webhook_path}" 2>/dev/null || echo "000")
+      trigger_body=""
 
       if [[ "$trigger_status" =~ ^2 ]]; then
         pass "Webhook triggered (HTTP $trigger_status)"
@@ -954,15 +709,10 @@ else
             break
           elif [[ "$exec_state" == "error" || "$exec_state" == "crashed" ]]; then
             fail "Execution ended with status: $exec_state"
-            if [[ "$DEPLOY_MODE" == "single" && -n "${N8N_POD:-}" ]]; then
-              info "Check logs: kubectl logs $N8N_POD -n $NAMESPACE -c n8n --tail=50"
-            fi
             break
           elif [[ "$i" -eq 15 ]]; then
             warn "Execution still in state '$exec_state' after 30s"
-            if [[ "$DEPLOY_MODE" == "multi" ]]; then
-              info "May be slow to process, check: kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=worker --tail=50"
-            fi
+            info "May be slow to process, check: kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=worker --tail=50"
           fi
         done
       else
@@ -985,15 +735,13 @@ else
   fi
 fi
 
-# ── Worker scaling test (multi only, optional) ────────────────────────────────
+# ── Worker scaling test (optional) ────────────────────────────────────────────
 #
 # Creates a temporary CPU-burning workflow, queues LOAD_REQUESTS concurrent
 # executions, and verifies that the worker HPA/KEDA scales up.
 #
 # Why not /healthz? Those requests never touch worker pods, they hit the main
 # pods' HTTP listener. Workers only get CPU when executing workflows.
-
-if [[ "$DEPLOY_MODE" == "multi" ]]; then
 
 header "Worker Scaling Test"
 
@@ -1207,8 +955,6 @@ EOF
     fi
   fi
 fi
-
-fi  # end multi-only load test
 
 # ══════════════════════════════════════════════════════════════════════════════
 # CUSTOMER-MANAGED INFRASTRUCTURE CHECKS
@@ -1590,7 +1336,7 @@ fi
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════${RESET}"
-echo -e "${BOLD}  Smoke Test Summary  [mode: $DEPLOY_MODE]${RESET}"
+echo -e "${BOLD}  Smoke Test Summary${RESET}"
 echo -e "${BOLD}══════════════════════════════════════${RESET}"
 echo -e "  ${GREEN}Passed:${RESET}  $PASS"
 echo -e "  ${RED}Failed:${RESET}  $FAIL"
