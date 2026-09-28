@@ -287,6 +287,24 @@ locals {
     var.n8n_graceful_shutdown_timeout != null ? { timeout = var.n8n_graceful_shutdown_timeout } : {},
   )
 
+  # The chart's values.yaml default for redis.worker.timeout, in seconds, as of
+  # the pinned n8n_chart_version (1.13.0). Used only by
+  # check.graceful_shutdown_fits_grace_period (checks.tf) for callers who leave
+  # n8n_graceful_shutdown_timeout null. tests/scripts/check-n8n-chart.sh reads
+  # this line and fails if the rendered chart default differs, so a chart bump
+  # that moves the default fails there until this value is updated.
+  n8n_chart_default_graceful_shutdown_timeout = 30
+
+  # True only when that default is known to be what the pods run: the input is
+  # unset and the chart comes from the upstream repository. A custom
+  # n8n_chart_repository may carry a different default, so the check stays
+  # quiet there rather than warn on a number it cannot verify (same reasoning
+  # as local.n8n_worker_keda_pause_supported in scaling.tf).
+  n8n_graceful_shutdown_default_applies = (
+    var.n8n_graceful_shutdown_timeout == null &&
+    var.n8n_chart_repository == "oci://ghcr.io/n8n-io/n8n-helm-chart"
+  )
+
   # GCS bucket. HMAC identity/key ownership (gcs.tf) is independent of bucket
   # ownership and already exposes its own locals (hmac_sa_email, etc.).
   # effective_gcs_kms_key_id lives in kms.tf next to the key resources it

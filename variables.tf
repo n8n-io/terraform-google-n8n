@@ -852,7 +852,7 @@ variable "n8n_executions_data_save_manual_executions" {
 # ── Graceful shutdown ─────────────────────────────────────────────────────────
 
 variable "n8n_termination_grace_period" {
-  description = "Seconds Kubernetes waits after SIGTERM before force-killing pods. MINIMUM, do not lower below 60. Workers need time to finish in-flight executions before being terminated."
+  description = "Seconds Kubernetes allows a terminating pod before force-killing it; the countdown starts when termination begins, before the preStop hook runs, not at SIGTERM. MINIMUM, do not lower below 60. Workers need time to finish in-flight executions before being terminated. The preStop sleep (n8n_prestop_sleep) runs inside this window, followed by n8n's own shutdown timeout (n8n_graceful_shutdown_timeout, or the chart's 30s default), so their sum must stay strictly below this value: an explicit n8n_graceful_shutdown_timeout that does not fit fails validation, and the chart default that does not fit raises the graceful_shutdown_fits_grace_period warning."
   type        = number
   default     = 60
 
@@ -863,7 +863,7 @@ variable "n8n_termination_grace_period" {
 }
 
 variable "n8n_prestop_sleep" {
-  description = "Seconds the preStop hook sleeps before SIGTERM is sent, giving the load balancer time to drain the pod. MINIMUM, do not lower below 10."
+  description = "Seconds the preStop hook sleeps before SIGTERM is sent, giving the load balancer time to drain the pod. MINIMUM, do not lower below 10. Counts against n8n_termination_grace_period together with n8n_graceful_shutdown_timeout (or the chart's 30s default); see that input for the combined limit."
   type        = number
   default     = 10
 
@@ -1709,7 +1709,7 @@ variable "n8n_worker_keda_pause" {
 }
 
 variable "n8n_worker_keda_paused_replica_count" {
-  description = "Replica count to hold the worker Deployment at while n8n_worker_keda_pause = true. Maps to the chart's keda.worker.pausedReplicaCount (the autoscaling.keda.sh/paused-replicas annotation). Null (the default) freezes the workers at whatever count they had when paused; 0 scales them to zero, e.g. to stop consuming jobs while they queue in Redis ahead of a migration. Scaling down does not wait for running executions beyond n8n's graceful shutdown window (N8N_GRACEFUL_SHUTDOWN_TIMEOUT, 30 seconds by default), so let active work finish first. Ignored by the chart unless n8n_worker_keda_pause is true (check.worker_keda_paused_replica_count_requires_pause warns about that combination). Same input name and semantics as terraform-aws-n8n and terraform-azurerm-n8n."
+  description = "Replica count to hold the worker Deployment at while n8n_worker_keda_pause = true. Maps to the chart's keda.worker.pausedReplicaCount (the autoscaling.keda.sh/paused-replicas annotation). Null (the default) freezes the workers at whatever count they had when paused; 0 scales them to zero, e.g. to stop consuming jobs while they queue in Redis ahead of a migration. Scaling down does not wait for running executions beyond n8n's graceful shutdown window (N8N_GRACEFUL_SHUTDOWN_TIMEOUT, 30 seconds by default, overridable via n8n_graceful_shutdown_timeout), so let active work finish first. Ignored by the chart unless n8n_worker_keda_pause is true (check.worker_keda_paused_replica_count_requires_pause warns about that combination). Same input name and semantics as terraform-aws-n8n and terraform-azurerm-n8n."
   type        = number
   default     = null
 

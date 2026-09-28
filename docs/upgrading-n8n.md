@@ -259,9 +259,17 @@ earlier commit of this unreleased module; a fresh apply is not affected.
   queue needs it.
 - Surplus worker pods stop gracefully, but n8n itself waits only
   `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` (the chart's `redis.worker.timeout`, 30
-  seconds by default, overridable via `n8n_graceful_shutdown_timeout`). An
-  execution still running after that can be interrupted, even though
-  `n8n_termination_grace_period` is longer.
+  seconds by default, overridable via `n8n_graceful_shutdown_timeout`).
+  Setting the value through `n8n_extra_env`, `n8n_worker_extra_env`, or a
+  worker pool's `extra_env` is rejected at plan time: the chart always
+  renders it on every n8n container, and `extraEnv` is appended after it, so
+  a second entry with the same name would silently replace the chart's
+  value. The pod is also bounded by `n8n_termination_grace_period`: the
+  timeout plus `n8n_prestop_sleep` must stay below it. An explicit
+  `n8n_graceful_shutdown_timeout` that does not fit fails validation. With
+  the input unset, a chart default that does not fit only raises the
+  `graceful_shutdown_fits_grace_period` plan-time warning. An execution
+  still running after the timeout can be interrupted.
 - Raising `n8n_worker_keda_min_replicas` first does not help. Upgrade in a
   low-traffic window and let running work drain first.
 

@@ -266,3 +266,19 @@ check "worker_keda_pause_requires_a_supported_chart" {
     error_message = "n8n_worker_keda_pause or n8n_worker_keda_paused_replica_count is set, but n8n_chart_version predates 1.13.0. Charts older than 1.12.0 do not read keda.worker.pause at all. Chart 1.12.0 reads it but still sets the worker Deployment's spec.replicas on every Helm upgrade, so any later apply while paused can write the replica floor back over the held count. Bump n8n_chart_version to 1.13.0 or newer, or clear these inputs."
   }
 }
+
+# The warning half of the shutdown-window rule. An explicit
+# n8n_graceful_shutdown_timeout that does not fit is a hard validation error on
+# that variable (variables_gcp.tf). Left null, the chart still renders its own
+# default, which must fit the same way, but this was never checked before that
+# input existed, so a hard error here would break configurations that already
+# plan. Skipped for a custom n8n_chart_repository, whose values.yaml default
+# this module cannot verify (local.n8n_graceful_shutdown_default_applies); the
+# explicit-value validation still applies there, because it does not depend
+# on the chart's default. Same check name as terraform-aws-n8n.
+check "graceful_shutdown_fits_grace_period" {
+  assert {
+    condition     = local.n8n_graceful_shutdown_default_applies ? (local.n8n_chart_default_graceful_shutdown_timeout + var.n8n_prestop_sleep < var.n8n_termination_grace_period) : true
+    error_message = "n8n_graceful_shutdown_timeout is unset, so n8n uses the chart's default shutdown timeout of ${local.n8n_chart_default_graceful_shutdown_timeout}s. That plus n8n_prestop_sleep (${var.n8n_prestop_sleep}s) does not stay below n8n_termination_grace_period (${var.n8n_termination_grace_period}s), so Kubernetes can SIGKILL a pod before n8n finishes shutting down and interrupt running executions. Set n8n_graceful_shutdown_timeout to a value that fits, lower n8n_prestop_sleep, or raise n8n_termination_grace_period."
+  }
+}

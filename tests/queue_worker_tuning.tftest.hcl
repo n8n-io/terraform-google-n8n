@@ -1,7 +1,9 @@
 # Plan-time tests for section 5: queue lease/stall tuning
 # (n8n_queue_worker_lock_duration / n8n_queue_worker_lock_renew_time /
-# n8n_queue_worker_stalled_interval), wired into one nested redis.worker chart
-# map (local.n8n_queue_worker_chart_overrides in locals.tf, consumed by
+# n8n_queue_worker_stalled_interval) and the graceful shutdown timeout
+# (n8n_graceful_shutdown_timeout, plus its grace-period validation and the
+# null-default graceful_shutdown_fits_grace_period check), wired into one
+# nested redis.worker chart map (local.n8n_queue_worker_chart_overrides in locals.tf, consumed by
 # helm_release.n8n.values in n8n.tf).
 #
 # The rendered chart value itself lives inside helm_release.n8n.values (a
@@ -367,21 +369,130 @@ run "graceful_shutdown_timeout_accepts_when_it_plus_prestop_sleep_is_strictly_be
   }
 }
 
-run "graceful_shutdown_timeout_null_default_still_counts_toward_grace_period_ceiling" {
+run "graceful_shutdown_timeout_follows_a_raised_grace_period" {
   command = plan
 
-  # n8n_graceful_shutdown_timeout is left null, so the validation's
-  # coalesce() falls back to the chart's 30s default: 30 + 31 = 61, over the
-  # default 60s grace period. Proves the check uses the chart's real default
-  # rather than treating null as "no timeout to account for."
+  # 100 + 10 = 110 < 120. Would fail against the default 60s ceiling, so this
+  # catches a ceiling accidentally hardcoded instead of read from
+  # n8n_termination_grace_period.
+  variables {
+    n8n_termination_grace_period  = 120
+    n8n_graceful_shutdown_timeout = 100
+  }
+
+  assert {
+    condition     = local.n8n_queue_worker_chart_overrides.timeout == 100 && length(keys(local.n8n_queue_worker_chart_overrides)) == 1
+    error_message = "An n8n_graceful_shutdown_timeout that fits under a raised n8n_termination_grace_period must plan cleanly and reach local.n8n_queue_worker_chart_overrides."
+  }
+}
+
+# ── Null default: warning, not error (check.graceful_shutdown_fits_grace_period) ─
+# With the input left null the chart still renders its 30s default, which must
+# fit under the grace period the same way. That was never checked before this
+# input existed, so it is a check (warning) rather than a validation error:
+# configurations that planned before keep planning.
+
+run "graceful_shutdown_timeout_null_default_warns_when_it_does_not_fit" {
+  command = plan
+
+  # 30 + 31 = 61, over the default 60s grace period. Proves the check
+  # accounts for the chart's real default rather than treating null as "no
+  # timeout", and that it reports through the check rather than failing the
+  # variable's validation.
   variables {
     n8n_prestop_sleep = 31
+  }
+
+  expect_failures = [check.graceful_shutdown_fits_grace_period]
+}
+
+run "graceful_shutdown_timeout_null_default_warns_at_the_exact_ceiling" {
+  command = plan
+
+  # 30 + 30 = 60 equals the default grace period. Before this input existed
+  # this planned cleanly, so it must stay a warning, not an error.
+  variables {
+    n8n_prestop_sleep = 30
+  }
+
+  expect_failures = [check.graceful_shutdown_fits_grace_period]
+}
+
+run "graceful_shutdown_timeout_null_default_is_silent_when_it_fits" {
+  command = plan
+
+  # Module defaults: 30 + 10 < 60. No expect_failures, so the run fails if
+  # either the check or the validation fires.
+  assert {
+    condition     = local.n8n_graceful_shutdown_default_applies && local.n8n_chart_default_graceful_shutdown_timeout == 30
+    error_message = "With module defaults, the null-default check must apply and compare against the chart's 30s default."
+  }
+}
+
+run "graceful_shutdown_timeout_null_default_follows_a_raised_grace_period" {
+  command = plan
+
+  # 30 + 60 = 90 < 120. Would warn against the default 60s ceiling, so no
+  # expect_failures here proves the check reads the raised grace period.
+  variables {
+    n8n_termination_grace_period = 120
+    n8n_prestop_sleep            = 60
+  }
+
+  assert {
+    condition     = local.n8n_graceful_shutdown_default_applies
+    error_message = "With n8n_graceful_shutdown_timeout unset on the upstream chart, the null-default check must apply."
+  }
+}
+
+run "graceful_shutdown_timeout_explicit_value_does_not_trigger_the_null_default_check" {
+  command = plan
+
+  # prestop 31 would make the chart default warn, but an explicit 20 fits
+  # (20 + 31 = 51 < 60), so neither the validation nor the check fires.
+  variables {
+    n8n_prestop_sleep             = 31
+    n8n_graceful_shutdown_timeout = 20
+  }
+
+  assert {
+    condition     = !local.n8n_graceful_shutdown_default_applies && local.n8n_queue_worker_chart_overrides.timeout == 20
+    error_message = "An explicit n8n_graceful_shutdown_timeout that fits must plan cleanly and reach local.n8n_queue_worker_chart_overrides, even when the chart default would not fit."
+  }
+}
+
+run "graceful_shutdown_timeout_null_default_check_skips_a_custom_chart_repository" {
+  command = plan
+
+  # Would warn on the upstream chart (30 + 31 = 61 > 60), but a custom
+  # repository's default is unverifiable, so the check must stay quiet. No
+  # expect_failures, so the run fails if the check fires.
+  variables {
+    n8n_chart_repository = "oci://registry.example.com/charts"
+    n8n_prestop_sleep    = 31
+  }
+
+  assert {
+    condition     = !local.n8n_graceful_shutdown_default_applies
+    error_message = "local.n8n_graceful_shutdown_default_applies must be false for a custom n8n_chart_repository, so the null-default check does not compare against an unverified default."
+  }
+}
+
+run "graceful_shutdown_timeout_explicit_value_is_validated_on_a_custom_chart_repository" {
+  command = plan
+
+  # The explicit-value validation does not depend on the chart's default, so
+  # it still applies to a custom repository: 50 + 10 = 60, not below 60.
+  variables {
+    n8n_chart_repository          = "oci://registry.example.com/charts"
+    n8n_graceful_shutdown_timeout = 50
   }
 
   expect_failures = [var.n8n_graceful_shutdown_timeout]
 }
 
-# ── Regression guard: N8N_GRACEFUL_SHUTDOWN_TIMEOUT is reserved (issue #147 upstream) ─
+# ── Regression guard: N8N_GRACEFUL_SHUTDOWN_TIMEOUT is reserved ──────────────
+# terraform-aws-n8n issue #147, fixed upstream by terraform-aws-n8n#148.
 # Chart 1.13.0 renders this ConfigMap key unconditionally on every n8n
 # container from redis.worker.timeout, and config.extraEnv is appended after
 # it, so a caller duplicate must be rejected at plan time rather than
@@ -409,4 +520,23 @@ run "worker_extra_env_rejects_graceful_shutdown_timeout_name" {
   }
 
   expect_failures = [var.n8n_worker_extra_env]
+}
+
+# Same guard on the per-pool input. The pool validation (variables.tf) reads
+# the same local.n8n_managed_env_names, so this pins that it keeps doing so.
+run "worker_pools_reject_extra_env_setting_graceful_shutdown_timeout" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "N8N_GRACEFUL_SHUTDOWN_TIMEOUT", value = "120" },
+        ]
+      },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
 }
