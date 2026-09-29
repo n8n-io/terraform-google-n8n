@@ -12,7 +12,7 @@ permissions:
 
 env:
   TF_VERSION: "1.9.8"
-  TFLINT_VERSION: "v0.53.0"
+  TFLINT_VERSION: "v0.64.0"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
 
@@ -377,14 +377,17 @@ jobs:
 
       - name: checkov
         # Pinned to the checkov-action release tag whose bundled Docker image
-        # is ghcr.io/bridgecrewio/checkov:3.3.17 (the action has no separate
+        # is ghcr.io/bridgecrewio/checkov:3.3.20 (the action has no separate
         # checkov-version input; its own action.yml bakes in a Checkov tag per
         # release, so the action ref itself is the pin). Local runs install
-        # the matching `checkov==3.3.17` (e.g. `uv tool install checkov==3.3.17`)
+        # the matching `checkov==3.3.20` (e.g. `uv tool install checkov==3.3.20`)
         # so `checkov -d .` locally and this job agree; see the security
         # baseline report referenced from CHANGELOG.md for the curated,
         # remaining-finding-free baseline this version was pinned against.
-        uses: bridgecrewio/checkov-action@v12.3123.0
+        # 3.3.17 -> 3.3.20 adds CKV_AWS_394 (AWS-only) and a terraform_plan
+        # 'forget'-action parser fix; see CHANGELOG.md for the baseline
+        # re-verification.
+        uses: bridgecrewio/checkov-action@v12.3126.0
         with:
           directory: .
           framework: terraform
@@ -411,11 +414,11 @@ jobs:
           python-version: "3.13"
 
       - name: install checkov
-        # Same pin as the checkov job above (bridgecrewio/checkov-action@v12.3123.0
-        # bundles checkov 3.3.17); installed directly here because
+        # Same pin as the checkov job above (bridgecrewio/checkov-action@v12.3126.0
+        # bundles checkov 3.3.20); installed directly here because
         # tests/scripts/check-checkov.sh's reachability check needs checkov's
         # own JSON output, which the Action does not expose.
-        run: pip install "checkov==3.3.17"
+        run: pip install "checkov==3.3.20"
 
       - name: check-checkov.sh
         # Runs both the default-tfvars pass and the tests/checkov/opt-in.tfvars

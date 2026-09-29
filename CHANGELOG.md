@@ -834,6 +834,22 @@ this project adheres to the stability contract in
   a wrong PDB. Adapted from the terraform-aws-n8n smoke test.
 
 ### Fixed
+- `tests/scripts/check-checkov.sh`'s opt-in checkov pass now proves it
+  evaluated the root module's opt-in resources, not an example's copy of
+  them. Every `examples/*` directory calls `module "n8n" { source =
+  "../.." }` with its own tfvars (which do not set the opt-in switches this
+  pass exists to flip on). Left in scope, checkov can attribute
+  `observability.tf`'s opt-in `redis_exporter` Deployment/Service to one
+  of those module calls (reported as `module.n8n.<address>`) instead of
+  to the root module under this pass's `--var-file`. This was not stable
+  across environments: CI on `main` reached both resources, while one
+  local run dropped the Service. The reachability check's substring match
+  also accepted a `module.n8n.`-qualified address as proof. The opt-in
+  pass now runs with `--skip-path examples`, and the reachability check
+  accepts only exact root-module addresses (with an optional count
+  index). The opt-in pass reaches both resources with 0 failed checks;
+  the default pass (unaffected, still scans every `examples/*`) is
+  unchanged at 111 passed, 0 failed, 189 skipped.
 
 - `n8n_extra_env`, `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env`
   now reject `N8N_GRACEFUL_SHUTDOWN_TIMEOUT` at plan time. Chart `1.13.0`
@@ -959,6 +975,21 @@ this project adheres to the stability contract in
   15 final verification; Checkov `CKV_GCP_73`).
 
 ### Changed
+- CI checkov pin bumped to `bridgecrewio/checkov-action@v12.3126.0` (was
+  `v12.3123.0`), which bundles Checkov `3.3.20` (was `3.3.17`); local
+  installs should move to `checkov==3.3.20` to match. The range adds
+  `CKV_AWS_394` (3.3.19, AWS-only, not applicable to this module) and a
+  `terraform_plan` parser fix for `forget`-action resources (3.3.20).
+  Re-verified against this module's curated baseline: the default pass is
+  unchanged at 111 passed, 0 failed, 189 skipped, and the opt-in pass has
+  0 failed checks. `TF_VERSION` is also behind upstream (see
+  `docs/versioning.md`'s CI toolchain table) but is deliberately not
+  bumped here: it needs a specific reason per its own tier note, not a
+  routine bump.
+- `TFLINT_VERSION` bumped to `v0.64.0` (was `v0.53.0`), an 11-minor jump. Re-ran
+  `tflint --init` and `tflint --format compact` across the full target matrix
+  (module root, every example, `modules/controllers`, and its own
+  `examples/direct-use`): zero new findings from rules added since `v0.53.0`.
 
 - **Breaking:** the `kubernetes` provider floor is bumped to `~> 3.0` (was
   `~> 2.0`), across the root module, `modules/controllers`, and every

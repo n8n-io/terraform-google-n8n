@@ -117,8 +117,8 @@ Concretely, in this repo:
   the same list drives the local loop below).
 - **`tflint`** against every target in that same matrix, with the ruleset
   initialized via `tflint --init`.
-- **`checkov`** (`bridgecrewio/checkov-action@v12.3123.0`, pinned to Checkov
-  `3.3.17`) against the Terraform framework, repository root, at the
+- **`checkov`** (`bridgecrewio/checkov-action@v12.3126.0`, pinned to Checkov
+  `3.3.20`) against the Terraform framework, repository root, at the
   **default** tfvars. `soft_fail` is `false`: an unapproved new finding fails
   the job. See
   `openspec/changes/archive/2026-09-14-add-google-parity-through-aws-0-4-0/verification-report.md`
@@ -136,7 +136,12 @@ Concretely, in this repo:
   *evaluated* each resource named in its own `REQUIRED_OPT_IN_RESOURCES`
   list, not just that the run exited 0 - add a resource to both that list
   and `tests/checkov/opt-in.tfvars` when you add a new count-gated resource,
-  or this check silently stops proving anything for it.
+  or this check silently stops proving anything for it. The opt-in pass runs
+  with `--skip-path examples` and its reachability check accepts only
+  root-module addresses (no `module.n8n.` prefix) with at least one passed
+  or failed check (a skipped check alone does not count), so it covers count-gated
+  resources in the root module only; a count-gated resource inside an
+  example is not unblinded by this pass.
 - **`tests/scripts/check-n8n-chart.sh`** (`chart-render` job) renders the
   pinned n8n Helm chart with a synthetic values fixture and asserts on the
   output, using a pinned Helm CLI version. No credentials, no cluster.
@@ -458,7 +463,8 @@ tests/scripts/check-checkov.sh
 markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
 
 # Version-currency reports (never auto-bump; see docs/versioning.md).
-# check-version-drift.sh compares every pin against its upstream source.
+# check-version-drift.sh compares the provider and chart pins against their
+# upstream sources (not the CI toolchain pins; check those by hand).
 # check-helm-chart-coverage.sh fails only if docs/helm-chart-coverage.md
 # drifts from the pinned chart's actual values.yaml. chart-values-diff.sh
 # is manual, run with a candidate version when picking up a chart bump:
