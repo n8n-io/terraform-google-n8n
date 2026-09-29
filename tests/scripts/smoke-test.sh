@@ -141,6 +141,7 @@ NAMESPACE="${NAMESPACE:-${N8N_NAMESPACE:-n8n}}"
 N8N_URL="${N8N_URL:-}"
 N8N_API_KEY="${N8N_API_KEY:-}"
 MAIN_TOPOLOGY="multi-main"            # 'single-main' when the chart's multi-main env entry is absent (detected below)
+WORKER_MISSING=false                  # true when n8n-worker is NotFound; worker checks then skip instead of repeating the failure
 
 # Customer-managed infrastructure checks (below): each of these is populated
 # from the module's ownership-neutral outputs when read from Terraform state
@@ -245,7 +246,9 @@ header "Deployment Mode"
 if worker_get_err=$(kubectl get deployment n8n-worker -n "$NAMESPACE" 2>&1 >/dev/null); then
   pass "Queue-mode deployment detected (n8n-worker present)"
 elif [[ "$worker_get_err" == *"NotFound"* ]]; then
+  WORKER_MISSING=true
   fail "Deployment 'n8n-worker' not found: this module always renders it, so the deployment is broken"
+  info "Worker-dependent checks below are skipped so this one root cause is reported once"
   info "Check: helm status n8n -n $NAMESPACE, and kubectl get deploy -n $NAMESPACE"
 else
   fail "Cannot read Deployment n8n-worker in namespace $NAMESPACE"
@@ -341,7 +344,9 @@ check_deployment "n8n-main"              "$MAIN_MIN"    "Main pods"
 # holds the Deployment at any count, including 0, so the floor does not apply.
 worker_paused=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
   -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused}' 2>/dev/null || true)
-if [[ "$worker_paused" == "true" ]]; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Worker pods check (n8n-worker missing, see Deployment Mode)"
+elif [[ "$worker_paused" == "true" ]]; then
   worker_held=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
     -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}' 2>/dev/null || true)
   skip "Worker pods floor check (ScaledObject paused via n8n_worker_keda_pause; held at ${worker_held:-current count})"
@@ -369,7 +374,9 @@ fi
 worker_containers=$(kubectl get deployment n8n-worker -n "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
 
-if echo "$worker_containers" | grep -qiE "runner"; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Worker task runner sidecar check (n8n-worker missing, see Deployment Mode)"
+elif echo "$worker_containers" | grep -qiE "runner"; then
   runner_container=$(echo "$worker_containers" | tr ' ' '\n' | grep -iE "runner" | head -1)
   pass "Task runner sidecar present on n8n-worker pods: $runner_container"
 
@@ -554,7 +561,9 @@ check_hpa "n8n-main"              "Main"
 check_hpa "n8n-webhook-processor" "Webhook processor"
 
 # Workers: prefer KEDA ScaledObject (queue-depth), fall back to CPU-based HPA
-if kubectl get scaledobject n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Worker autoscaler check (n8n-worker missing, see Deployment Mode)"
+elif kubectl get scaledobject n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
   min=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
     -o jsonpath='{.spec.minReplicaCount}' 2>/dev/null || echo "?")
   max=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
@@ -577,7 +586,9 @@ worker_pod=$(kubectl get pods -n "$NAMESPACE" \
   --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-if [[ -z "$worker_pod" && "${worker_paused:-}" == "true" ]]; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Redis probe from a worker pod (n8n-worker missing, see Deployment Mode)"
+elif [[ -z "$worker_pod" && "${worker_paused:-}" == "true" ]]; then
   skip "Redis probe from a worker pod (worker ScaledObject paused with no running worker)"
 elif [[ -z "$worker_pod" ]]; then
   fail "No running worker pod found to probe Redis connectivity"
@@ -743,6 +754,8 @@ header "Workflow Execution via Queue"
 
 if [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Workflow execution test (requires N8N_URL and N8N_API_KEY)"
+elif [[ "$WORKER_MISSING" == true ]]; then
+  skip "Workflow execution via queue (n8n-worker missing, see Deployment Mode)"
 elif [[ "${worker_paused:-}" == "true" ]]; then
   # A paused worker ScaledObject may hold zero workers, so a queued
   # execution could wait until the pause is cleared.
@@ -896,6 +909,8 @@ if [[ "$LOAD_TEST" != "true" ]]; then
   skip "Load scaling test (set LOAD_TEST=true to enable)"
 elif [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Load scaling test (requires N8N_URL and N8N_API_KEY)"
+elif [[ "$WORKER_MISSING" == true ]]; then
+  skip "Load scaling test (n8n-worker missing, see Deployment Mode)"
 elif [[ "${worker_paused:-}" == "true" ]]; then
   skip "Load scaling test (worker ScaledObject paused; KEDA does not scale while paused)"
 else

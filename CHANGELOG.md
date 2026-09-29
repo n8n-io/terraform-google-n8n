@@ -1174,7 +1174,10 @@ this project adheres to the stability contract in
   failing. The script now has one code path and fails when `n8n-worker` is
   absent. Only a `NotFound` error counts as absent: any other kubectl error
   (RBAC, API timeout, expired credentials) is reported as an unreadable
-  Deployment instead. Ported from terraform-aws-n8n#152 at commit
+  Deployment instead. When it is absent, the worker-dependent checks (pod
+  floor, worker task runner sidecar, worker autoscaler, Redis probe, queued
+  workflow execution, load test) skip with a pointer to that failure, so
+  one root cause is reported once instead of as a cascade. Ported from terraform-aws-n8n#152 at commit
   `a6672698bd448f1f58c1a6928162c0707a227255` (that PR was still open when
   ported).
 
