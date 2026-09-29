@@ -1,6 +1,6 @@
 # Smoke test
 
-Post-deployment smoke test for `terraform-google-n8n`. Verifies the multi-main deployment is healthy end to end, pod health, queue mode, KEDA, HTTPS, API, and a full webhook → worker execution.
+Post-deployment smoke test for `terraform-google-n8n`. Verifies the queue-mode deployment (single-main or multi-main) is healthy end to end, pod health, queue mode, KEDA, HTTPS, API, and a full webhook → worker execution.
 
 `smoke-test.sh` is read-only inspection. It never drains a Redis queue,
 restarts a Deployment, rotates or reads a Secret's contents, or applies
@@ -125,7 +125,7 @@ Requires `helm` and `python3` on `PATH`. No Google Cloud credentials.
 | Namespace exists | The configured namespace is present |
 | Main / worker / webhook-processor pod health | Each deployment is at the expected ready replica count |
 | Task runner sidecar (workers) | Runner sidecar is present on worker pods and connected to the broker |
-| Multi-main leader election | `N8N_MULTI_MAIN_SETUP_ENABLED=true` and leadership activity in main logs |
+| Main topology | Detects single-main vs multi-main from the chart-rendered `N8N_MULTI_MAIN_SETUP_ENABLED` entry on the `n8n-main` Deployment spec. Multi-main: the flag is `true` in the pod and leadership activity shows in main logs. Single-main: the flag is off (or staged by `n8n_main_leader_election_enabled`), the main HPA is 1/1 (or 1 replica without a module HPA), the strategy is `Recreate`, and PDB `minAvailable=0` |
 | Autoscalers | KEDA `ScaledObject` (workers, queue-depth) and HPAs (main, webhook-processor) |
 | Redis connectivity | Worker pods see `QUEUE_BULL_REDIS_HOST` and queue-related log activity |
 | HTTPS reachability | `/healthz` returns HTTP 200 over the ALB hostname |
@@ -133,7 +133,6 @@ Requires `helm` and `python3` on `PATH`. No Google Cloud credentials.
 | API connectivity (if API key set) | `/api/v1/workflows` responds with 200 |
 | Workflow execution (if API key set) | Creates a webhook → set workflow, fires it, confirms success, deletes it |
 | Worker scaling (opt-in) | Queues CPU-burning executions and confirms workers scale up |
-| Main topology | Classifies single-main (`replicas=1`, `Recreate`, PDB `minAvailable=0`) vs multi-main from the live `n8n-main` Deployment/PDB |
 | Redis namespace isolation | Bull queue prefix (`QUEUE_BULL_PREFIX`) and command-channel prefix (`N8N_REDIS_KEY_PREFIX`) match on worker pods |
 | Redis exporter (opt-in) | `redis-exporter` Deployment/Service exist and are ready when `redis_exporter_enabled = true` |
 | Reference-only mounts | Credentials-overwrite file and task-runner custom launcher config are readable when configured (content never read) |

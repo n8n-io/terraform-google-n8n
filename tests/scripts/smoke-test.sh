@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # smoke-test.sh, post-deployment smoke test for terraform-google-n8n.
 #
-# This module always deploys the multi-main topology (multiple main +
-# worker + webhook-processor pods, PostgreSQL, Redis, KEDA), and that is
-# the only topology this script tests: main/worker/webhook-processor pod
-# health, queue mode, Redis connectivity, KEDA ScaledObject, HTTPS, API,
-# and end-to-end execution. A missing n8n-worker Deployment is a failure,
-# not a different kind of install.
+# This module always deploys queue mode (main + worker + webhook-processor
+# pods, PostgreSQL, Redis, KEDA), and that is the only topology this script
+# tests: main/worker/webhook-processor pod health, queue mode, Redis
+# connectivity, KEDA ScaledObject, HTTPS, API, and end-to-end execution. A
+# missing n8n-worker Deployment is a failure, not a different kind of
+# install. The main topology is detected from the main Deployment spec: the
+# chart renders N8N_MULTI_MAIN_SETUP_ENABLED from its ConfigMap only for
+# multi-main, so its absence means single-main (one selected main replica,
+# local.n8n_single_main). Single-main then asserts the main HPA clamp (1/1),
+# the Recreate strategy, and PDB minAvailable=0 instead of the multi-main
+# leader-election checks.
 #
 # It also runs a set of customer-managed infrastructure checks that apply
 # the same way regardless of which layers are module-managed vs
@@ -135,6 +140,7 @@ fi
 NAMESPACE="${NAMESPACE:-${N8N_NAMESPACE:-n8n}}"
 N8N_URL="${N8N_URL:-}"
 N8N_API_KEY="${N8N_API_KEY:-}"
+MAIN_TOPOLOGY="multi-main"            # 'single-main' when the chart's multi-main env entry is absent (detected below)
 
 # Customer-managed infrastructure checks (below): each of these is populated
 # from the module's ownership-neutral outputs when read from Terraform state
@@ -159,7 +165,8 @@ LOAD_SEED_JOBS="${LOAD_SEED_JOBS:-20}"   # jobs queued in phase 1 to trigger the
 SCALE_WAIT_SECS="${SCALE_WAIT_SECS:-180}"
 LOAD_JOB_DURATION_SECS="${LOAD_JOB_DURATION_SECS:-10}"
 
-# Expected minimum replica counts for multi-main deployments
+# Expected minimum replica counts for queue-mode deployments. MAIN_MIN drops
+# to 1 when the module runs single-main; see the topology detection below.
 MAIN_MIN=2
 WORKER_MIN=1
 WEBHOOK_MIN=2
@@ -229,19 +236,65 @@ fi
 
 header "Deployment Mode"
 
-if kubectl get deployment n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
-  pass "Multi-main deployment detected (n8n-worker present)"
-  info "Checks: queue mode, HPA/KEDA, Redis, leader election"
-else
+# This module always runs queue mode (n8n.tf sets queueMode.enabled = true)
+# and always renders the worker Deployment. A missing n8n-worker is therefore
+# a broken deployment, not a different kind of install: it fails here and the
+# rest of the queue-mode checks still run instead of skipping. Only a
+# NotFound error means "missing"; any other kubectl error (RBAC, API
+# timeout, expired credentials) is reported as unreadable instead.
+if worker_get_err=$(kubectl get deployment n8n-worker -n "$NAMESPACE" 2>&1 >/dev/null); then
+  pass "Queue-mode deployment detected (n8n-worker present)"
+elif [[ "$worker_get_err" == *"NotFound"* ]]; then
   fail "Deployment 'n8n-worker' not found: this module always renders it, so the deployment is broken"
   info "Check: helm status n8n -n $NAMESPACE, and kubectl get deploy -n $NAMESPACE"
+else
+  fail "Cannot read Deployment n8n-worker in namespace $NAMESPACE"
+  info "$worker_get_err"
 fi
 
+# Main topology. The module selects single-main when the effective main
+# replica count is 1 (n8n_main_hpa_min_replicas = 1, or
+# n8n_main_fixed_replicas = 1 with n8n_main_hpa_enabled = false) and sets
+# the chart's multiMain.enabled = false. The chart adds the
+# N8N_MULTI_MAIN_SETUP_ENABLED env entry only for multiMain.enabled, and
+# always as valueFrom.configMapKeyRef (templates/_configmap-env.tpl), so the
+# presence of that configMapKeyRef on the main Deployment spec is the
+# topology signal. A literal value for the same name comes from the module's
+# own election staging at one replica (n8n_main_leader_election_enabled =
+# true, local.n8n_main_election_staging_env), which is still single-main.
+# The spec is read rather than a pod so detection works before a pod is
+# Ready. The HPA clamp, strategy, and PDB are asserted below, not used for
+# detection, so a regression in any of them fails instead of silently
+# selecting the other branch. An unreadable Deployment must not be mistaken
+# for "entry absent".
+main_election_staged=false
+if ! multi_main_ref=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="n8n-main")].env[?(@.name=="N8N_MULTI_MAIN_SETUP_ENABLED")].valueFrom.configMapKeyRef.key}' \
+    2>/dev/null); then
+  fail "Cannot read Deployment n8n-main in namespace $NAMESPACE, topology unknown, falling back to multi-main checks"
+elif [[ -n "$multi_main_ref" ]]; then
+  info "Multi-main topology (chart-rendered N8N_MULTI_MAIN_SETUP_ENABLED on the main Deployment)"
+else
+  MAIN_TOPOLOGY="single-main"
+  MAIN_MIN=1
+  staged_value=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="n8n-main")].env[?(@.name=="N8N_MULTI_MAIN_SETUP_ENABLED")].value}' \
+    2>/dev/null || true)
+  if [[ "$staged_value" == "true" ]]; then
+    main_election_staged=true
+  fi
+  info "Single-main topology (no chart-rendered N8N_MULTI_MAIN_SETUP_ENABLED): expecting HPA 1/1, Recreate, PDB minAvailable=0"
+  if [[ "$main_election_staged" == true ]]; then
+    info "Leader election is staged at one replica (n8n_main_leader_election_enabled = true)"
+  fi
+fi
+info "Checks: queue mode, HPA/KEDA, Redis, main topology"
+
 # ══════════════════════════════════════════════════════════════════════════════
-# MULTI-MAIN CHECKS
+# QUEUE-MODE CHECKS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# ── Pod health (multi) ────────────────────────────────────────────────────────
+# ── Pod health ────────────────────────────────────────────────────────────────
 
 header "Pod Health"
 
@@ -297,7 +350,7 @@ else
 fi
 check_deployment "n8n-webhook-processor" "$WEBHOOK_MIN" "Webhook processor pods"
 
-# ── Task runner sidecars (multi: workers only) ────────────────────────────────
+# ── Task runner sidecars (workers only) ───────────────────────────────────────
 
 header "Task Runner Sidecars"
 
@@ -343,18 +396,110 @@ else
   info "Set n8n_task_runners_enabled = true in terraform.tfvars and re-apply"
 fi
 
-# ── Multi-main leader election ────────────────────────────────────────────────
+# ── Main topology ─────────────────────────────────────────────────────────────
 
-header "Multi-Main Leader Election"
+header "Main Topology"
 
-# n8n uses Redis-based leader election. Verify the feature flag is enabled
-# on main pods and that at least one pod reports leadership activity.
 main_pod=$(kubectl get pods -n "$NAMESPACE" \
   -l "app.kubernetes.io/component=main" \
   --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-if [[ -n "$main_pod" ]]; then
+if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
+  # One main without chart multi-main: nothing may run a second main
+  # (locals.tf: n8n_effective_main_hpa_max_replicas clamps a module-owned
+  # HPA to 1), rollouts must use Recreate so two mains never overlap
+  # (n8n_main_strategy), and the PDB must let the only main be evicted
+  # during node maintenance (n8n_main_pdb_min_available = 0).
+  #
+  # Runtime check in the pod, not the spec: this catches the flag from any
+  # source. The command always exits 0 and prints a sentinel when the
+  # variable is unset, so a non-zero exit can only mean the exec itself
+  # failed (RBAC, pod not yet exec-able). `printenv` would exit 1 in both
+  # cases.
+  if [[ -n "$main_pod" ]]; then
+    if multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
+        -- sh -c 'printf "%s" "${N8N_MULTI_MAIN_SETUP_ENABLED-__unset__}"' 2>/dev/null); then
+      if [[ "$main_election_staged" == true ]]; then
+        if [[ "$multi_main" == "true" ]]; then
+          pass "Leader election staged in the running main pod (N8N_MULTI_MAIN_SETUP_ENABLED=true at one replica)"
+        else
+          fail "Leader election is staged on the Deployment spec, but the running main pod has N8N_MULTI_MAIN_SETUP_ENABLED='${multi_main}'"
+        fi
+      elif [[ "$multi_main" == "true" ]]; then
+        fail "N8N_MULTI_MAIN_SETUP_ENABLED=true in the running main pod, but election is not staged by the module; multi-main must be off at one replica"
+      elif [[ "$multi_main" == "__unset__" ]]; then
+        pass "Multi-main disabled in the running main pod (N8N_MULTI_MAIN_SETUP_ENABLED unset)"
+      else
+        pass "Multi-main disabled in the running main pod (N8N_MULTI_MAIN_SETUP_ENABLED='$multi_main')"
+      fi
+    else
+      warn "Could not exec into $main_pod to verify the multi-main flag at runtime (RBAC or pod not ready): unverified, not unset"
+      info "Manually verify: kubectl exec -n $NAMESPACE $main_pod -c n8n-main -- printenv N8N_MULTI_MAIN_SETUP_ENABLED"
+    fi
+  else
+    warn "No running main pod found to verify the multi-main flag at runtime"
+  fi
+
+  # A module-owned main HPA (n8n_main_hpa_enabled = true) must be pinned to
+  # 1/1. With n8n_main_hpa_enabled = false there is no module HPA, and the
+  # Deployment carries n8n_main_fixed_replicas, which must be 1 here.
+  # Only NotFound means "no module HPA"; any other error (RBAC, API timeout)
+  # must not fall through to the replica check and pass while an unreadable
+  # HPA could still scale past one main.
+  main_hpa_state=present
+  if ! main_hpa_err=$(kubectl get hpa n8n-main -n "$NAMESPACE" 2>&1 >/dev/null); then
+    if [[ "$main_hpa_err" == *"NotFound"* ]]; then
+      main_hpa_state=absent
+    else
+      main_hpa_state=unreadable
+    fi
+  fi
+  if [[ "$main_hpa_state" == unreadable ]]; then
+    fail "Cannot read HPA n8n-main in namespace $NAMESPACE, single-main replica ceiling unverified"
+    info "$main_hpa_err"
+  elif [[ "$main_hpa_state" == present ]]; then
+    main_hpa_min=$(kubectl get hpa n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.minReplicas}' 2>/dev/null || echo "")
+    main_hpa_max=$(kubectl get hpa n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "")
+    if [[ "$main_hpa_min" == "1" && "$main_hpa_max" == "1" ]]; then
+      pass "Main HPA pinned to min=1 max=1, no second main without leader election"
+    else
+      fail "Main HPA is min=${main_hpa_min:-<unset>} max=${main_hpa_max:-<unset>}, expected 1/1; a second main without multi-main duplicates scheduled executions"
+    fi
+  else
+    main_replicas=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
+    if [[ "$main_replicas" == "1" ]]; then
+      pass "No module main HPA (n8n_main_hpa_enabled = false) and the main Deployment runs 1 replica"
+    else
+      fail "No module main HPA and the main Deployment runs '${main_replicas:-<unset>}' replicas, expected 1 for single-main"
+    fi
+  fi
+
+  main_strategy=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "")
+  if [[ "$main_strategy" == "Recreate" ]]; then
+    pass "Main Deployment strategy is Recreate, no second main during rollouts"
+  else
+    fail "Main Deployment strategy is '${main_strategy:-<unset>}', expected Recreate for single-main"
+  fi
+
+  pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
+  pdb_allowed=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.status.disruptionsAllowed}' 2>/dev/null || echo "")
+  if [[ "$pdb_min" == "0" ]]; then
+    pass "Main PDB minAvailable=0 (disruptionsAllowed=${pdb_allowed:-?}), node drains can evict the only main"
+  else
+    fail "Main PDB minAvailable is '${pdb_min:-<unset>}', expected 0, otherwise node drains stall on the single main"
+  fi
+  info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
+
+elif [[ -n "$main_pod" ]]; then
+  # n8n uses Redis-based leader election. Verify the feature flag is enabled
+  # on main pods and that at least one pod reports leadership activity.
   multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
     -- printenv N8N_MULTI_MAIN_SETUP_ENABLED 2>/dev/null || echo "")
   if [[ "$multi_main" == "true" ]]; then
@@ -398,7 +543,9 @@ check_hpa() {
 
   pass "$label HPA: min=$min max=$max current=$current CPU=$targets%"
 
-  if [[ "$current" -eq "$max" ]]; then
+  # A fixed-size HPA (min == max) is always "at max"; that is configuration,
+  # not load. The module pins the main HPA to 1/1 in single-main mode.
+  if [[ "$min" -ne "$max" && "$current" -eq "$max" ]]; then
     warn "$label is at max replicas ($max), may indicate sustained high load"
   fi
 }
@@ -1115,59 +1262,13 @@ fi
 
 # ── New contracts (add-google-parity-through-aws-0-4-0) ───────────────────────
 #
-# Read-only inspection of the runtime contracts this change added: main
-# topology, Redis namespace isolation, the opt-in Redis exporter,
-# reference-only Secret/ConfigMap mounts, the V8 heap ceiling, pod DNS, and
-# additional ingress hostnames. None of these checks drain queues, restart
+# Read-only inspection of the runtime contracts this change added (main
+# topology is covered by the "Main Topology" section above): Redis namespace
+# isolation, the opt-in Redis exporter, reference-only Secret/ConfigMap
+# mounts, the V8 heap ceiling, pod DNS, and additional ingress hostnames. None of these checks drain queues, restart
 # deployments, rotate credentials, or apply infrastructure; they only read
 # already-running objects. Each skips cleanly when its prerequisite output,
 # pod, or tooling is unavailable.
-
-header "Main Topology"
-
-main_pod=$(kubectl get pods -n "$NAMESPACE" \
-  -l "app.kubernetes.io/component=main" \
-  --field-selector=status.phase=Running \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-if ! kubectl get deployment n8n-main -n "$NAMESPACE" &>/dev/null; then
-  skip "Main topology check (n8n-main deployment not found)"
-else
-  main_replicas=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-  main_strategy=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "")
-  main_pdb_min=$(kubectl get pdb -n "$NAMESPACE" --no-headers 2>/dev/null \
-    | awk 'tolower($1) ~ /main/ {print $1, $3; exit}')
-
-  if [[ "$main_replicas" -eq 1 && "$main_strategy" == "Recreate" ]]; then
-    pass "Single-main topology detected: n8n-main replicas=1, strategy=Recreate"
-    if [[ -n "$main_pdb_min" ]]; then
-      main_pdb_min_value=$(echo "$main_pdb_min" | awk '{print $2}')
-      if [[ "$main_pdb_min_value" == "0" ]]; then
-        pass "Main PodDisruptionBudget minAvailable=0 (expected for single-main)"
-      else
-        warn "Main PodDisruptionBudget minAvailable='$main_pdb_min_value' (expected 0 for single-main)"
-      fi
-    else
-      info "Could not identify a main PodDisruptionBudget by name, inspect manually: kubectl get pdb -n $NAMESPACE"
-    fi
-    info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
-  elif [[ "$main_replicas" -gt 1 ]]; then
-    pass "Multi-main topology detected: n8n-main replicas=$main_replicas, strategy=${main_strategy:-<default>}"
-    if [[ -n "$main_pod" ]]; then
-      multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
-        -- printenv N8N_MULTI_MAIN_SETUP_ENABLED 2>/dev/null || echo "")
-      if [[ "$multi_main" == "true" ]]; then
-        pass "N8N_MULTI_MAIN_SETUP_ENABLED=true on main pods"
-      else
-        warn "N8N_MULTI_MAIN_SETUP_ENABLED is not 'true' on a multi-replica main deployment (got: '${multi_main:-<unset>}')"
-      fi
-    fi
-  else
-    info "n8n-main replicas=$main_replicas, strategy=${main_strategy:-<unknown>} (unable to classify topology)"
-  fi
-fi
 
 header "Redis Namespace Isolation"
 
@@ -1221,6 +1322,13 @@ else
 fi
 
 header "Reference-Only Mounts and Runtime Settings"
+
+# Re-read the running main pod: the one captured in "Main Topology" may have
+# been replaced during the workflow and scaling tests above.
+main_pod=$(kubectl get pods -n "$NAMESPACE" \
+  -l "app.kubernetes.io/component=main" \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if [[ -n "$main_pod" ]]; then
   overwrite_file=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
