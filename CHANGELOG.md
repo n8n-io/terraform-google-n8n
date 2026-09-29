@@ -17,6 +17,22 @@ this project adheres to the stability contract in
 > with; see [README.md, Stability & versioning](./README.md#stability--versioning).
 
 ### Added
+- `CONTRIBUTORS`, `Taskfile.yml`, and `scripts/check-variable-banners.sh`,
+  mirroring the CODEOWNERS/CONTRIBUTORS/Taskfile convention introduced in
+  terraform-aws-n8n's [#82](https://github.com/n8n-io/terraform-aws-n8n/pull/82).
+  `Taskfile.yml` wraps the local fmt/validate/test/chart/chart-coverage/
+  lint/banners/example-parity/docs/markdown loop (`task ci`) across the
+  module root, every example, and the `modules/controllers` submodule;
+  `checkov` and `version-drift` are separate tasks not part of `task ci`.
+  `check-variable-banners.sh` (`task banners`) verifies every
+  `variable`/`output` block in `variables.tf`, `variables_gcp.tf`, and
+  `outputs.tf` sits under its documented `# ── Section ──` banner.
+  `.github/CODEOWNERS` gained an explanatory header comment. Fixed one
+  pre-existing gap the new banner check surfaced: `variables_gcp.tf`'s
+  `project_id`/`gcp_region` had no banner; added a `Project and region`
+  banner ahead of them. `scripts/check-example-parity.sh` no longer uses
+  bash 4 associative arrays, so `task ci` also runs under the bash 3.2
+  macOS ships as `/bin/bash`.
 - **Worker pools (EARLY ALPHA, SUBJECT TO CHANGE WITHOUT NOTICE)**: `n8n_worker_pools`,
   `n8n_worker_extra_env`, and `n8n_worker_pools_chart_verified` inputs, ported
   1:1 from terraform-aws-n8n's own worker-pools feature (`worker-pools.tf`).
