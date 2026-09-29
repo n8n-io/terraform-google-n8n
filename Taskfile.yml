@@ -151,9 +151,9 @@ tasks:
       - ./scripts/check-example-parity.sh
 
   markdown:
-    desc: markdownlint-cli2 against README.md, AGENTS.md, and docs/*.md (CI-gated; see .markdownlint.json).
+    desc: markdownlint-cli2 against README.md, AGENTS.md, CHANGELOG.md, and docs/*.md (CI-gated; see .markdownlint.json).
     cmds:
-      - markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
+      - markdownlint-cli2 "README.md" "AGENTS.md" "CHANGELOG.md" "docs/*.md"
 
   ci:
     desc: >-
