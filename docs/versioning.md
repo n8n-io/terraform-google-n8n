@@ -72,8 +72,11 @@ release channel rather than pinning a Kubernetes minor directly:
 
 ## Keeping this table honest
 
-`tests/scripts/check-version-drift.sh` reports, but never auto-bumps, every
-pin above that has a public API to check against. It is not a CI gate by
+`tests/scripts/check-version-drift.sh` reports, but never auto-bumps, the
+provider and chart pins above. It does not yet check the CI toolchain pins
+(`TF_VERSION`, `TFLINT_VERSION`, the checkov action ref,
+`TERRAFORM_DOCS_VERSION`); compare those against their upstream releases by
+hand. It is not a CI gate by
 default (see the weekly `version-drift.yml` workflow); a stale entry here is
 still possible between its runs. When you bump a pin by hand, update this
 table in the same change.

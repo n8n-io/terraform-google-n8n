@@ -975,15 +975,21 @@ this project adheres to the stability contract in
   15 final verification; Checkov `CKV_GCP_73`).
 
 ### Changed
-- CI checkov pin bumped `bridgecrewio/checkov-action@v12.3123.0` →
-  `v12.3126.0` (bundled Checkov `3.3.17` → `3.3.20`); local installs should
-  move to `checkov==3.3.20` to match. `3.3.20`'s only change is a
-  `terraform_plan` parser fix for `forget`-action resources, re-verified
-  against this module's curated baseline: unchanged at 111 passed, 0
-  failed, 189 skipped on both the default and opt-in passes. `TF_VERSION`
-  is also behind upstream (see `docs/versioning.md`'s CI toolchain table)
-  but is deliberately not bumped here: it needs a specific reason per its
-  own tier note, not a routine bump.
+- CI checkov pin bumped to `bridgecrewio/checkov-action@v12.3126.0` (was
+  `v12.3123.0`), which bundles Checkov `3.3.20` (was `3.3.17`); local
+  installs should move to `checkov==3.3.20` to match. The range adds
+  `CKV_AWS_394` (3.3.19, AWS-only, not applicable to this module) and a
+  `terraform_plan` parser fix for `forget`-action resources (3.3.20).
+  Re-verified against this module's curated baseline: the default pass is
+  unchanged at 111 passed, 0 failed, 189 skipped, and the opt-in pass has
+  0 failed checks. `TF_VERSION` is also behind upstream (see
+  `docs/versioning.md`'s CI toolchain table) but is deliberately not
+  bumped here: it needs a specific reason per its own tier note, not a
+  routine bump.
+- `TFLINT_VERSION` bumped to `v0.64.0` (was `v0.53.0`), an 11-minor jump. Re-ran
+  `tflint --init` and `tflint --format compact` across the full target matrix
+  (module root, every example, `modules/controllers`, and its own
+  `examples/direct-use`): zero new findings from rules added since `v0.53.0`.
 
 - **Breaking:** the `kubernetes` provider floor is bumped to `~> 3.0` (was
   `~> 2.0`), across the root module, `modules/controllers`, and every
@@ -1186,10 +1192,6 @@ this project adheres to the stability contract in
   `n8n_kube_svc_account`, and `dns_managed_zone` to `cloud_dns_zone_name`.
   Semantics, types, and defaults are unchanged; only the names move.
 - **Breaking:** output `namespace` is renamed to `n8n_kube_namespace`.
-- `TFLINT_VERSION` bumped to `v0.64.0` (was `v0.53.0`), an 11-minor jump. Re-ran
-  `tflint --init` and `tflint --format compact` across the full target matrix
-  (module root, every example, `modules/controllers`, and its own
-  `examples/direct-use`): zero new findings from rules added since `v0.53.0`.
 
 ### Removed
 

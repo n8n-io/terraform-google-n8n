@@ -463,7 +463,8 @@ tests/scripts/check-checkov.sh
 markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
 
 # Version-currency reports (never auto-bump; see docs/versioning.md).
-# check-version-drift.sh compares every pin against its upstream source.
+# check-version-drift.sh compares the provider and chart pins against their
+# upstream sources (not the CI toolchain pins; check those by hand).
 # check-helm-chart-coverage.sh fails only if docs/helm-chart-coverage.md
 # drifts from the pinned chart's actual values.yaml. chart-values-diff.sh
 # is manual, run with a candidate version when picking up a chart bump:
