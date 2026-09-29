@@ -818,6 +818,20 @@ this project adheres to the stability contract in
   `tests/scripts/check-n8n-chart.sh` fails if the pinned chart's rendered
   default drifts from `local.n8n_chart_default_graceful_shutdown_timeout`.
   Ported from terraform-aws-n8n#148 (fixes terraform-aws-n8n#147).
+- `tests/scripts/smoke-test.sh` detects the single-main topology
+  (`local.n8n_single_main`, one selected main replica) from the main
+  Deployment spec and asserts its safeguards: a module-owned main HPA
+  pinned to 1/1 (or one replica when `n8n_main_hpa_enabled = false`), the
+  `Recreate` strategy, and PDB `minAvailable = 0`. It no longer reports a
+  single-main install as a degraded multi-main one. The chart-rendered
+  `N8N_MULTI_MAIN_SETUP_ENABLED` entry (a `configMapKeyRef`) is the signal
+  for multi-main; a literal value for that name is the module's own
+  election staging at one replica (`n8n_main_leader_election_enabled =
+  true`) and is accepted as single-main. A fixed-size HPA (min equals max)
+  no longer warns that it is at max replicas. This replaces the later
+  result-based "Main Topology" check, which classified the topology from
+  the replica count and strategy it was meant to verify, and only warned on
+  a wrong PDB. Adapted from the terraform-aws-n8n smoke test.
 
 ### Fixed
 
@@ -1147,6 +1161,25 @@ this project adheres to the stability contract in
   `n8n_kube_svc_account`, and `dns_managed_zone` to `cloud_dns_zone_name`.
   Semantics, types, and defaults are unchanged; only the names move.
 - **Breaking:** output `namespace` is renamed to `n8n_kube_namespace`.
+
+### Removed
+
+- The single-instance code path from `tests/scripts/smoke-test.sh` (the
+  SQLite PVC check, task runner sidecar and Python runner checks on
+  `n8n-main`, and the JS + Python execution workflow), the `DEPLOY_MODE`
+  variable, and every mode branch. This module always deploys queue mode
+  with dedicated worker pods, so the branch tested a topology the module
+  never creates, and, worse, a broken deployment missing its `n8n-worker`
+  Deployment was silently tested as that other topology instead of
+  failing. The script now has one code path and fails when `n8n-worker` is
+  absent. Only a `NotFound` error counts as absent: any other kubectl error
+  (RBAC, API timeout, expired credentials) is reported as an unreadable
+  Deployment instead. When it is absent, the worker-dependent checks (pod
+  floor, worker task runner sidecar, worker autoscaler, Redis probe, queued
+  workflow execution, load test) skip with a pointer to that failure, so
+  one root cause is reported once instead of as a cascade. Ported from terraform-aws-n8n#152 at commit
+  `a6672698bd448f1f58c1a6928162c0707a227255` (that PR was still open when
+  ported).
 
 ### Security
 

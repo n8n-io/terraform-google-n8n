@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # smoke-test.sh, post-deployment smoke test for terraform-google-n8n.
 #
-# This module deploys the multi-main topology (multiple main + worker +
-# webhook-processor pods, PostgreSQL, Redis, KEDA). The script auto-detects
-# the topology by probing the namespace; for this module that is always the
-# multi-main path, main/worker/webhook-processor pod health, queue mode,
-# Redis connectivity, KEDA ScaledObject, HTTPS, API, and end-to-end execution.
+# This module always deploys queue mode (main + worker + webhook-processor
+# pods, PostgreSQL, Redis, KEDA), and that is the only topology this script
+# tests: main/worker/webhook-processor pod health, queue mode, Redis
+# connectivity, KEDA ScaledObject, HTTPS, API, and end-to-end execution. A
+# missing n8n-worker Deployment is a failure, not a different kind of
+# install. The main topology is detected from the main Deployment spec: the
+# chart renders N8N_MULTI_MAIN_SETUP_ENABLED from its ConfigMap only for
+# multi-main, so its absence means single-main (one selected main replica,
+# local.n8n_single_main). Single-main then asserts the main HPA clamp (1/1),
+# the Recreate strategy, and PDB minAvailable=0 instead of the multi-main
+# leader-election checks.
 #
 # It also runs a set of customer-managed infrastructure checks that apply
 # the same way regardless of which layers are module-managed vs
@@ -27,9 +33,6 @@
 #   # or next to terraform.tfstate):
 #   cp tests/scripts/.env.example tests/scripts/.env
 #   # edit .env, then run the script.
-#
-#   # Force mode (skip auto-detection):
-#   DEPLOY_MODE=multi ./tests/scripts/smoke-test.sh
 #
 # Priority: .env explicit values > Terraform outputs > built-in defaults.
 
@@ -137,7 +140,8 @@ fi
 NAMESPACE="${NAMESPACE:-${N8N_NAMESPACE:-n8n}}"
 N8N_URL="${N8N_URL:-}"
 N8N_API_KEY="${N8N_API_KEY:-}"
-DEPLOY_MODE="${DEPLOY_MODE:-}"        # set to 'single' or 'multi' to skip auto-detect
+MAIN_TOPOLOGY="multi-main"            # 'single-main' when the chart's multi-main env entry is absent (detected below)
+WORKER_MISSING=false                  # true when n8n-worker is NotFound; worker checks then skip instead of repeating the failure
 
 # Customer-managed infrastructure checks (below): each of these is populated
 # from the module's ownership-neutral outputs when read from Terraform state
@@ -154,7 +158,7 @@ N8N_WEBHOOK_ROUTE_PREFIXES_JSON="${N8N_WEBHOOK_ROUTE_PREFIXES_JSON:-}"
 N8N_INGRESS_HOSTS_JSON="${N8N_INGRESS_HOSTS_JSON:-}"
 REDIS_EXPORTER_SERVICE="${REDIS_EXPORTER_SERVICE:-}"
 
-# Multi-mode optional load test settings
+# Optional load test settings
 LOAD_TEST="${LOAD_TEST:-false}"
 LOAD_REQUESTS="${LOAD_REQUESTS:-100}"
 LOAD_CONCURRENCY="${LOAD_CONCURRENCY:-20}"
@@ -162,7 +166,8 @@ LOAD_SEED_JOBS="${LOAD_SEED_JOBS:-20}"   # jobs queued in phase 1 to trigger the
 SCALE_WAIT_SECS="${SCALE_WAIT_SECS:-180}"
 LOAD_JOB_DURATION_SECS="${LOAD_JOB_DURATION_SECS:-10}"
 
-# Expected minimum replica counts for multi-main deployments
+# Expected minimum replica counts for queue-mode deployments. MAIN_MIN drops
+# to 1 when the module runs single-main; see the topology detection below.
 MAIN_MIN=2
 WORKER_MIN=1
 WEBHOOK_MIN=2
@@ -232,174 +237,67 @@ fi
 
 header "Deployment Mode"
 
-if [[ -n "$DEPLOY_MODE" ]]; then
-  info "Mode forced via DEPLOY_MODE=$DEPLOY_MODE"
-elif kubectl get deployment n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
-  DEPLOY_MODE="multi"
+# This module always runs queue mode (n8n.tf sets queueMode.enabled = true)
+# and always renders the worker Deployment. A missing n8n-worker is therefore
+# a broken deployment, not a different kind of install: it fails here and the
+# rest of the queue-mode checks still run instead of skipping. Only a
+# NotFound error means "missing"; any other kubectl error (RBAC, API
+# timeout, expired credentials) is reported as unreadable instead.
+if worker_get_err=$(kubectl get deployment n8n-worker -n "$NAMESPACE" 2>&1 >/dev/null); then
+  pass "Queue-mode deployment detected (n8n-worker present)"
+elif [[ "$worker_get_err" == *"NotFound"* ]]; then
+  WORKER_MISSING=true
+  fail "Deployment 'n8n-worker' not found: this module always renders it, so the deployment is broken"
+  info "Worker-dependent checks below are skipped so this one root cause is reported once"
+  info "Check: helm status n8n -n $NAMESPACE, and kubectl get deploy -n $NAMESPACE"
 else
-  DEPLOY_MODE="single"
+  fail "Cannot read Deployment n8n-worker in namespace $NAMESPACE"
+  info "$worker_get_err"
 fi
 
-if [[ "$DEPLOY_MODE" == "multi" ]]; then
-  pass "Multi-main deployment detected (n8n-worker present)"
-  info "Checks: queue mode, HPA/KEDA, Redis, leader election"
+# Main topology. The module selects single-main when the effective main
+# replica count is 1 (n8n_main_hpa_min_replicas = 1, or
+# n8n_main_fixed_replicas = 1 with n8n_main_hpa_enabled = false) and sets
+# the chart's multiMain.enabled = false. The chart adds the
+# N8N_MULTI_MAIN_SETUP_ENABLED env entry only for multiMain.enabled, and
+# always as valueFrom.configMapKeyRef (templates/_configmap-env.tpl), so the
+# presence of that configMapKeyRef on the main Deployment spec is the
+# topology signal. A literal value for the same name comes from the module's
+# own election staging at one replica (n8n_main_leader_election_enabled =
+# true, local.n8n_main_election_staging_env), which is still single-main.
+# The spec is read rather than a pod so detection works before a pod is
+# Ready. The HPA clamp, strategy, and PDB are asserted below, not used for
+# detection, so a regression in any of them fails instead of silently
+# selecting the other branch. An unreadable Deployment must not be mistaken
+# for "entry absent".
+main_election_staged=false
+if ! multi_main_ref=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="n8n-main")].env[?(@.name=="N8N_MULTI_MAIN_SETUP_ENABLED")].valueFrom.configMapKeyRef.key}' \
+    2>/dev/null); then
+  fail "Cannot read Deployment n8n-main in namespace $NAMESPACE, topology unknown, falling back to multi-main checks"
+elif [[ -n "$multi_main_ref" ]]; then
+  info "Multi-main topology (chart-rendered N8N_MULTI_MAIN_SETUP_ENABLED on the main Deployment)"
 else
-  pass "Single-instance deployment detected"
-  info "Checks: SQLite PVC, task runner sidecar, Python runner"
-fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SINGLE-INSTANCE CHECKS
-# ══════════════════════════════════════════════════════════════════════════════
-
-if [[ "$DEPLOY_MODE" == "single" ]]; then
-
-# ── Pod health (single) ───────────────────────────────────────────────────────
-
-header "Pod Health"
-
-if ! kubectl get deployment n8n-main -n "$NAMESPACE" &>/dev/null; then
-  fail "Deployment 'n8n-main' not found in namespace '$NAMESPACE'"
-  echo -e "${RED}Cannot continue, no n8n deployment found.${RESET}" >&2
-  exit 1
-fi
-
-ready=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-ready="${ready:-0}"
-desired=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "1")
-
-if [[ "$ready" -eq "$desired" && "$ready" -gt 0 ]]; then
-  pass "n8n-main pod: $ready/$desired ready"
-else
-  fail "n8n-main pod: $ready/$desired ready"
-fi
-
-# Surface any pods not in Running state
-bad_pods=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=n8n" \
-  --no-headers 2>/dev/null \
-  | awk '{print $1, $3}' \
-  | grep -v "Running\|Completed" || true)
-if [[ -n "$bad_pods" ]]; then
-  warn "Unhealthy pods detected:"
-  while IFS= read -r line; do info "$line"; done <<< "$bad_pods"
-fi
-
-# Grab the running pod name for subsequent checks
-N8N_POD=$(kubectl get pods -n "$NAMESPACE" -l "app.kubernetes.io/name=n8n" \
-  --field-selector=status.phase=Running \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-if [[ -z "$N8N_POD" ]]; then
-  fail "Could not find a running n8n pod, remaining checks will be limited"
-else
-  info "Using pod: $N8N_POD"
-fi
-
-# ── SQLite PVC ────────────────────────────────────────────────────────────────
-
-header "SQLite Persistent Volume"
-
-pvc=$(kubectl get pvc -n "$NAMESPACE" --no-headers 2>/dev/null \
-  | grep -i "n8n\|sqlite\|data" | head -3 || true)
-
-if [[ -n "$pvc" ]]; then
-  bound=$(echo "$pvc" | grep -c "Bound" || true)
-  total=$(echo "$pvc" | wc -l | tr -d ' ')
-  if [[ "$bound" -eq "$total" ]]; then
-    pass "PVC(s) bound ($bound/$total)"
-    while IFS= read -r line; do info "$line"; done <<< "$pvc"
-  else
-    fail "One or more PVCs not bound ($bound/$total)"
-    while IFS= read -r line; do info "$line"; done <<< "$pvc"
+  MAIN_TOPOLOGY="single-main"
+  MAIN_MIN=1
+  staged_value=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.template.spec.containers[?(@.name=="n8n-main")].env[?(@.name=="N8N_MULTI_MAIN_SETUP_ENABLED")].value}' \
+    2>/dev/null || true)
+  if [[ "$staged_value" == "true" ]]; then
+    main_election_staged=true
   fi
-else
-  warn "No PVCs found matching n8n, SQLite data may not be persisted"
-  info "Check: kubectl get pvc -n $NAMESPACE"
-fi
-
-# Verify the data directory is writable inside the running pod
-if [[ -n "$N8N_POD" ]]; then
-  data_dir=$(kubectl exec "$N8N_POD" -n "$NAMESPACE" -c n8n \
-    -- printenv N8N_USER_FOLDER 2>/dev/null \
-    || kubectl exec "$N8N_POD" -n "$NAMESPACE" -c n8n \
-    -- printenv HOME 2>/dev/null || echo "")
-
-  if [[ -n "$data_dir" ]]; then
-    if kubectl exec "$N8N_POD" -n "$NAMESPACE" -c n8n \
-        -- sh -c "test -w $data_dir" &>/dev/null; then
-      pass "Data directory is writable: $data_dir"
-    else
-      warn "Data directory may not be writable: $data_dir"
-    fi
+  info "Single-main topology (no chart-rendered N8N_MULTI_MAIN_SETUP_ENABLED): expecting HPA 1/1, Recreate, PDB minAvailable=0"
+  if [[ "$main_election_staged" == true ]]; then
+    info "Leader election is staged at one replica (n8n_main_leader_election_enabled = true)"
   fi
 fi
-
-# ── Task runner sidecar (single) ──────────────────────────────────────────────
-
-header "Task Runner Sidecar"
-
-containers=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-  -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
-
-info "Containers in pod spec: $containers"
-
-if echo "$containers" | grep -qiE "runner"; then
-  runner_container=$(echo "$containers" | tr ' ' '\n' | grep -iE "runner" | head -1)
-  pass "Task runner sidecar found: $runner_container"
-
-  # ── Python runner ──────────────────────────────────────────────────────────
-
-  header "Python Runner"
-
-  if [[ -n "$N8N_POD" ]]; then
-    python_version=$(kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
-      -- python3 --version 2>/dev/null || \
-      kubectl exec "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
-      -- python --version 2>/dev/null || echo "")
-
-    if [[ -n "$python_version" ]]; then
-      pass "Python binary present in runner sidecar: $python_version"
-    else
-      fail "Python binary not found in runner sidecar"
-      info "Verify the runner image includes Python support"
-    fi
-
-    # Check runner sidecar logs for broker connection
-    runner_logs=$(kubectl logs "$N8N_POD" -n "$NAMESPACE" -c "$runner_container" \
-      --tail=50 2>/dev/null || true)
-
-    if echo "$runner_logs" | grep -qiE "connected|ready|broker|listening"; then
-      connected_line=$(echo "$runner_logs" | grep -iE "connected|ready|broker|listening" | tail -1)
-      pass "Runner sidecar connected to broker"
-      info "$connected_line"
-    else
-      warn "No broker connection confirmation found in runner logs (last 50 lines)"
-      info "This may be normal if the runner starts on-demand. Check manually:"
-      info "kubectl logs $N8N_POD -n $NAMESPACE -c $runner_container"
-    fi
-  else
-    skip "Python runner exec checks (no running pod found)"
-  fi
-
-else
-  warn "Task runner sidecar not detected, task runners may be disabled"
-  info "Set n8n_task_runners_enabled = true in terraform.tfvars and re-apply"
-
-  header "Python Runner"
-  skip "Python runner checks (task runner sidecar not present)"
-fi
-
-fi  # end single-instance checks
+info "Checks: queue mode, HPA/KEDA, Redis, main topology"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# MULTI-MAIN CHECKS
+# QUEUE-MODE CHECKS
 # ══════════════════════════════════════════════════════════════════════════════
 
-if [[ "$DEPLOY_MODE" == "multi" ]]; then
-
-# ── Pod health (multi) ────────────────────────────────────────────────────────
+# ── Pod health ────────────────────────────────────────────────────────────────
 
 header "Pod Health"
 
@@ -446,7 +344,9 @@ check_deployment "n8n-main"              "$MAIN_MIN"    "Main pods"
 # holds the Deployment at any count, including 0, so the floor does not apply.
 worker_paused=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
   -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused}' 2>/dev/null || true)
-if [[ "$worker_paused" == "true" ]]; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Worker pods check (n8n-worker missing, see Deployment Mode)"
+elif [[ "$worker_paused" == "true" ]]; then
   worker_held=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
     -o jsonpath='{.metadata.annotations.autoscaling\.keda\.sh/paused-replicas}' 2>/dev/null || true)
   skip "Worker pods floor check (ScaledObject paused via n8n_worker_keda_pause; held at ${worker_held:-current count})"
@@ -455,7 +355,7 @@ else
 fi
 check_deployment "n8n-webhook-processor" "$WEBHOOK_MIN" "Webhook processor pods"
 
-# ── Task runner sidecars (multi: workers only) ────────────────────────────────
+# ── Task runner sidecars (workers only) ───────────────────────────────────────
 
 header "Task Runner Sidecars"
 
@@ -474,7 +374,9 @@ fi
 worker_containers=$(kubectl get deployment n8n-worker -n "$NAMESPACE" \
   -o jsonpath='{.spec.template.spec.containers[*].name}' 2>/dev/null || echo "")
 
-if echo "$worker_containers" | grep -qiE "runner"; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Worker task runner sidecar check (n8n-worker missing, see Deployment Mode)"
+elif echo "$worker_containers" | grep -qiE "runner"; then
   runner_container=$(echo "$worker_containers" | tr ' ' '\n' | grep -iE "runner" | head -1)
   pass "Task runner sidecar present on n8n-worker pods: $runner_container"
 
@@ -501,18 +403,110 @@ else
   info "Set n8n_task_runners_enabled = true in terraform.tfvars and re-apply"
 fi
 
-# ── Multi-main leader election ────────────────────────────────────────────────
+# ── Main topology ─────────────────────────────────────────────────────────────
 
-header "Multi-Main Leader Election"
+header "Main Topology"
 
-# n8n uses Redis-based leader election. Verify the feature flag is enabled
-# on main pods and that at least one pod reports leadership activity.
 main_pod=$(kubectl get pods -n "$NAMESPACE" \
   -l "app.kubernetes.io/component=main" \
   --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-if [[ -n "$main_pod" ]]; then
+if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
+  # One main without chart multi-main: nothing may run a second main
+  # (locals.tf: n8n_effective_main_hpa_max_replicas clamps a module-owned
+  # HPA to 1), rollouts must use Recreate so two mains never overlap
+  # (n8n_main_strategy), and the PDB must let the only main be evicted
+  # during node maintenance (n8n_main_pdb_min_available = 0).
+  #
+  # Runtime check in the pod, not the spec: this catches the flag from any
+  # source. The command always exits 0 and prints a sentinel when the
+  # variable is unset, so a non-zero exit can only mean the exec itself
+  # failed (RBAC, pod not yet exec-able). `printenv` would exit 1 in both
+  # cases.
+  if [[ -n "$main_pod" ]]; then
+    if multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
+        -- sh -c 'printf "%s" "${N8N_MULTI_MAIN_SETUP_ENABLED-__unset__}"' 2>/dev/null); then
+      if [[ "$main_election_staged" == true ]]; then
+        if [[ "$multi_main" == "true" ]]; then
+          pass "Leader election staged in the running main pod (N8N_MULTI_MAIN_SETUP_ENABLED=true at one replica)"
+        else
+          fail "Leader election is staged on the Deployment spec, but the running main pod has N8N_MULTI_MAIN_SETUP_ENABLED='${multi_main}'"
+        fi
+      elif [[ "$multi_main" == "true" ]]; then
+        fail "N8N_MULTI_MAIN_SETUP_ENABLED=true in the running main pod, but election is not staged by the module; multi-main must be off at one replica"
+      elif [[ "$multi_main" == "__unset__" ]]; then
+        pass "Multi-main disabled in the running main pod (N8N_MULTI_MAIN_SETUP_ENABLED unset)"
+      else
+        pass "Multi-main disabled in the running main pod (N8N_MULTI_MAIN_SETUP_ENABLED='$multi_main')"
+      fi
+    else
+      warn "Could not exec into $main_pod to verify the multi-main flag at runtime (RBAC or pod not ready): unverified, not unset"
+      info "Manually verify: kubectl exec -n $NAMESPACE $main_pod -c n8n-main -- printenv N8N_MULTI_MAIN_SETUP_ENABLED"
+    fi
+  else
+    warn "No running main pod found to verify the multi-main flag at runtime"
+  fi
+
+  # A module-owned main HPA (n8n_main_hpa_enabled = true) must be pinned to
+  # 1/1. With n8n_main_hpa_enabled = false there is no module HPA, and the
+  # Deployment carries n8n_main_fixed_replicas, which must be 1 here.
+  # Only NotFound means "no module HPA"; any other error (RBAC, API timeout)
+  # must not fall through to the replica check and pass while an unreadable
+  # HPA could still scale past one main.
+  main_hpa_state=present
+  if ! main_hpa_err=$(kubectl get hpa n8n-main -n "$NAMESPACE" 2>&1 >/dev/null); then
+    if [[ "$main_hpa_err" == *"NotFound"* ]]; then
+      main_hpa_state=absent
+    else
+      main_hpa_state=unreadable
+    fi
+  fi
+  if [[ "$main_hpa_state" == unreadable ]]; then
+    fail "Cannot read HPA n8n-main in namespace $NAMESPACE, single-main replica ceiling unverified"
+    info "$main_hpa_err"
+  elif [[ "$main_hpa_state" == present ]]; then
+    main_hpa_min=$(kubectl get hpa n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.minReplicas}' 2>/dev/null || echo "")
+    main_hpa_max=$(kubectl get hpa n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.maxReplicas}' 2>/dev/null || echo "")
+    if [[ "$main_hpa_min" == "1" && "$main_hpa_max" == "1" ]]; then
+      pass "Main HPA pinned to min=1 max=1, no second main without leader election"
+    else
+      fail "Main HPA is min=${main_hpa_min:-<unset>} max=${main_hpa_max:-<unset>}, expected 1/1; a second main without multi-main duplicates scheduled executions"
+    fi
+  else
+    main_replicas=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
+    if [[ "$main_replicas" == "1" ]]; then
+      pass "No module main HPA (n8n_main_hpa_enabled = false) and the main Deployment runs 1 replica"
+    else
+      fail "No module main HPA and the main Deployment runs '${main_replicas:-<unset>}' replicas, expected 1 for single-main"
+    fi
+  fi
+
+  main_strategy=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "")
+  if [[ "$main_strategy" == "Recreate" ]]; then
+    pass "Main Deployment strategy is Recreate, no second main during rollouts"
+  else
+    fail "Main Deployment strategy is '${main_strategy:-<unset>}', expected Recreate for single-main"
+  fi
+
+  pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
+  pdb_allowed=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.status.disruptionsAllowed}' 2>/dev/null || echo "")
+  if [[ "$pdb_min" == "0" ]]; then
+    pass "Main PDB minAvailable=0 (disruptionsAllowed=${pdb_allowed:-?}), node drains can evict the only main"
+  else
+    fail "Main PDB minAvailable is '${pdb_min:-<unset>}', expected 0, otherwise node drains stall on the single main"
+  fi
+  info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
+
+elif [[ -n "$main_pod" ]]; then
+  # n8n uses Redis-based leader election. Verify the feature flag is enabled
+  # on main pods and that at least one pod reports leadership activity.
   multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
     -- printenv N8N_MULTI_MAIN_SETUP_ENABLED 2>/dev/null || echo "")
   if [[ "$multi_main" == "true" ]]; then
@@ -556,7 +550,9 @@ check_hpa() {
 
   pass "$label HPA: min=$min max=$max current=$current CPU=$targets%"
 
-  if [[ "$current" -eq "$max" ]]; then
+  # A fixed-size HPA (min == max) is always "at max"; that is configuration,
+  # not load. The module pins the main HPA to 1/1 in single-main mode.
+  if [[ "$min" -ne "$max" && "$current" -eq "$max" ]]; then
     warn "$label is at max replicas ($max), may indicate sustained high load"
   fi
 }
@@ -565,7 +561,9 @@ check_hpa "n8n-main"              "Main"
 check_hpa "n8n-webhook-processor" "Webhook processor"
 
 # Workers: prefer KEDA ScaledObject (queue-depth), fall back to CPU-based HPA
-if kubectl get scaledobject n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Worker autoscaler check (n8n-worker missing, see Deployment Mode)"
+elif kubectl get scaledobject n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
   min=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
     -o jsonpath='{.spec.minReplicaCount}' 2>/dev/null || echo "?")
   max=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
@@ -588,7 +586,9 @@ worker_pod=$(kubectl get pods -n "$NAMESPACE" \
   --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
-if [[ -z "$worker_pod" && "${worker_paused:-}" == "true" ]]; then
+if [[ "$WORKER_MISSING" == true ]]; then
+  skip "Redis probe from a worker pod (n8n-worker missing, see Deployment Mode)"
+elif [[ -z "$worker_pod" && "${worker_paused:-}" == "true" ]]; then
   skip "Redis probe from a worker pod (worker ScaledObject paused with no running worker)"
 elif [[ -z "$worker_pod" ]]; then
   fail "No running worker pod found to probe Redis connectivity"
@@ -617,8 +617,6 @@ else
     fi
   fi
 fi
-
-fi  # end multi-main checks
 
 # ══════════════════════════════════════════════════════════════════════════════
 # COMMON CHECKS (Storage, HTTP, API, Workflow execution)
@@ -748,121 +746,63 @@ fi
 
 # ── Workflow execution ────────────────────────────────────────────────────────
 #
-# Single mode: Webhook → JS Code → Python Code
-#   Exercises both task runner language runtimes end-to-end.
-#
-# Multi mode: Webhook → Set
+# Webhook → Set
 #   Lightweight, verifies queue routing; task runner is covered by the
 #   sidecar check above.
 
-if [[ "$DEPLOY_MODE" == "single" ]]; then
-  header "Workflow Execution (JS + Python runners)"
-else
-  header "Workflow Execution via Queue"
-fi
+header "Workflow Execution via Queue"
 
 if [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Workflow execution test (requires N8N_URL and N8N_API_KEY)"
-elif [[ "$DEPLOY_MODE" == "multi" && "${worker_paused:-}" == "true" ]]; then
+elif [[ "$WORKER_MISSING" == true ]]; then
+  skip "Workflow execution via queue (n8n-worker missing, see Deployment Mode)"
+elif [[ "${worker_paused:-}" == "true" ]]; then
   # A paused worker ScaledObject may hold zero workers, so a queued
   # execution could wait until the pause is cleared.
   skip "Workflow execution via queue (worker ScaledObject paused via n8n_worker_keda_pause)"
 else
   webhook_path="smoke-test-$$"
 
-  if [[ "$DEPLOY_MODE" == "single" ]]; then
-    # Single: Webhook → JS Code → Python Code (exercises both runners)
-    workflow_payload="{
-      \"name\": \"__smoke-test__\",
-      \"nodes\": [
-        {
-          \"id\": \"a1b2c3d4-0001-0001-0001-000000000001\",
-          \"name\": \"Webhook\",
-          \"type\": \"n8n-nodes-base.webhook\",
-          \"typeVersion\": 1,
-          \"position\": [250, 300],
-          \"webhookId\": \"${webhook_path}\",
-          \"parameters\": {
-            \"httpMethod\": \"POST\",
-            \"path\": \"${webhook_path}\",
-            \"responseMode\": \"onReceived\"
-          }
-        },
-        {
-          \"id\": \"a1b2c3d4-0002-0002-0002-000000000002\",
-          \"name\": \"JS Code\",
-          \"type\": \"n8n-nodes-base.code\",
-          \"typeVersion\": 2,
-          \"position\": [450, 300],
-          \"parameters\": {
-            \"jsCode\": \"return [{ json: { js_runner: 'passed' } }];\"
-          }
-        },
-        {
-          \"id\": \"a1b2c3d4-0003-0003-0003-000000000003\",
-          \"name\": \"Python Code\",
-          \"type\": \"n8n-nodes-base.code\",
-          \"typeVersion\": 2,
-          \"position\": [650, 300],
-          \"parameters\": {
-            \"language\": \"python\",
-            \"pythonCode\": \"return [{'json': {'python_runner': 'passed'}}]\"
-          }
-        }
-      ],
-      \"connections\": {
-        \"Webhook\": {
-          \"main\": [[{ \"node\": \"JS Code\", \"type\": \"main\", \"index\": 0 }]]
-        },
-        \"JS Code\": {
-          \"main\": [[{ \"node\": \"Python Code\", \"type\": \"main\", \"index\": 0 }]]
+  # Webhook → Set (lightweight queue-mode test)
+  workflow_payload="{
+    \"name\": \"__smoke-test__\",
+    \"nodes\": [
+      {
+        \"id\": \"a1b2c3d4-0001-0001-0001-000000000001\",
+        \"name\": \"Webhook\",
+        \"type\": \"n8n-nodes-base.webhook\",
+        \"typeVersion\": 1,
+        \"position\": [250, 300],
+        \"webhookId\": \"${webhook_path}\",
+        \"parameters\": {
+          \"httpMethod\": \"POST\",
+          \"path\": \"${webhook_path}\",
+          \"responseMode\": \"onReceived\"
         }
       },
-      \"settings\": {}
-    }"
-    exec_success_msg="Execution completed successfully, JS and Python runners both processed"
-  else
-    # Multi: Webhook → Set (lightweight queue-mode test)
-    workflow_payload="{
-      \"name\": \"__smoke-test__\",
-      \"nodes\": [
-        {
-          \"id\": \"a1b2c3d4-0001-0001-0001-000000000001\",
-          \"name\": \"Webhook\",
-          \"type\": \"n8n-nodes-base.webhook\",
-          \"typeVersion\": 1,
-          \"position\": [250, 300],
-          \"webhookId\": \"${webhook_path}\",
-          \"parameters\": {
-            \"httpMethod\": \"POST\",
-            \"path\": \"${webhook_path}\",
-            \"responseMode\": \"onReceived\"
-          }
-        },
-        {
-          \"id\": \"a1b2c3d4-0002-0002-0002-000000000002\",
-          \"name\": \"Set\",
-          \"type\": \"n8n-nodes-base.set\",
-          \"typeVersion\": 3.4,
-          \"position\": [450, 300],
-          \"parameters\": {
-            \"assignments\": {
-              \"assignments\": [
-                { \"id\": \"1\", \"name\": \"smoke_test\", \"value\": \"passed\", \"type\": \"string\" }
-              ]
-            }
+      {
+        \"id\": \"a1b2c3d4-0002-0002-0002-000000000002\",
+        \"name\": \"Set\",
+        \"type\": \"n8n-nodes-base.set\",
+        \"typeVersion\": 3.4,
+        \"position\": [450, 300],
+        \"parameters\": {
+          \"assignments\": {
+            \"assignments\": [
+              { \"id\": \"1\", \"name\": \"smoke_test\", \"value\": \"passed\", \"type\": \"string\" }
+            ]
           }
         }
-      ],
-      \"connections\": {
-        \"Webhook\": {
-          \"main\": [[{ \"node\": \"Set\", \"type\": \"main\", \"index\": 0 }]]
-        }
-      },
-      \"settings\": {}
-    }"
-    exec_success_msg="Execution completed successfully, queue mode is working"
-  fi
+      }
+    ],
+    \"connections\": {
+      \"Webhook\": {
+        \"main\": [[{ \"node\": \"Set\", \"type\": \"main\", \"index\": 0 }]]
+      }
+    },
+    \"settings\": {}
+  }"
+  exec_success_msg="Execution completed successfully, queue mode is working"
 
   # Create workflow
   create_response=$(curl -sk -w "\n%{http_code}" \
@@ -883,9 +823,6 @@ else
   else
     workflow_id=$(echo "$create_body" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null || echo "")
     pass "Test workflow created (id: $workflow_id)"
-    if [[ "$DEPLOY_MODE" == "single" ]]; then
-      info "Webhook → JS Code node → Python Code node (exercises both runners)"
-    fi
 
     # Activate so the webhook listener starts
     activate_status=$(curl -sk -o /dev/null -w "%{http_code}" \
@@ -901,39 +838,17 @@ else
     else
       pass "Test workflow activated"
 
-      if [[ "$DEPLOY_MODE" == "multi" ]]; then
-        info "Waiting 5s for webhook-processor to register the new webhook..."
-        sleep 5
-        info "Triggering execution via webhook, will be queued to a worker"
+      info "Waiting 5s for webhook-processor to register the new webhook..."
+      sleep 5
+      info "Triggering execution via webhook, will be queued to a worker"
 
-        trigger_status=$(curl -sk -o /dev/null -w "%{http_code}" \
-          --max-time 15 \
-          -X POST \
-          -H "Content-Type: application/json" \
-          -d '{"smoke_test": true}' \
-          "${N8N_URL%/}/webhook/${webhook_path}" 2>/dev/null || echo "000")
-        trigger_body=""
-      else
-        info "Triggering execution via webhook → Code node (exercises task runner)"
-
-        # Poll until the webhook is registered (up to 15s)
-        trigger_status="000"
-        trigger_body=""
-        for _w in $(seq 1 5); do
-          sleep 3
-          trigger_response=$(curl -sk -w "\n%{http_code}" \
-            --max-time 15 \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -d '{"smoke_test": true}' \
-            "${N8N_URL%/}/webhook/${webhook_path}" 2>/dev/null || echo -e "\n000")
-          trigger_status=$(echo "$trigger_response" | tail -1)
-          trigger_body=$(echo "$trigger_response" | sed '$d')
-          [[ "$trigger_status" =~ ^2 ]] && break
-          [[ "$trigger_status" == "404" ]] && continue
-          break
-        done
-      fi
+      trigger_status=$(curl -sk -o /dev/null -w "%{http_code}" \
+        --max-time 15 \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -d '{"smoke_test": true}' \
+        "${N8N_URL%/}/webhook/${webhook_path}" 2>/dev/null || echo "000")
+      trigger_body=""
 
       if [[ "$trigger_status" =~ ^2 ]]; then
         pass "Webhook triggered (HTTP $trigger_status)"
@@ -954,15 +869,10 @@ else
             break
           elif [[ "$exec_state" == "error" || "$exec_state" == "crashed" ]]; then
             fail "Execution ended with status: $exec_state"
-            if [[ "$DEPLOY_MODE" == "single" && -n "${N8N_POD:-}" ]]; then
-              info "Check logs: kubectl logs $N8N_POD -n $NAMESPACE -c n8n --tail=50"
-            fi
             break
           elif [[ "$i" -eq 15 ]]; then
             warn "Execution still in state '$exec_state' after 30s"
-            if [[ "$DEPLOY_MODE" == "multi" ]]; then
-              info "May be slow to process, check: kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=worker --tail=50"
-            fi
+            info "May be slow to process, check: kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=worker --tail=50"
           fi
         done
       else
@@ -985,7 +895,7 @@ else
   fi
 fi
 
-# ── Worker scaling test (multi only, optional) ────────────────────────────────
+# ── Worker scaling test (optional) ────────────────────────────────────────────
 #
 # Creates a temporary CPU-burning workflow, queues LOAD_REQUESTS concurrent
 # executions, and verifies that the worker HPA/KEDA scales up.
@@ -993,14 +903,14 @@ fi
 # Why not /healthz? Those requests never touch worker pods, they hit the main
 # pods' HTTP listener. Workers only get CPU when executing workflows.
 
-if [[ "$DEPLOY_MODE" == "multi" ]]; then
-
 header "Worker Scaling Test"
 
 if [[ "$LOAD_TEST" != "true" ]]; then
   skip "Load scaling test (set LOAD_TEST=true to enable)"
 elif [[ -z "$N8N_URL" || -z "$N8N_API_KEY" ]]; then
   skip "Load scaling test (requires N8N_URL and N8N_API_KEY)"
+elif [[ "$WORKER_MISSING" == true ]]; then
+  skip "Load scaling test (n8n-worker missing, see Deployment Mode)"
 elif [[ "${worker_paused:-}" == "true" ]]; then
   skip "Load scaling test (worker ScaledObject paused; KEDA does not scale while paused)"
 else
@@ -1208,8 +1118,6 @@ EOF
   fi
 fi
 
-fi  # end multi-only load test
-
 # ══════════════════════════════════════════════════════════════════════════════
 # CUSTOMER-MANAGED INFRASTRUCTURE CHECKS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1369,59 +1277,13 @@ fi
 
 # ── New contracts (add-google-parity-through-aws-0-4-0) ───────────────────────
 #
-# Read-only inspection of the runtime contracts this change added: main
-# topology, Redis namespace isolation, the opt-in Redis exporter,
-# reference-only Secret/ConfigMap mounts, the V8 heap ceiling, pod DNS, and
-# additional ingress hostnames. None of these checks drain queues, restart
+# Read-only inspection of the runtime contracts this change added (main
+# topology is covered by the "Main Topology" section above): Redis namespace
+# isolation, the opt-in Redis exporter, reference-only Secret/ConfigMap
+# mounts, the V8 heap ceiling, pod DNS, and additional ingress hostnames. None of these checks drain queues, restart
 # deployments, rotate credentials, or apply infrastructure; they only read
 # already-running objects. Each skips cleanly when its prerequisite output,
 # pod, or tooling is unavailable.
-
-header "Main Topology"
-
-main_pod=$(kubectl get pods -n "$NAMESPACE" \
-  -l "app.kubernetes.io/component=main" \
-  --field-selector=status.phase=Running \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
-
-if ! kubectl get deployment n8n-main -n "$NAMESPACE" &>/dev/null; then
-  skip "Main topology check (n8n-main deployment not found)"
-else
-  main_replicas=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-  main_strategy=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "")
-  main_pdb_min=$(kubectl get pdb -n "$NAMESPACE" --no-headers 2>/dev/null \
-    | awk 'tolower($1) ~ /main/ {print $1, $3; exit}')
-
-  if [[ "$main_replicas" -eq 1 && "$main_strategy" == "Recreate" ]]; then
-    pass "Single-main topology detected: n8n-main replicas=1, strategy=Recreate"
-    if [[ -n "$main_pdb_min" ]]; then
-      main_pdb_min_value=$(echo "$main_pdb_min" | awk '{print $2}')
-      if [[ "$main_pdb_min_value" == "0" ]]; then
-        pass "Main PodDisruptionBudget minAvailable=0 (expected for single-main)"
-      else
-        warn "Main PodDisruptionBudget minAvailable='$main_pdb_min_value' (expected 0 for single-main)"
-      fi
-    else
-      info "Could not identify a main PodDisruptionBudget by name, inspect manually: kubectl get pdb -n $NAMESPACE"
-    fi
-    info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
-  elif [[ "$main_replicas" -gt 1 ]]; then
-    pass "Multi-main topology detected: n8n-main replicas=$main_replicas, strategy=${main_strategy:-<default>}"
-    if [[ -n "$main_pod" ]]; then
-      multi_main=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
-        -- printenv N8N_MULTI_MAIN_SETUP_ENABLED 2>/dev/null || echo "")
-      if [[ "$multi_main" == "true" ]]; then
-        pass "N8N_MULTI_MAIN_SETUP_ENABLED=true on main pods"
-      else
-        warn "N8N_MULTI_MAIN_SETUP_ENABLED is not 'true' on a multi-replica main deployment (got: '${multi_main:-<unset>}')"
-      fi
-    fi
-  else
-    info "n8n-main replicas=$main_replicas, strategy=${main_strategy:-<unknown>} (unable to classify topology)"
-  fi
-fi
 
 header "Redis Namespace Isolation"
 
@@ -1475,6 +1337,13 @@ else
 fi
 
 header "Reference-Only Mounts and Runtime Settings"
+
+# Re-read the running main pod: the one captured in "Main Topology" may have
+# been replaced during the workflow and scaling tests above.
+main_pod=$(kubectl get pods -n "$NAMESPACE" \
+  -l "app.kubernetes.io/component=main" \
+  --field-selector=status.phase=Running \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if [[ -n "$main_pod" ]]; then
   overwrite_file=$(kubectl exec "$main_pod" -n "$NAMESPACE" -c n8n-main \
@@ -1590,7 +1459,7 @@ fi
 
 echo ""
 echo -e "${BOLD}══════════════════════════════════════${RESET}"
-echo -e "${BOLD}  Smoke Test Summary  [mode: $DEPLOY_MODE]${RESET}"
+echo -e "${BOLD}  Smoke Test Summary${RESET}"
 echo -e "${BOLD}══════════════════════════════════════${RESET}"
 echo -e "  ${GREEN}Passed:${RESET}  $PASS"
 echo -e "  ${RED}Failed:${RESET}  $FAIL"
