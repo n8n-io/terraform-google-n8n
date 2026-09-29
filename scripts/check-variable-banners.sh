@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# check-variable-banners.sh — every variable/output block in variables.tf,
+# check-variable-banners.sh: every variable/output block in variables.tf,
 # variables_gcp.tf, and outputs.tf must sit under a "# ── Section ──" banner
 # comment (see AGENTS.md, "Clear documentation"). Catches:
 #
@@ -24,8 +24,8 @@ set -euo pipefail
 # minimal shells and containers, and whatever LC_ALL/LANG a CI image sets)
 # makes every real banner fail the strict-format check. Leave an
 # already-UTF-8 locale alone; otherwise force C.UTF-8, the most widely
-# available UTF-8 locale, via LC_ALL since it — not a scoped LC_CTYPE — is
-# what a non-UTF-8 LC_ALL in the environment would otherwise override.
+# available UTF-8 locale, via LC_ALL, since LC_ALL (not a scoped LC_CTYPE)
+# is what a non-UTF-8 LC_ALL in the environment would otherwise override.
 effective_locale="${LC_ALL:-${LC_CTYPE:-${LANG:-}}}"
 case "$effective_locale" in
   *.[Uu][Tt][Ff]-8 | *.[Uu][Tt][Ff]8) ;;
@@ -42,7 +42,10 @@ FILES=(variables.tf variables_gcp.tf outputs.tf)
 VARIABLES_BANNERS=("Foundation inputs" "Credential overwrites" "Existing core Secret (n8n_kube_namespace)" "Ingress ownership" "n8n chart" "Controllers submodule (modules/controllers)" "Application images" "Caller-managed volumes" "n8n resource requests and limits" "Execution settings" "Execution-save policy" "Graceful shutdown" "Task runners" "V8 heap ceiling" "Community registry and security-related runtime controls" "Pod DNS" "Cloud SQL PostgreSQL" "Execution data storage" "HPA: main pods" "HPA: webhook processor pods" "License shutdown behavior" "Observability" "Community packages" "KEDA: worker pods" "Worker pools (EARLY ALPHA)" "External Secrets and Google Secret Manager")
 VARIABLES_GCP_BANNERS=("Project and region" "Networking ownership (infrastructure-ownership)" "Private Service Access ownership" "Networking (VPC-native)" "Cloud SQL" "Cloud SQL backup and query-logging tuning (managed instance only)" "Cloud SQL restore source (managed instance only)" "Cloud SQL customer-managed encryption (Cloud KMS)" "Shared Cloud KMS key ring" "Memorystore" "Opt-in Memorystore RDB persistence (managed instance only)" "Opt-in Redis exporter (observability.tf)" "Memorystore customer-managed encryption (Cloud KMS)" "GCS bucket ownership" "GCS customer-managed encryption (Cloud KMS)" "GCS binary storage" "BYO / pre-existing HMAC key" "Workload Identity" "TLS" "DNS (Google Cloud DNS , base/default path)" "Additional ingress hosts and annotations" "Managed-ingress security controls" "GKE ownership" "GKE cluster + node pool")
 OUTPUT_BANNERS=("App DNS" "Secrets (retrieve with terraform output -raw <name>)" "Infrastructure (ownership-neutral effective coordinates)" "Cluster (wire the kubernetes/helm/kubectl providers in your root/example)" "Service and route contract (build a customer-managed ingress from these)")
-BANNER_LOOSE_RE='^#[[:space:]]+[─—-]'
+# Loose match for "looks like an attempted banner": a comment opening with a
+# box-drawing dash, an em-dash, or a double hyphen. A single hyphen is left
+# alone so ordinary bullet comments ("# - note") are not flagged.
+BANNER_LOOSE_RE='^#[[:space:]]*(─|—|--)'
 BANNER_STRICT_RE='^# ── (.+) ─{2,}$'
 BLOCK_RE='^[[:space:]]*(variable|output)[[:space:]]+"'
 

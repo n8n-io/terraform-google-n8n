@@ -30,7 +30,9 @@ this project adheres to the stability contract in
   `.github/CODEOWNERS` gained an explanatory header comment. Fixed one
   pre-existing gap the new banner check surfaced: `variables_gcp.tf`'s
   `project_id`/`gcp_region` had no banner; added a `Project and region`
-  banner ahead of them.
+  banner ahead of them. `scripts/check-example-parity.sh` no longer uses
+  bash 4 associative arrays, so `task ci` also runs under the bash 3.2
+  macOS ships as `/bin/bash`.
 - **Worker pools (EARLY ALPHA, SUBJECT TO CHANGE WITHOUT NOTICE)**: `n8n_worker_pools`,
   `n8n_worker_extra_env`, and `n8n_worker_pools_chart_verified` inputs, ported
   1:1 from terraform-aws-n8n's own worker-pools feature (`worker-pools.tf`).

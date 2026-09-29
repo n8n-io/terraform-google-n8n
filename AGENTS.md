@@ -83,6 +83,10 @@ expected by the Terraform Registry:
 | `tests/scripts/smoke-test.sh`     | Post-`apply` smoke test for live deployments.               |
 | `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`. |
 | `.github/workflows/`              | CI: fmt, terraform-docs, validate, test, tflint, chart-render, checkov. |
+| `.github/CODEOWNERS` / `CONTRIBUTORS` | Default reviewers and the current maintainer list; keep the two in sync. |
+| `Taskfile.yml`                    | Optional [`task`](https://taskfile.dev) wrapper around the local development loop below (`task ci`). Its `EXAMPLES` list must match the CI job matrices. Not a CI dependency. |
+| `scripts/check-variable-banners.sh` | Local-only check (`task banners`) that every `variable`/`output` in `variables.tf`, `variables_gcp.tf`, and `outputs.tf` sits under a `# ── Section ──` banner and that the banner list matches the script's expected order. Update its banner arrays when adding, renaming, or reordering a section. |
+| `scripts/check-example-parity.sh` | Local-only check (`task example-parity`) that each example's variable set matches `examples/small` within its allowlist. Must stay compatible with the bash 3.2 macOS ships (no `declare -A`). |
 
 ## Quality bar: HashiCorp Terraform Registry & Partner Premier Tier
 
@@ -461,6 +465,14 @@ tests/scripts/check-checkov.sh
 
 # Markdown lint, same command as the `markdownlint` CI job.
 markdownlint-cli2 "README.md" "AGENTS.md" "docs/*.md"
+
+# Local-only structure checks (not CI-gated).
+scripts/check-variable-banners.sh
+scripts/check-example-parity.sh
+
+# Optional: with `task` installed, `task ci` runs everything above except
+# checkov and version-drift (`task checkov`, `task version-drift`), plus the
+# per-target loop below. See Taskfile.yml.
 
 # Version-currency reports (never auto-bump; see docs/versioning.md).
 # check-version-drift.sh compares the provider and chart pins against their

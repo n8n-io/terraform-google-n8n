@@ -35,15 +35,23 @@ terraform-docs --output-check .
 ```
 
 Repeat the `init / validate / test / tflint / terraform-docs` block
-under each example directory (`examples/small`, `examples/medium`,
-`examples/large`, `examples/cloudflare`, `examples/godaddy`); that
-mirrors the CI matrix exactly. CI will run the same matrix on your PR.
+under every `examples/*` directory, `modules/controllers`, and
+`modules/controllers/examples/direct-use`. The two controller targets have
+no local `.terraform-docs.yml`, so a bare `terraform-docs --output-check .`
+there prints help and checks nothing; pass the root config explicitly
+(`--config ../../.terraform-docs.yml` and
+`--config ../../../../.terraform-docs.yml`). The exact per-target commands
+are in `AGENTS.md` ("Local development loop") and mirror the CI matrix in
+`.github/workflows/terraform-tests.yml`. CI will run the same matrix on
+your PR.
 
 If you have [`task`](https://taskfile.dev) installed (`brew install
 go-task`), `task ci` runs the fmt/validate/test/lint/docs matrix plus
 chart-rendering and markdown checks across the module root and every
-example in one command; it additionally needs Helm, jq, and
-markdownlint-cli2 on `PATH` (see `AGENTS.md` for install steps). See
+example in one command. It needs Terraform, tflint, terraform-docs,
+Helm, jq, Python 3, and markdownlint-cli2 on `PATH`; CI's pinned tool versions
+and setup steps are in `.github/workflows/terraform-tests.yml`.
+See
 [`Taskfile.yml`](./Taskfile.yml) for the individual targets (`task fmt`,
 `task validate`, `task test`, `task lint`, `task docs`,
 `task docs-generate`), including `task checkov` and `task version-drift`,

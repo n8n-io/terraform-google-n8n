@@ -49,7 +49,11 @@ tasks:
       - cd modules/controllers/examples/direct-use && terraform validate
 
   test:
-    desc: terraform test (plan-time, mocked providers) for the module root, every example, and the controllers submodule.
+    desc: >-
+      terraform test (plan-time, mocked providers) for the module root, every
+      example, and the controllers submodule. The root suite runs serially and
+      is slow; iterate on one file with
+      terraform test -filter=tests/<file>.tftest.hcl instead.
     deps: [init]
     cmds:
       - terraform test -verbose
@@ -110,6 +114,8 @@ tasks:
       Diff the pinned n8n chart's values.yaml against a candidate version
       (requires Helm). Run before picking up a chart bump, e.g.
       task chart-diff CANDIDATE=1.12.0
+    requires:
+      vars: [CANDIDATE]
     cmds:
       - ./tests/scripts/chart-values-diff.sh "{{.CANDIDATE}}"
 
