@@ -136,7 +136,12 @@ Concretely, in this repo:
   *evaluated* each resource named in its own `REQUIRED_OPT_IN_RESOURCES`
   list, not just that the run exited 0 - add a resource to both that list
   and `tests/checkov/opt-in.tfvars` when you add a new count-gated resource,
-  or this check silently stops proving anything for it.
+  or this check silently stops proving anything for it. The opt-in pass runs
+  with `--skip-path examples` and its reachability check accepts only
+  root-module addresses (no `module.n8n.` prefix) with at least one passed
+  or failed check (a skipped check alone does not count), so it covers count-gated
+  resources in the root module only; a count-gated resource inside an
+  example is not unblinded by this pass.
 - **`tests/scripts/check-n8n-chart.sh`** (`chart-render` job) renders the
   pinned n8n Helm chart with a synthetic values fixture and asserts on the
   output, using a pinned Helm CLI version. No credentials, no cluster.

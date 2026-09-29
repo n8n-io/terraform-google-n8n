@@ -61,14 +61,15 @@ trap 'rm -f "$opt_in_json"' EXIT
 # --skip-path examples: every examples/* directory calls
 # `module "n8n" { source = "../.." }` with its own tfvars (which do not
 # set the opt-in switches this pass exists to flip on). Left in scope,
-# checkov's graph resolution attributes a root-module resource like
-# observability.tf's redis_exporter Deployment/Service to that example's
-# own module call instead of to this pass's --var-file, silently
-# re-evaluating it at the example's default (usually still count 0) and,
-# for the Service, dropping it from the report entirely. Root cause: the
-# opt-in pass only cares about the root module's own count-gated
-# resources under this pass's tfvars, so exclude every other place that
-# also happens to source the same module.
+# checkov can attribute a root-module resource like observability.tf's
+# redis_exporter Deployment/Service to one of those module calls
+# (reported as module.n8n.<address>) instead of to the root module under
+# this pass's --var-file. Whether that happens is not stable across
+# environments: CI on main reached both resources, while one local run
+# dropped the Service. The opt-in pass only cares about the root module's
+# own count-gated resources, so exclude every other place that sources
+# the same module and make the attribution deterministic. The
+# reachability check below then accepts root-module addresses only.
 checkov_exit=0
 checkov -d . --framework terraform --compact --skip-path examples --var-file "$OPT_IN_TFVARS" -o json >"$opt_in_json" 2>&1 || checkov_exit=$?
 
@@ -105,6 +106,7 @@ echo
 echo "==> verifying the opt-in pass actually reached its target resources"
 if ! python3 - "$opt_in_json" "${REQUIRED_OPT_IN_RESOURCES[@]}" <<'PYEOF'
 import json
+import re
 import sys
 
 path = sys.argv[1]
@@ -117,11 +119,19 @@ data = data if isinstance(data, list) else [data]
 evaluated = set()
 for doc in data:
     results = doc.get("results", {})
-    for bucket in ("passed_checks", "failed_checks", "skipped_checks"):
+    # passed/failed only: a skipped (suppressed) check is not proof that a
+    # policy actually ran against the resource.
+    for bucket in ("passed_checks", "failed_checks"):
         for c in results.get(bucket, []):
             evaluated.add(c.get("resource", ""))
 
-missing = [r for r in required if not any(r in addr for addr in evaluated)]
+# Exact root-module match (optionally with a count index). A substring
+# match would also accept module.n8n.<address>, which is exactly the
+# example-attributed evaluation this pass must not count as proof.
+missing = [
+    r for r in required
+    if not any(re.fullmatch(re.escape(r) + r"(\[\d+\])?", addr) for addr in evaluated)
+]
 if missing:
     print(
         "the opt-in pass never evaluated: " + ", ".join(missing) +
