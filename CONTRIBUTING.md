@@ -62,10 +62,12 @@ which `task ci` deliberately does not run.
 We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ```
-<type>(<optional scope>): <imperative summary, <72 chars>
+<type>(<optional scope>): <imperative summary>
 
 <optional body explaining the why>
 ```
+
+Keep the subject line under 72 characters.
 
 Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
 Scope is optional but useful (e.g. `feat(cloudsql): add read replica
