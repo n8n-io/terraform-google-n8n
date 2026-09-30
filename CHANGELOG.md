@@ -21,11 +21,13 @@ this project adheres to the stability contract in
     set) and dropped `s3.storage.availableModes` from its schema. The module
     stops passing that value, so the deprecated variable is no longer set
     on any pod and its warning is gone. `n8n_extra_env`,
-    `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` now reject
-    it at plan time (`local.n8n_deprecated_env_names`) so a caller cannot
-    reintroduce the warning, and `tests/scripts/check-n8n-chart.sh` fails
-    if it is ever rendered. **Breaking** for a caller that sets it through
-    one of those inputs: remove the entry.
+    `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` still
+    reject it at plan time, now through a dedicated deprecated-variable rule
+    (`local.n8n_deprecated_env_names`) instead of the module-managed list, so
+    the error says to remove the entry rather than pointing at a module
+    input. No previously accepted configuration is rejected.
+    `tests/scripts/check-n8n-chart.sh` fails if the variable is ever
+    rendered.
   - The chart's ConfigMap now emits `N8N_WEBHOOK_URL` instead of
     `WEBHOOK_URL` (n8n-hosting#184, missing from the upstream release
     notes). Inert here: the module passes no chart `webhook.url` or
