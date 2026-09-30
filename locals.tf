@@ -93,7 +93,6 @@ locals {
     "EXECUTIONS_MODE",
     "OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS",
     "N8N_DEFAULT_BINARY_DATA_MODE",
-    "N8N_AVAILABLE_BINARY_DATA_MODES",
     "N8N_LICENSE_ACTIVATION_KEY",
     "N8N_HOST",
     "N8N_PORT",
@@ -107,6 +106,14 @@ locals {
     "N8N_WORKER_POOLS_ENABLED",
     "N8N_WORKER_POOL_NAME",
     "TZ",
+  ]
+
+  # Env vars n8n has deprecated and logs a warning for on every start, even
+  # though it otherwise ignores them. The module never sets these, and the
+  # n8n_extra_env/n8n_worker_extra_env/pool extra_env inputs reject them so a
+  # caller cannot bring the warning back either.
+  n8n_deprecated_env_names = [
+    "N8N_AVAILABLE_BINARY_DATA_MODES",
   ]
 
   # Whole env-var families the module/chart owns, matched by prefix so the guard

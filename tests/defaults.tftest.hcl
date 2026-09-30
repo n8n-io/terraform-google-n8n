@@ -1388,7 +1388,7 @@ run "worker_keda_pause_allowed_on_a_custom_chart_repository" {
 
 # ── Capacity model: main sidecar allowance is chart-version-gated ──────────
 # n8n-hosting#179 renders the task-runner sidecar on main only in standalone
-# mode, shipped in chart 1.12.0 and unchanged through 1.13.0. At the
+# mode, shipped in chart 1.12.0 and unchanged through 1.14.0. At the
 # verified default pin, the main ceiling term must exclude the sidecar; the
 # worker term still adds it while n8n_task_runners_enabled. Same shape as
 # terraform-aws-n8n's/terraform-azurerm-n8n's own
@@ -1855,6 +1855,49 @@ run "worker_extra_env_rejects_pool_name_var" {
   }
 
   expect_failures = [var.n8n_worker_extra_env]
+}
+
+# n8n logs a deprecation warning on every start while
+# N8N_AVAILABLE_BINARY_DATA_MODES is set; all three env passthroughs reject it.
+run "extra_env_rejects_deprecated_binary_data_modes" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_AVAILABLE_BINARY_DATA_MODES", value = "filesystem,s3" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "worker_extra_env_rejects_deprecated_binary_data_modes" {
+  command = plan
+
+  variables {
+    n8n_worker_extra_env = [
+      { name = "N8N_AVAILABLE_BINARY_DATA_MODES", value = "filesystem,s3" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_extra_env]
+}
+
+run "worker_pools_reject_deprecated_binary_data_modes" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "N8N_AVAILABLE_BINARY_DATA_MODES", value = "filesystem,s3" },
+        ]
+      },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
 }
 
 run "worker_pools_old_image_tag_triggers_check_warning" {

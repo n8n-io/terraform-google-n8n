@@ -37,7 +37,7 @@ cd "$(dirname "$0")/../.."
 
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
-CHART_VERSION="1.13.0"
+CHART_VERSION="1.14.0"
 
 # Fail fast if the pins above drift from the module's own chart defaults.
 # Several assertions below (e.g. the graceful shutdown timeout default compared
@@ -139,7 +139,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -239,6 +238,16 @@ assert_env_count "EXECUTIONS_DATA_SAVE_ON_ERROR" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_SUCCESS" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_PROGRESS" "2" "false"
 assert_env_count "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS" "2" "true"
+
+# n8n deprecated N8N_AVAILABLE_BINARY_DATA_MODES and logs a warning whenever
+# it is set, even though it is otherwise ignored. Chart 1.14.0 stopped
+# rendering it (n8n-hosting#185) and the module stopped passing
+# s3.storage.availableModes; neither should ever bring it back.
+if awk '/- name: N8N_AVAILABLE_BINARY_DATA_MODES$/ { found = 1 } END { exit !found }' "$RENDERED"; then
+  fail "N8N_AVAILABLE_BINARY_DATA_MODES is rendered; n8n deprecated it and warns on every start"
+else
+  pass "N8N_AVAILABLE_BINARY_DATA_MODES absent from every rendered container"
+fi
 
 # ── Mixed execution-save policy (task 6.1) ──────────────────────────────────
 # A second render of the same fixture with a non-default, non-uniform
@@ -367,7 +376,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -645,7 +653,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -766,7 +773,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -899,7 +905,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 

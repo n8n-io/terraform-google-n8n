@@ -393,7 +393,6 @@ resource "helm_release" "n8n" {
       }
       storage = {
         mode           = "s3"
-        availableModes = "filesystem,s3"
         forcePathStyle = true
       }
     }

@@ -1,7 +1,7 @@
 # n8n Helm chart coverage
 
 Every top-level key in the pinned n8n Helm chart's `values.yaml`
-(`n8n_chart_version` default: **1.13.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
+(`n8n_chart_version` default: **1.14.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
 and how this module surfaces it, if at all. Kept honest by
 `tests/scripts/check-helm-chart-coverage.sh`, which fails when this file's
 declared chart version disagrees with `variables.tf`'s `n8n_chart_version`

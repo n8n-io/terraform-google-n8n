@@ -34,7 +34,7 @@ variable "n8n_license_key" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's own default tag: its appVersion (2.40.5 at chart 1.13.0), which only moves when the module's n8n_chart_version does. Pin a concrete version (for example \"2.39.7\") to upgrade n8n independently of the chart."
+  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's own default tag: its appVersion (2.41.4 at chart 1.14.0), which only moves when the module's n8n_chart_version does. Pin a concrete version (for example \"2.39.7\") to upgrade n8n independently of the chart."
   type        = string
   default     = null
 }

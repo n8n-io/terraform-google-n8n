@@ -215,7 +215,7 @@ variable "create_ingress" {
 variable "n8n_chart_version" {
   description = "n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n). Must be an exact semantic version (e.g. \"1.10.1\"), not a range or floating tag, so every apply is deterministic."
   type        = string
-  default     = "1.13.0"
+  default     = "1.14.0"
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.n8n_chart_version))
@@ -295,7 +295,7 @@ variable "create_pd_balanced_storage_class" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.40.5 for the default 1.13.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
+  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.41.4 for the default 1.14.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
   type        = string
   default     = null
 
@@ -1650,6 +1650,11 @@ variable "n8n_extra_env" {
     ])
     error_message = "n8n_extra_env must not set module-managed variables. Reserved: any name starting with one of ${join(", ", local.n8n_managed_env_prefixes)} (connection/queue/runner/storage/topology/AWS families), plus the exact names ${join(", ", local.n8n_managed_env_names)}. config.extraEnv is appended last and would otherwise silently override these (Kubernetes last-wins). Use the dedicated module inputs (e.g. n8n_log_level, n8n_metrics_enabled) instead."
   }
+
+  validation {
+    condition     = !anytrue([for e in var.n8n_extra_env : contains(local.n8n_deprecated_env_names, e.name)])
+    error_message = "n8n_extra_env must not set deprecated n8n variables (${join(", ", local.n8n_deprecated_env_names)}). n8n ignores them and logs a deprecation warning on every start; remove the entry."
+  }
 }
 
 # ── KEDA: worker pods ─────────────────────────────────────────────────────────
@@ -1775,6 +1780,11 @@ variable "n8n_worker_extra_env" {
     ])
     error_message = "n8n_worker_extra_env must not set module-managed variables. Reserved: any name starting with one of ${join(", ", local.n8n_managed_env_prefixes)}, plus the exact names ${join(", ", local.n8n_managed_env_names)}. Use the dedicated module inputs instead."
   }
+
+  validation {
+    condition     = !anytrue([for e in var.n8n_worker_extra_env : contains(local.n8n_deprecated_env_names, e.name)])
+    error_message = "n8n_worker_extra_env must not set deprecated n8n variables (${join(", ", local.n8n_deprecated_env_names)}). n8n ignores them and logs a deprecation warning on every start; remove the entry."
+  }
 }
 
 variable "n8n_worker_pools" {
@@ -1850,6 +1860,15 @@ variable "n8n_worker_pools" {
       ]
     ]))
     error_message = "n8n_worker_pools extra_env must not set module-managed variables, and must not set N8N_WORKER_POOL_NAME: that name is owned by the pool's own `name` attribute, and overriding it would put the pool's workers on a different queue than the one this module creates a scaler for."
+  }
+
+  validation {
+    condition = !anytrue(flatten([
+      for p in var.n8n_worker_pools : [
+        for e in p.extra_env : contains(local.n8n_deprecated_env_names, e.name)
+      ]
+    ]))
+    error_message = "n8n_worker_pools extra_env must not set deprecated n8n variables (${join(", ", local.n8n_deprecated_env_names)}). n8n ignores them and logs a deprecation warning on every start; remove the entry."
   }
 
   validation {

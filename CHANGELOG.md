@@ -7,6 +7,33 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Changed
+
+- Default `n8n_chart_version` bumped to `1.14.0` (was `1.13.0`; n8n-hosting
+  v1.14.0, 2026-09-30, which bundles n8n `2.41.4` as its `appVersion`, so a
+  caller with `n8n_image_tag = null` moves from n8n `2.40.5` to `2.41.4`; n8n
+  2.41.x lists no breaking changes). No replica, KEDA, or task-runner template
+  changes (`deployment-*.yaml` untouched), so the worker-only task-runner
+  capacity rule (`local.n8n_chart_has_worker_only_runners`) now also covers
+  `1.14.0`. Upstream changes that reach this module:
+  - The chart no longer renders `N8N_AVAILABLE_BINARY_DATA_MODES`
+    (n8n-hosting#185; n8n deprecated it and logs a warning whenever it is
+    set) and dropped `s3.storage.availableModes` from its schema. The module
+    stops passing that value, so the deprecated variable is no longer set
+    on any pod and its warning is gone. `n8n_extra_env`,
+    `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` now reject
+    it at plan time (`local.n8n_deprecated_env_names`) so a caller cannot
+    reintroduce the warning, and `tests/scripts/check-n8n-chart.sh` fails
+    if it is ever rendered. **Breaking** for a caller that sets it through
+    one of those inputs: remove the entry.
+  - The chart's ConfigMap now emits `N8N_WEBHOOK_URL` instead of
+    `WEBHOOK_URL` (n8n-hosting#184, missing from the upstream release
+    notes). Inert here: the module passes no chart `webhook.url` or
+    `ingress` values, so the chart emits neither name, and the module
+    already sets both from `n8n_webhook_url` via `config.extraEnv`.
+  - The chart's own values validation now reports every failure in one
+    render instead of stopping at the first (n8n-hosting#209).
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release

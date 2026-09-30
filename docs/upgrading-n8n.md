@@ -310,7 +310,7 @@ terraform-azurerm-n8n.
 ## Main pods lose the task-runner sidecar (chart 1.12.0 and later)
 
 n8n-hosting [#179](https://github.com/n8n-io/n8n-hosting/pull/179), shipped
-in chart `1.12.0` and unchanged through `1.13.0`, renders the task-runner
+in chart `1.12.0` and unchanged through `1.14.0`, renders the task-runner
 sidecar, its env, and the launcher ConfigMap mount on the main Deployment
 only in standalone mode (`taskRunners.enabled && !queueMode.enabled`). This
 module always runs queue mode, where n8n offloads manual executions to
@@ -325,7 +325,7 @@ deployment takes both releases at once):
   `n8n_task_runner_custom_config`, and `n8n_task_runner_timeout` now apply
   to worker pods only, **while the pinned chart is one this module has
   verified carries the fix**: its own OCI repository
-  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0` or `1.13.0`
+  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0`, `1.13.0`, or `1.14.0`
   exactly (`local.n8n_chart_has_worker_only_runners` in `capacity.tf`). Any
   other `n8n_chart_version` (a private mirror, a preview build such as
   `examples/worker-pools`' `1.11.0-preview.workerpools.1`, which predates

@@ -481,7 +481,7 @@ run "graceful_shutdown_timeout_null_default_check_skips_a_custom_chart_repositor
 run "graceful_shutdown_timeout_null_default_warns_on_an_older_upstream_chart_pin" {
   command = plan
 
-  # Every published upstream chart (1.0.0 through 1.13.0) defaults
+  # Every published upstream chart (1.0.0 through 1.14.0) defaults
   # redis.worker.timeout to 30, so the check is not gated on the chart
   # version: 30 + 31 = 61 must still warn on an older upstream pin.
   variables {
