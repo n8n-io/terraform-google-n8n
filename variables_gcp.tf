@@ -167,6 +167,23 @@ variable "postgres_availability_type" {
   default     = "REGIONAL"
 }
 
+variable "postgres_ssl_mode" {
+  description = "Cloud SQL ip_configuration.ssl_mode: how the Cloud SQL instance itself enforces TLS on inbound connections, independent of whether n8n's client validates the server's certificate (see db_postgresdb_ssl_enabled / db_postgresdb_ssl_reject_unauthorized in variables.tf). ALLOW_UNENCRYPTED_AND_ENCRYPTED (the default) accepts both, matching n8n's own default DB_POSTGRESDB_SSL_ENABLED=false client behavior over the private VPC connection. ENCRYPTED_ONLY rejects unencrypted connections at the server; requires db_postgresdb_ssl_enabled = true, or every n8n pod's plaintext connection attempt is refused and n8n never reaches the database. Ignored when create_postgres_instance = false."
+  type        = string
+  default     = "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+  nullable    = false
+
+  validation {
+    condition     = contains(["ALLOW_UNENCRYPTED_AND_ENCRYPTED", "ENCRYPTED_ONLY"], var.postgres_ssl_mode)
+    error_message = "postgres_ssl_mode must be ALLOW_UNENCRYPTED_AND_ENCRYPTED or ENCRYPTED_ONLY. The provider's remaining enum value, TRUSTED_CLIENT_CERTIFICATE_REQUIRED, needs client-certificate provisioning this module does not manage, so it is not accepted here."
+  }
+
+  validation {
+    condition     = var.postgres_ssl_mode == "ENCRYPTED_ONLY" ? var.db_postgresdb_ssl_enabled : true
+    error_message = "postgres_ssl_mode = ENCRYPTED_ONLY requires db_postgresdb_ssl_enabled = true; otherwise n8n's plaintext connection attempt is rejected at the TLS layer and every n8n pod fails to reach the database."
+  }
+}
+
 variable "postgres_disk_size" {
   description = "Cloud SQL data disk size in GB."
   type        = number

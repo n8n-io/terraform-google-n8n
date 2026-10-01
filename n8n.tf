@@ -355,6 +355,7 @@ resource "helm_release" "n8n" {
           }]
         }
       }] : [],
+      local.manage_postgres_ssl_ca ? [local.n8n_postgres_ssl_ca_volume] : [],
       local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_volume] : [],
       local.n8n_caller_extra_volumes,
     )
@@ -366,6 +367,7 @@ resource "helm_release" "n8n" {
         subPath   = "ca.crt"
         readOnly  = true
       }] : [],
+      local.manage_postgres_ssl_ca ? [local.n8n_postgres_ssl_ca_mount] : [],
       local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_mount] : [],
       local.n8n_caller_extra_volume_mounts,
     )
@@ -542,15 +544,11 @@ resource "helm_release" "n8n" {
       timezone = var.n8n_timezone
       extraEnv = concat(
         # Direct connections to Cloud SQL over private IP use SSL with a Google CA that Node.js
-        # does not trust by default, so cert verification is skipped within the VPC. Set
-        # db_postgresdb_ssl_enabled = false when n8n's DB host is an in-cluster pooler (e.g.
-        # PgBouncer) that handles SSL on its upstream leg.
-        var.db_postgresdb_ssl_enabled ? [
-          { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
-          { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = "false" },
-          ] : [
-          { name = "DB_POSTGRESDB_SSL_ENABLED", value = "false" },
-        ],
+        # does not trust by default, so cert verification is skipped within the VPC unless
+        # db_postgresdb_ssl_reject_unauthorized is also set (rejected on the managed path, see
+        # that variable's description). Set db_postgresdb_ssl_enabled = false when n8n's DB host
+        # is an in-cluster pooler (e.g. PgBouncer) that handles SSL on its upstream leg.
+        local.n8n_postgres_ssl_env,
         [
           { name = "N8N_LOG_LEVEL", value = var.n8n_log_level },
           # N8N_LOG_OUTPUT controls *where* logs go (console / file), not their

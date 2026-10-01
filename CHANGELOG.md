@@ -43,6 +43,25 @@ this project adheres to the stability contract in
   (`volatile-lfu`, `allkeys-lfu`) need Redis 4.0 or later, so they are
   rejected at plan time with `redis_version = "REDIS_3_2"`. See the matching
   "Changed" entry for the new default.
+- `db_postgresdb_ssl_reject_unauthorized` lets n8n validate the PostgreSQL
+  server's certificate (`DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true`) on the
+  external PostgreSQL path (`create_postgres_instance = false`) instead of
+  the previously hardcoded `false`, which encrypted the connection but never
+  validated it. Restricted to the external path: the module-managed Cloud
+  SQL instance always connects over its private IP, whose certificate never
+  names that IP as a Subject Alternative Name, so certificate verification
+  would deterministically fail the TLS handshake there; see
+  [`docs/postgresql-tls.md`](./docs/postgresql-tls.md) for the full
+  explanation and limits.
+- `db_postgresdb_ssl_ca_secret_ref` references an existing Kubernetes Secret
+  holding the PEM-encoded CA bundle to trust for that verification, mounted
+  read-only on every n8n role (main, worker, webhook processor) via
+  `DB_POSTGRESDB_SSL_CA_FILE`. The module never reads the Secret's value.
+- `postgres_ssl_mode` lets the module-managed Cloud SQL instance reject
+  unencrypted connections outright (`ip_configuration.ssl_mode =
+  ENCRYPTED_ONLY`) instead of the previously hardcoded
+  `ALLOW_UNENCRYPTED_AND_ENCRYPTED`. Default is unchanged, so existing
+  deployments see no plan diff.
 
 ### Changed
 
