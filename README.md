@@ -191,6 +191,12 @@ a manual restart, corrected canonical URLs, Redis prefix/persistence
 transitions, and any resource-address changes needing a manual
 `terraform state mv`.
 
+Several inputs and hardcoded values pick a resource's shape once, at create
+time; changing them later forces replacement (data loss/downtime) or is
+rejected by GCP outright. See
+[`docs/build-time-decisions.md`](./docs/build-time-decisions.md) for the full,
+verified list.
+
 For a full account of which AWS module (`terraform-aws-n8n`) capabilities
 through its `0.4.0` release were ported, adapted for Google, already covered,
 or deliberately excluded, see

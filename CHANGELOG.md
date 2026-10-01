@@ -7,6 +7,16 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- `docs/build-time-decisions.md`: a verified table of inputs and hardcoded
+  values that pick a resource's shape at create time (GKE region/private-node
+  CIDR/Dataplane V2, node pool machine type/disk, subnet/secondary-range
+  sizing, Cloud SQL region/edition/private-network, Memorystore tier/region/
+  connect mode/AUTH/transit encryption/CMEK, GCS location, the n8n encryption
+  key, and the FQDN), where changing them later forces replacement or is
+  rejected by GCP. Linked from README.md's day-2 operations section.
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release
