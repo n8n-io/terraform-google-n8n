@@ -1,7 +1,7 @@
 # Plan-time tests for the customer-managed-gcs example using mocked providers.
 #
 # Run: terraform test
-#   (from examples/customer-managed-gcs/ - requires terraform >= 1.9)
+#   (from examples/customer-managed-gcs/ - requires terraform >= 1.11)
 
 mock_provider "google" {}
 mock_provider "google-beta" {}

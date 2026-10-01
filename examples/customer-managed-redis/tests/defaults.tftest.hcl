@@ -2,7 +2,7 @@
 # providers.
 #
 # Run: terraform test
-#   (from examples/customer-managed-redis/ - requires terraform >= 1.9)
+#   (from examples/customer-managed-redis/ - requires terraform >= 1.11)
 
 mock_provider "google" {}
 mock_provider "google-beta" {}

@@ -27,8 +27,8 @@ output "n8n_encryption_key" {
 }
 
 output "n8n_database_password" {
-  description = "Database password. Module-managed when create_postgres_instance = true, else the effective direct/Secret-reference value (null when supplied only via n8n_database_password_secret_ref, which the module never reads)."
-  value       = var.create_postgres_instance ? random_password.db_password[0].result : var.n8n_database_password
+  description = "Database password. Module-managed when create_postgres_instance = true, else the effective direct/Secret-reference value (null when supplied only via n8n_database_password_secret_ref, which the module never reads; also null when postgres_password_write_only = true, because the password never leaves the write-only password_wo argument for Terraform to expose)."
+  value       = var.create_postgres_instance ? (var.postgres_password_write_only ? null : random_password.db_password[0].result) : var.n8n_database_password
   sensitive   = true
 }
 

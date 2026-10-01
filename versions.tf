@@ -4,24 +4,35 @@
 # (see examples/small/providers.tf).
 
 terraform {
-  # >= 1.9 for stable cross-variable references in validation blocks; the module
-  # also uses dynamic blocks and optional() object attributes.
-  required_version = ">= 1.9"
+  # >= 1.9 was sufficient for stable cross-variable references in validation
+  # blocks (the module also uses dynamic blocks and optional() object
+  # attributes), but the postgres_password_write_only opt-in (cloudsql.tf)
+  # raises the floor to >= 1.11: an `ephemeral = true` variable
+  # (postgres_password_wo) needs Terraform 1.10's ephemeral-value support,
+  # and feeding it into google_sql_user.n8n's password_wo argument needs
+  # 1.11's write-only-argument support for managed resources. Both are
+  # parsed unconditionally from this module's HCL regardless of whether any
+  # caller sets postgres_password_write_only, so the floor is module-wide.
+  required_version = ">= 1.11"
 
   required_providers {
     # GCP substrate: GKE, Cloud SQL, Memorystore, GCS, networking, IAM, DNS.
-    # >= 6.1: google_container_cluster.secret_manager_config (gke.tf) does not
-    # exist in 6.0.x, and Terraform rejects an unknown block at validate time
-    # even when it renders with the add-on disabled.
+    # >= 6.23: google_sql_user's password_wo / password_wo_version
+    # (postgres_password_write_only, cloudsql.tf) do not exist before 6.23.0.
+    # This also covers the earlier >= 6.1 need:
+    # google_container_cluster.secret_manager_config (gke.tf) does not exist in
+    # 6.0.x, and Terraform rejects an unknown block at validate time even when
+    # it renders with the add-on disabled. Kept within the same 6.x major.
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.1"
+      version = "~> 6.23"
     }
     # Materializes Google-managed service agents before CMEK IAM grants.
-    # Kept in lockstep with google (docs/versioning.md).
+    # Kept in lockstep with google (docs/versioning.md). The module uses no
+    # google-beta-only write-only argument; the floor moves with google only.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 6.1"
+      version = "~> 6.23"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"

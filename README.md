@@ -323,7 +323,8 @@ unintentionally. This contract goes away at 1.0.0 in favor of standard SemVer.
 
 The module ships against specific provider majors and validated versions. See [`docs/versioning.md`](./docs/versioning.md) for the complete pin inventory (every provider, chart, and CI toolchain version, with its bump tier).
 
-- **Google provider:** `~> 6.1` (hashicorp/google and hashicorp/google-beta). 6.1 is the first release with `google_container_cluster.secret_manager_config`.
+- **Terraform CLI:** `>= 1.11`, for the `ephemeral` variable and write-only argument behind `postgres_password_write_only`.
+- **Google provider:** `~> 6.23` (hashicorp/google and hashicorp/google-beta, kept in lockstep). 6.23 is the first release with `google_sql_user`'s `password_wo`, and it also covers `google_container_cluster.secret_manager_config` (added in 6.1).
 - **Kubernetes provider:** `~> 3.0` (see [`CHANGELOG.md`](./CHANGELOG.md), Known limitations, for the deprecation warnings it prints). If your root module declares its own `kubernetes` provider constraint at `~> 2.0`, widen it first, or `terraform init` cannot satisfy both.
 - **`time` provider:** `~> 0.14`.
 - **n8n Helm chart:** default `1.14.0`.
@@ -373,9 +374,9 @@ license, and quotas.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.9 |
-| <a name="requirement_google"></a> [google](#requirement\_google) | ~> 6.1 |
-| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.1 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
+| <a name="requirement_google"></a> [google](#requirement\_google) | ~> 6.23 |
+| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.23 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
 | <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 3.0 |
@@ -387,8 +388,8 @@ license, and quotas.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_google"></a> [google](#provider\_google) | ~> 6.1 |
-| <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | ~> 6.1 |
+| <a name="provider_google"></a> [google](#provider\_google) | ~> 6.23 |
+| <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | ~> 6.23 |
 | <a name="provider_helm"></a> [helm](#provider\_helm) | ~> 3.0 |
 | <a name="provider_kubectl"></a> [kubectl](#provider\_kubectl) | ~> 1.14 |
 | <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | ~> 3.0 |
@@ -685,6 +686,9 @@ license, and quotas.
 | <a name="input_postgres_disk_size"></a> [postgres\_disk\_size](#input\_postgres\_disk\_size) | Cloud SQL data disk size in GB. | `number` | `50` | no |
 | <a name="input_postgres_edition"></a> [postgres\_edition](#input\_postgres\_edition) | Cloud SQL edition. ENTERPRISE supports shared-core/legacy tiers like db-g1-small (cheap, dev). ENTERPRISE\_PLUS requires db-perf-optimized-N-* tiers. Pinned because some projects/orgs default new instances to ENTERPRISE\_PLUS, which rejects db-g1-small. | `string` | `"ENTERPRISE"` | no |
 | <a name="input_postgres_machine_type"></a> [postgres\_machine\_type](#input\_postgres\_machine\_type) | Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE\_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with postgres\_edition. When postgres\_connection\_budget\_check\_enabled is true and create\_postgres\_instance is true, check.postgres\_pool\_size\_fits\_known\_max\_connections (checks.tf) warns at plan time when db\_postgresdb\_pool\_size times the modeled replica ceiling exceeds the known default max\_connections for this tier, but only for db-f1-micro, db-g1-small, db-custom-VCPUS-MEMORY\_MB, and db-perf-optimized-N-VCPUS shapes; other shapes (e.g. db-perf-optimized-C4-*, db-c4a-highmem-*, predefined series) are not covered and the check stays silent. See docs/sandbox.md. | `string` | `"db-g1-small"` | no |
+| <a name="input_postgres_password_wo"></a> [postgres\_password\_wo](#input\_postgres\_password\_wo) | Cloud SQL PostgreSQL user password, accepted as a write-only value so Terraform never persists it in plan or state files. Required when postgres\_password\_write\_only = true; must stay null otherwise, because the module generates its own password in that mode. Feed this from your own ephemeral source (for example an ephemeral resource reading a Google Secret Manager secret version) so the value never touches state on the caller's side either. Keep the Kubernetes Secret referenced by n8n\_database\_password\_secret\_ref in sync with the same value: Terraform never copies one into the other. | `string` | `null` | no |
+| <a name="input_postgres_password_wo_version"></a> [postgres\_password\_wo\_version](#input\_postgres\_password\_wo\_version) | Version marker for postgres\_password\_wo, forwarded to google\_sql\_user's password\_wo\_version. Increment this value whenever you rotate postgres\_password\_wo -- Terraform only re-applies a write-only value when its version number changes. Ignored when postgres\_password\_write\_only = false. | `number` | `1` | no |
+| <a name="input_postgres_password_write_only"></a> [postgres\_password\_write\_only](#input\_postgres\_password\_write\_only) | When true, the module writes the Cloud SQL PostgreSQL user's password through google\_sql\_user's write-only password\_wo argument (sourced from postgres\_password\_wo) instead of generating one with random\_password.db\_password and storing it in plain text in Terraform state. Requires postgres\_password\_wo to be set and n8n\_database\_password\_secret\_ref to reference a Kubernetes Secret you populate yourself (for example, synced from Google Secret Manager) -- the module cannot copy a write-only value into kubernetes\_secret.n8n\_db, so it creates no managed Secret and the n8n\_database\_password output is null on this path. Has no effect (must stay false) when create\_postgres\_instance = false; the module never manages a password for an external PostgreSQL endpoint. | `bool` | `false` | no |
 | <a name="input_postgres_query_logging_enabled"></a> [postgres\_query\_logging\_enabled](#input\_postgres\_query\_logging\_enabled) | When true, adds PostgreSQL database\_flags to log DDL statements (log\_statement=ddl) and statements taking at least 1000 ms (log\_min\_duration\_statement=1000). Defaults to false (Query Insights' aggregate statistics remain enabled either way; this is unrelated all-statement text logging). Logged slow-statement text may include literal query parameter values; review your organization's data-handling policy before enabling. Ignored when create\_postgres\_instance = false. | `bool` | `false` | no |
 | <a name="input_postgres_restore_backup_run_id"></a> [postgres\_restore\_backup\_run\_id](#input\_postgres\_restore\_backup\_run\_id) | Backup run ID to restore into the module-managed Cloud SQL instance at creation (the resource's restore\_backup\_context block). Requires postgres\_restore\_source\_instance\_name. Mutually exclusive with postgres\_clone\_source\_instance\_name. Ignored when create\_postgres\_instance = false. | `number` | `null` | no |
 | <a name="input_postgres_restore_source_instance_name"></a> [postgres\_restore\_source\_instance\_name](#input\_postgres\_restore\_source\_instance\_name) | Name of the Cloud SQL instance that owns the backup named by postgres\_restore\_backup\_run\_id. Must be set together with postgres\_restore\_backup\_run\_id. | `string` | `null` | no |
@@ -733,7 +737,7 @@ license, and quotas.
 | <a name="output_gke_kms_key_id"></a> [gke\_kms\_key\_id](#output\_gke\_kms\_key\_id) | Cloud KMS key ID the module configures for the module-managed GKE cluster's application-layer secrets encryption: the module-created key, or the supplied existing\_gke\_kms\_key\_id. Null when the module configures no key, which does not prove the cluster is unencrypted: a cluster encrypted before both inputs were cleared, or out of band, stays encrypted. Always null when create\_gke = false. |
 | <a name="output_kubectl_config_command"></a> [kubectl\_config\_command](#output\_kubectl\_config\_command) | Command to configure kubectl for this cluster. Adds --internal-ip when the module-managed cluster has gke\_enable\_private\_endpoint = true, so kubectl uses the private endpoint. |
 | <a name="output_lb_ingress_ip"></a> [lb\_ingress\_ip](#output\_lb\_ingress\_ip) | IP the module-managed Ingress reports once the LB is provisioned (should match static\_ip). Null when create\_ingress = false; the caller's own ingress reports its own address. |
-| <a name="output_n8n_database_password"></a> [n8n\_database\_password](#output\_n8n\_database\_password) | Database password. Module-managed when create\_postgres\_instance = true, else the effective direct/Secret-reference value (null when supplied only via n8n\_database\_password\_secret\_ref, which the module never reads). |
+| <a name="output_n8n_database_password"></a> [n8n\_database\_password](#output\_n8n\_database\_password) | Database password. Module-managed when create\_postgres\_instance = true, else the effective direct/Secret-reference value (null when supplied only via n8n\_database\_password\_secret\_ref, which the module never reads; also null when postgres\_password\_write\_only = true, because the password never leaves the write-only password\_wo argument for Terraform to expose). |
 | <a name="output_n8n_encryption_key"></a> [n8n\_encryption\_key](#output\_n8n\_encryption\_key) | n8n encryption key: the direct n8n\_encryption\_key when supplied, else the generated key. Back this up; losing it makes all stored credentials unreadable. Null when existing\_n8n\_core\_secret\_name supplies an existing core Secret; the module generates and reads no encryption key on that path. |
 | <a name="output_n8n_ingress_hosts"></a> [n8n\_ingress\_hosts](#output\_n8n\_ingress\_hosts) | Effective hostnames n8n serves the full main/webhook route set on: n8n\_fqdn followed by every configured n8n\_additional\_domains entry, normalized to lowercase. Populated the same way regardless of create\_ingress, so a customer-managed ingress can route the same hostnames the module would. |
 | <a name="output_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#output\_n8n\_kube\_namespace) | Kubernetes namespace n8n is deployed into. |

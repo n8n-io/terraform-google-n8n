@@ -11,9 +11,12 @@
 # locals.tf's effective_postgres_* / effective_db_password_secret_* locals and
 # n8n.tf's kubernetes_secret.n8n_db).
 #
-# Generated DB password.
+# Generated DB password. Skipped when var.postgres_password_write_only is
+# true -- that path feeds var.postgres_password_wo straight into
+# google_sql_user.n8n's write-only password_wo argument instead, so there is
+# no plain-text value for this resource to generate or store.
 resource "random_password" "db_password" {
-  count = var.create_postgres_instance ? 1 : 0
+  count = (var.create_postgres_instance && !var.postgres_password_write_only) ? 1 : 0
 
   length           = 24
   special          = true
@@ -235,10 +238,12 @@ resource "google_sql_database" "n8n" {
 resource "google_sql_user" "n8n" {
   count = var.create_postgres_instance ? 1 : 0
 
-  name     = var.n8n_database_user
-  project  = var.project_id
-  instance = google_sql_database_instance.n8n[0].name
-  password = random_password.db_password[0].result
+  name                = var.n8n_database_user
+  project             = var.project_id
+  instance            = google_sql_database_instance.n8n[0].name
+  password            = var.postgres_password_write_only ? null : random_password.db_password[0].result
+  password_wo         = var.postgres_password_write_only ? var.postgres_password_wo : null
+  password_wo_version = var.postgres_password_write_only ? var.postgres_password_wo_version : null
 
   # ABANDON: don't DROP USER on destroy, it fails because the user owns the n8n
   # schema objects ("role cannot be dropped because some objects depend on it").

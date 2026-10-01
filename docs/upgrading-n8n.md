@@ -586,3 +586,65 @@ module changed the routes you already own. `n8n_additional_domains` and
 Ingress; a caller-owned Ingress can still read the same effective hostname
 list from the `n8n_ingress_hosts` output if useful, but nothing requires it
 to.
+
+## Terraform CLI floor raised to >= 1.11
+
+**Breaking, every caller:** `required_version` is now `>= 1.11` (was `>= 1.9`),
+and the `google`/`google-beta` provider floors are now `~> 6.23` (was
+`~> 6.0`). Both are needed by the new opt-in `postgres_password_write_only`
+(see `cloudsql.tf` and the "Cloud SQL PostgreSQL" section of `variables.tf`):
+an `ephemeral = true` variable (`postgres_password_wo`) needs Terraform
+1.10's ephemeral-value support, and feeding it into `google_sql_user.n8n`'s
+`password_wo` argument needs 1.11's write-only-argument support for managed
+resources, which in turn needs `google` provider `>= 6.23.0`
+(`google_sql_user.password_wo`/`password_wo_version`). Both floors are
+parsed from this module's HCL unconditionally, so they apply to every
+caller regardless of whether `postgres_password_write_only` is set.
+
+Upgrade the Terraform CLI (and let the `google`/`google-beta` providers
+resolve within the new range) before running `terraform plan` against this
+module version; an older CLI fails at parse time on the unsupported
+`ephemeral = true` argument, before any resource is evaluated. No state
+migration is required for this change by itself: the floor bump alone does
+not change any resource's planned attributes.
+
+## Opt-in: `postgres_password_write_only`
+
+New, fully opt-in (default `false`, no plan diff for existing callers).
+Setting `postgres_password_write_only = true` (with
+`create_postgres_instance = true`) writes the Cloud SQL user's password
+through `google_sql_user.n8n`'s write-only `password_wo` argument instead of
+generating one with `random_password.db_password` and storing it in plain
+text in Terraform state. Feed the actual value through
+`postgres_password_wo` -- an `ephemeral` module variable, so Terraform never
+writes it to a plan or state file -- and increment
+`postgres_password_wo_version` whenever you rotate it; Terraform only
+re-applies a write-only value when its version number changes.
+
+Because the value never touches state, the module also cannot copy it into
+the Kubernetes Secret it would otherwise manage (`kubernetes_secret.n8n_db`,
+in `n8n.tf`): the `kubernetes` provider's write-only `data_wo` support
+exists only on `kubernetes_secret_v1`, and this module still uses the
+unversioned `kubernetes_secret` type for its other managed Secrets (see
+`CHANGELOG.md`, Known limitations, on why). Enabling
+`postgres_password_write_only` therefore also requires
+`n8n_database_password_secret_ref`: populate that Secret yourself, outside
+Terraform, with the same password you passed to `postgres_password_wo` --
+for example, synced from Google Secret Manager with External Secrets
+Operator or the Secret Manager CSI driver. The module never reads that
+Secret's value, so nothing checks the two stay in sync; a mismatch surfaces
+as a PostgreSQL authentication failure on the next pod restart, not a
+Terraform error. The `n8n_database_password` output is `null` on this path
+for the same reason.
+
+**Switching an existing managed deployment onto this path replaces the
+user's password out of band of Terraform's own change detection.** Flipping
+`postgres_password_write_only` from `false` to `true` moves
+`google_sql_user.n8n` from `password` to `password_wo`; the provider applies
+this as a password update, not a user replacement, but every existing
+session's cached credential still points at the old password until you
+update the Kubernetes Secret and roll the n8n pods. Plan a maintenance
+window: apply with the new write-only value, confirm the Secret you manage
+carries the same password, then restart the `n8n-main`, `n8n-worker`, and
+`n8n-webhook-processor` deployments (and any `n8n_worker_pools` deployments)
+so they pick up the refreshed Secret.

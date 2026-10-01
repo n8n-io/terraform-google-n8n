@@ -207,11 +207,14 @@ locals {
   # source (n8n_database_password_secret_ref.name is null on the direct-value
   # path); manage_db_secret decides whether n8n.tf's kubernetes_secret.n8n_db
   # is created at all, or whether n8n reads the caller's existing Secret
-  # directly (D7). effective_postgres_kms_key_id lives in kms.tf next to the
-  # key resources it derives from.
+  # directly (D7) -- true for the external path's Secret-reference source and
+  # for the module-managed path's opt-in postgres_password_write_only, which
+  # requires n8n_database_password_secret_ref instead (the module cannot copy
+  # a write-only value into a Secret it manages). effective_postgres_kms_key_id
+  # lives in kms.tf next to the key resources it derives from.
   effective_postgres_host = var.create_postgres_instance ? google_sql_database_instance.n8n[0].private_ip_address : var.n8n_database_host
 
-  manage_db_secret = var.create_postgres_instance || var.n8n_database_password_secret_ref == null
+  manage_db_secret = var.create_postgres_instance ? !var.postgres_password_write_only : (var.n8n_database_password_secret_ref == null)
 
   effective_db_password_secret_name = local.manage_db_secret ? kubernetes_secret.n8n_db[0].metadata[0].name : var.n8n_database_password_secret_ref.name
   effective_db_password_secret_key  = local.manage_db_secret ? "password" : var.n8n_database_password_secret_ref.key
