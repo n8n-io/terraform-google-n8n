@@ -237,8 +237,8 @@ this project adheres to the stability contract in
   overwrites any `maxmemory-policy` set outside Terraform; see
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
 - **Breaking:** `required_version` is now `>= 1.11` (was `>= 1.9`).
-  `postgres_password_write_only`'s `ephemeral` variable needs Terraform 1.10,
-  and passing it to the write-only `password_wo` argument needs 1.11 (see
+  The `ephemeral` variable `postgres_password_wo` needs Terraform 1.10, and
+  passing it to the write-only `password_wo` argument needs 1.11 (see
   "Added" above). The floor applies module-wide regardless of whether you
   set that variable, because Terraform parses `ephemeral` and write-only
   syntax from this module's HCL unconditionally. The `modules/controllers`
