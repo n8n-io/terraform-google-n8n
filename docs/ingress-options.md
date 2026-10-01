@@ -6,7 +6,9 @@ about the mechanics of replacing the module's own ingress. For the latter
 webhook-before-catch-all route-ordering rule, and the "200 with an HTML
 body" misroute trap), see
 [`docs/customer-managed-infrastructure.md`](./customer-managed-infrastructure.md#ingress-and-application-autoscaling)
-and [`examples/split-ingress`](../examples/split-ingress). This document does
+(the exact outputs), [`docs/istio-ingress.md`](./istio-ingress.md) (the
+route-ordering rule and misroute trap), and
+[`examples/split-ingress`](../examples/split-ingress). This document does
 not repeat that contract; it only tells you when to leave the module's
 default path and reach for `create_ingress = false` plus one of the
 alternatives below.
@@ -59,8 +61,9 @@ Reach for the [Kubernetes Gateway API][gateway-api-concepts] instead of
 GKE exposes several `GatewayClass`es; the two most relevant to this module
 are `gke-l7-global-external-managed` (global external Application Load
 Balancer, Google's recommended default for internet-facing apps, Anycast
-IP) and `gke-l7-regional-external-managed` (external traffic pinned to one
-region, the closest Gateway analogue to this module's single-region
+IP, the closest Gateway analogue to this module's default global-ALB
+behavior) and `gke-l7-regional-external-managed` (external traffic pinned
+to one region, useful if you need the load balancer itself confined to this
 topology). `gke-l7-rilb` is the internal counterpart (see below). Avoid the
 legacy `gke-l7-gxlb` class; Google documents it as built on the Classic
 Application Load Balancer with no HTTP-to-HTTPS redirect and no custom
