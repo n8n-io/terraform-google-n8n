@@ -137,7 +137,7 @@ output "gke_cluster_name" {
 }
 
 output "gke_cluster_endpoint" {
-  description = "Effective GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>). Resolves to the module-managed cluster's endpoint, or to the existing cluster named by existing_gke_cluster_name."
+  description = "Effective GKE control-plane endpoint. Pass to the kubernetes/helm providers as host (https://<endpoint>). Resolves to the module-managed cluster's endpoint, or to the existing cluster named by existing_gke_cluster_name. When var.gke_enable_private_endpoint is true, this is the private endpoint IP; only a host with network connectivity to it (in-VPC, peered, or VPN/Interconnect-connected, within the same region as gcp_region unless master_global_access_config is enabled out of band) can actually reach it, so the kubernetes/helm/kubectl providers and any CI/CD runner applying this module need that connectivity."
   value       = local.effective_gke_cluster_endpoint
 }
 
