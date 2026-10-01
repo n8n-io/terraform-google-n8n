@@ -570,6 +570,18 @@ variable "redis_transit_encryption_enabled" {
   nullable    = false
 }
 
+variable "redis_maxmemory_policy" {
+  description = "Memorystore maxmemory-policy (redis_configs[\"maxmemory-policy\"]) on the module-managed instance. Memorystore's own default is volatile-lru, which can silently evict Bull queue keys (they carry a TTL) under memory pressure, dropping in-flight/queued n8n executions. Defaults to noeviction, which instead returns an error on write once the instance is full, trading a visible failure for silent job loss. Ignored when create_redis_instance = false; configure the external service's own maxmemory-policy out of band instead."
+  type        = string
+  default     = "noeviction"
+  nullable    = false
+
+  validation {
+    condition     = contains(["noeviction", "allkeys-lru", "volatile-lru", "allkeys-random", "volatile-random", "volatile-ttl", "volatile-lfu", "allkeys-lfu"], var.redis_maxmemory_policy)
+    error_message = "redis_maxmemory_policy must be one of noeviction, allkeys-lru, volatile-lru, allkeys-random, volatile-random, volatile-ttl, volatile-lfu, or allkeys-lfu (the Memorystore-supported maxmemory policies)."
+  }
+}
+
 # ── Opt-in Memorystore RDB persistence (managed instance only) ───────────────
 # Memorystore's own automatic last-snapshot recovery (persistence_config),
 # not AWS ElastiCache's numbered snapshot-retention count: enabling this keeps

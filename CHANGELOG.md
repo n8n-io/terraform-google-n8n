@@ -38,6 +38,11 @@ this project adheres to the stability contract in
   `docs/istio-ingress.md`; does not duplicate the routing contract already
   documented in `docs/customer-managed-infrastructure.md` and
   `docs/istio-ingress.md`.
+- `redis_maxmemory_policy`: sets Memorystore's `maxmemory-policy` on the
+  module-managed instance (default `"noeviction"`). The LFU policies
+  (`volatile-lfu`, `allkeys-lfu`) need Redis 4.0 or later, so they are
+  rejected at plan time with `redis_version = "REDIS_3_2"`. See the matching
+  "Changed" entry for the new default.
 
 ### Changed
 
@@ -94,6 +99,15 @@ this project adheres to the stability contract in
   - The chart's own values validation now reports every failure in one
     render instead of stopping at the first (n8n-hosting#209).
   - See `docs/upgrading-n8n.md`, "Moving from chart 1.13.0 to 1.14.0".
+- **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
+  sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
+  instance, replacing Memorystore's own `volatile-lru` default. Under memory
+  pressure, `volatile-lru` evicts keys that carry a TTL. These include Bull's
+  per-job lock keys, so an in-flight n8n execution can lose its lock and fail
+  as stalled. `noeviction` instead rejects writes once the instance is full.
+  This is an in-place configuration update with no instance restart, but it
+  overwrites any `maxmemory-policy` set outside Terraform; see
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
 
 ## [0.1.0] - 2026-09-29
 
