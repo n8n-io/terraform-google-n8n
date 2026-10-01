@@ -156,7 +156,7 @@ variable "postgres_edition" {
 }
 
 variable "postgres_machine_type" {
-  description = "Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with postgres_edition."
+  description = "Cloud SQL machine tier. ENTERPRISE: e.g. db-g1-small, db-custom-2-7680. ENTERPRISE_PLUS: e.g. db-perf-optimized-N-2. Must be compatible with postgres_edition. When postgres_connection_budget_check_enabled is true, check.postgres_pool_size_fits_known_max_connections (checks.tf) warns at plan time when db_postgresdb_pool_size times the modeled replica ceiling exceeds the known default max_connections for this tier; see docs/sandbox.md."
   type        = string
   default     = "db-g1-small"
 }
@@ -177,6 +177,13 @@ variable "postgres_deletion_protection" {
   description = "Block terraform destroy of the Cloud SQL instance."
   type        = bool
   default     = true
+}
+
+variable "postgres_connection_budget_check_enabled" {
+  description = "Enables check.postgres_pool_size_fits_known_max_connections (checks.tf), an advisory plan-time warning (never a hard failure) comparing db_postgresdb_pool_size times the modeled main/worker/webhook-processor/n8n_worker_pools replica ceilings against the known default max_connections Cloud SQL assigns for postgres_machine_type's memory. Off by default because the module's own default autoscaler ceilings already exceed db-g1-small's budget; enable it once you have picked replica ceilings and a postgres_machine_type you intend to run at, to catch a mismatch before it causes connection exhaustion under load. See docs/sandbox.md."
+  type        = bool
+  default     = false
+  nullable    = false
 }
 
 # ── Cloud SQL backup and query-logging tuning (managed instance only) ────────

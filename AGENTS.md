@@ -81,7 +81,7 @@ expected by the Terraform Registry:
 | `examples/worker-pools/`          | EARLY ALPHA: labelled worker pools (`n8n_worker_pools`), sizing-equivalent to `small` apart from `gke_node_max_per_zone`. Creates the VPC. |
 | `tests/*.tftest.hcl`              | `terraform test` plan-time tests with mocked providers.     |
 | `tests/scripts/smoke-test.sh`     | Post-`apply` smoke test for live deployments.               |
-| `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`. |
+| `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`, `sandbox.md` (cheaper single-main dev profile, plus the PostgreSQL connection-budget check in `checks.tf`). |
 | `.github/workflows/`              | CI: fmt, terraform-docs, validate, test, tflint, chart-render, checkov. |
 | `.github/CODEOWNERS` / `CONTRIBUTORS` | Default reviewers and the current maintainer list; keep the two in sync. |
 | `Taskfile.yml`                    | Optional [`task`](https://taskfile.dev) wrapper around the local development loop below (`task ci`). Its `EXAMPLES` list must match the CI job matrices. Not a CI dependency. |

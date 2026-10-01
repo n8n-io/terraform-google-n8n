@@ -282,3 +282,105 @@ check "graceful_shutdown_fits_grace_period" {
     error_message = "n8n_graceful_shutdown_timeout is unset, so n8n uses the chart's default shutdown timeout of ${local.n8n_chart_default_graceful_shutdown_timeout}s. That plus n8n_prestop_sleep (${var.n8n_prestop_sleep}s) does not stay below n8n_termination_grace_period (${var.n8n_termination_grace_period}s), so Kubernetes can SIGKILL a pod before n8n finishes shutting down and interrupt running executions. Set n8n_graceful_shutdown_timeout to a value that fits, lower n8n_prestop_sleep, or raise n8n_termination_grace_period."
   }
 }
+
+# ── Diagnostics: PostgreSQL connection budget vs. known Cloud SQL defaults ───
+# Opt-in (postgres_connection_budget_check_enabled, default false): the
+# module's own default autoscaler ceilings already exceed db-g1-small's
+# known budget (see below), so this stays off until a caller has settled on
+# both a postgres_machine_type and replica ceilings and wants this advisory
+# guard against a later regression. Cloud SQL for PostgreSQL derives
+# max_connections once, at instance provisioning, from the selected machine
+# type's memory, and does not recalculate it on a later postgres_machine_type
+# change (same caveat Azure documents for Flexible Server; see
+# docs/sandbox.md).
+# This check catches the arithmetic db_postgresdb_pool_size's own
+# description already asks callers to budget by hand: pool size times the
+# modeled pod ceiling (effective main, worker, webhook-processor, and any
+# n8n_worker_pools, mirroring capacity.tf's own capacity_main_max_replicas /
+# capacity_worker_max_replicas / capacity_webhook_max_replicas
+# replica-ceiling locals, reused here rather than duplicated) against
+# Google's own published default-by-memory table.
+#
+# Source (checked 2026-10-01): https://cloud.google.com/sql/docs/postgres/flags,
+# the max_connections row: "The default value depends on the amount of
+# memory of the largest instance in the chain of primaries":
+#   Memory (GB) on largest instance | Default value
+#   tiny (~0.5)                     | 25   (db-f1-micro)
+#   small (~1.7)                    | 50   (db-g1-small)
+#   3.75 to < 6                     | 100
+#   6 to < 7.5                      | 200
+#   7.5 to < 15                     | 400
+#   15 to < 30                      | 500
+#   30 to < 60                      | 600
+#   60 to < 120                     | 800
+#   >= 120                          | 1,000
+# db-f1-micro/db-g1-small (the legacy shared-core tiers, including this
+# module's own postgres_machine_type default) match the "tiny"/"small" rows
+# literally; every other recognized shape derives its memory from the
+# Enterprise-edition db-custom-<vcpus>-<memory_mb> naming convention, which
+# Google documents as encoding memory in MiB directly in the name (see
+# https://cloud.google.com/sql/docs/postgres/instance-settings, "Machine
+# Type", and https://cloud.google.com/compute/docs/instances/creating-instance-with-custom-machine-type
+# for the underlying Compute Engine convention Cloud SQL reuses). regex()
+# is wrapped in try() because Terraform 1.9 does not short-circuit && / ||
+# (AGENTS.md); a non-matching string must not raise an error here. With
+# exactly one capture group, regex() returns a one-element list (not a bare
+# string), hence the [0] index before tonumber(). Other recognized tiers --
+# ENTERPRISE_PLUS db-perf-optimized-N-<vcpus>, and any predefined series
+# such as n2-standard-<N> -- encode vCPU count, not memory, in the name, and
+# Cloud SQL's documented GB-per-vCPU ratio for those varies by series
+# (6.75-8 GB/vCPU); deriving memory for them reliably would need a second
+# per-series table this change does not add, so they resolve to null
+# (silent) rather than a guessed bucket.
+locals {
+  postgres_machine_type_custom_memory_mb = try(
+    tonumber(regex("^db-custom-[0-9]+-([0-9]+)$", var.postgres_machine_type)[0]),
+    null
+  )
+
+  postgres_max_user_connections_known = (
+    var.postgres_machine_type == "db-f1-micro" ? 25 :
+    var.postgres_machine_type == "db-g1-small" ? 50 :
+    local.postgres_machine_type_custom_memory_mb == null ? null :
+    local.postgres_machine_type_custom_memory_mb < 6144 ? 100 :
+    local.postgres_machine_type_custom_memory_mb < 7680 ? 200 :
+    local.postgres_machine_type_custom_memory_mb < 15360 ? 400 :
+    local.postgres_machine_type_custom_memory_mb < 30720 ? 500 :
+    local.postgres_machine_type_custom_memory_mb < 61440 ? 600 :
+    local.postgres_machine_type_custom_memory_mb < 122880 ? 800 :
+    1000
+  )
+
+  # sum()'s [0] seed keeps the no-pools default at 0 rather than erroring on
+  # an empty list (mirrors capacity.tf's capacity_pool_peak_* pattern).
+  n8n_worker_pools_max_replicas_sum = sum(concat([0], [for p in var.n8n_worker_pools : p.max_replicas]))
+
+  n8n_postgres_peak_connections = var.db_postgresdb_pool_size * (
+    local.capacity_main_max_replicas +
+    local.capacity_worker_max_replicas +
+    local.capacity_webhook_max_replicas +
+    local.n8n_worker_pools_max_replicas_sum
+  )
+}
+
+check "postgres_pool_size_fits_known_max_connections" {
+  assert {
+    condition = (var.postgres_connection_budget_check_enabled && var.create_postgres_instance && local.postgres_max_user_connections_known != null) ? (
+      local.n8n_postgres_peak_connections <= local.postgres_max_user_connections_known
+    ) : true
+    error_message = join("", [
+      "db_postgresdb_pool_size (${var.db_postgresdb_pool_size}) times the modeled pod ceiling (main ",
+      "${local.capacity_main_max_replicas} + worker ${local.capacity_worker_max_replicas} + webhook ",
+      tostring(local.capacity_webhook_max_replicas),
+      local.n8n_worker_pools_max_replicas_sum > 0 ? " + worker pools ${local.n8n_worker_pools_max_replicas_sum}" : "",
+      ") demands up to ${local.n8n_postgres_peak_connections} connections at full scale-out, over the ",
+      "${coalesce(local.postgres_max_user_connections_known, 0)}-connection budget Cloud SQL allocates by default for postgres_machine_type = ",
+      "\"${var.postgres_machine_type}\" (fixed at provisioning from the machine type's memory; a later ",
+      "postgres_machine_type change does not recalculate it, see docs/sandbox.md). Fix with one of: (1) lower ",
+      "db_postgresdb_pool_size, (2) lower the main/worker/webhook-processor autoscaler maxima (or any ",
+      "n8n_worker_pools max_replicas), or (3) move to a larger postgres_machine_type whose budget covers the ",
+      "demand above. A database_flags max_connections override set out of band also works but this module ",
+      "exposes no input for it. This diagnostic is advisory and does not fail the plan.",
+    ])
+  }
+}
