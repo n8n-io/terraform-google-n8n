@@ -81,7 +81,7 @@ expected by the Terraform Registry:
 | `examples/worker-pools/`          | EARLY ALPHA: labelled worker pools (`n8n_worker_pools`), sizing-equivalent to `small` apart from `gke_node_max_per_zone`. Creates the VPC. |
 | `tests/*.tftest.hcl`              | `terraform test` plan-time tests with mocked providers.     |
 | `tests/scripts/smoke-test.sh`     | Post-`apply` smoke test for live deployments.               |
-| `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`. |
+| `docs/`                           | Long-form supplementary docs: `customer-managed-infrastructure.md` (ownership matrix and security boundary), `post-deployment.md`, `destroy-cleanup.md`, `troubleshooting.md`, `sandbox.md` (cheaper single-main dev profile, plus the PostgreSQL connection-budget check in `checks.tf`). |
 | `.github/workflows/`              | CI: fmt, terraform-docs, validate, test, tflint, chart-render, checkov. |
 | `.github/CODEOWNERS` / `CONTRIBUTORS` | Default reviewers and the current maintainer list; keep the two in sync. |
 | `Taskfile.yml`                    | Optional [`task`](https://taskfile.dev) wrapper around the local development loop below (`task ci`). Its `EXAMPLES` list must match the CI job matrices. Not a CI dependency. |
@@ -415,7 +415,9 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   Symptom/Cause/Fix convention), MD040 (fenced-code-language; a handful of
   pre-existing shell-prompt-style fences), and MD060 (table-column-style; a
   rule new enough that none of this repo's existing tables were written
-  against it). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
+  against it), and scopes MD024 (no-duplicate-heading) to `siblings_only`
+  (Keep a Changelog repeats section headings such as `### Added` under every
+  release in `CHANGELOG.md`). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
   wrapped in `<!-- markdownlint-disable -->`/`<!-- markdownlint-restore -->`
   comments placed outside the block, so its anchor tags and placeholder
   tokens don't need hand-editing to pass MD033. Run locally with
