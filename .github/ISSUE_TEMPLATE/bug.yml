@@ -50,6 +50,12 @@ body:
         - "examples/large"
         - "examples/cloudflare"
         - "examples/godaddy"
+        - "examples/split-ingress"
+        - "examples/customer-managed-cluster"
+        - "examples/customer-managed-redis"
+        - "examples/customer-managed-gcs"
+        - "examples/customer-managed-everything"
+        - "examples/worker-pools"
         - "None, direct module usage from my own root module"
         - "Not sure / not applicable"
     validations:

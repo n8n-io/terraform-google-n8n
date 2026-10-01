@@ -11,6 +11,8 @@ vars:
   # .github/workflows/terraform-tests.yml (validate/test/tflint/docs jobs all
   # enumerate the same set). modules/controllers and its own examples/direct-use
   # are handled separately below since they aren't under examples/.
+  # The example dropdown in .github/ISSUE_TEMPLATE/bug.yml lists the same set,
+  # in the same order; update it too.
   EXAMPLES: small medium large cloudflare godaddy split-ingress customer-managed-cluster customer-managed-redis customer-managed-gcs customer-managed-everything worker-pools
 
 env:

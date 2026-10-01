@@ -266,6 +266,8 @@ file. Use `command = plan` unless you specifically need apply semantics.
   markers, `lockfile: false`) into every new example directory, and add the new
   example to the `docs`, `validate`, `test`, and `tflint` job matrices in
   `.github/workflows/terraform-tests.yml`, or CI silently skips it entirely.
+  Also add it to the `EXAMPLES` list in `Taskfile.yml` and the example
+  dropdown in `.github/ISSUE_TEMPLATE/bug.yml`, in the same order.
 
 - **A parent example's test can only prove a fully customer-managed
   composition creates no module-owned resource through the module's own
