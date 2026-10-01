@@ -1179,6 +1179,21 @@ variable "existing_gke_kms_key_id" {
   description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed GKE cluster should use for application-layer secrets encryption (etcd). Mutually exclusive with create_gke_kms_key. The module grants no IAM on a supplied existing key; grant the GKE service agent (service-<project_number>@container-engine-robot.iam.gserviceaccount.com) roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. Ignored when create_gke = false."
   type        = string
   default     = null
+
+  validation {
+    condition = var.existing_gke_kms_key_id == null || can(regex(
+      "^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$",
+      var.existing_gke_kms_key_id,
+    ))
+    error_message = "existing_gke_kms_key_id must be null or a fully qualified Cloud KMS CryptoKey ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>)."
+  }
+
+  validation {
+    condition = var.existing_gke_kms_key_id == null ? true : (
+      !var.create_gke || try(lower(split("/", var.existing_gke_kms_key_id)[3]), "") == lower(var.gcp_region)
+    )
+    error_message = "existing_gke_kms_key_id must be a regional key in gcp_region: the module-managed GKE cluster's application-layer secrets encryption requires the key and cluster to share a region. Ignored when create_gke = false."
+  }
 }
 
 # ── GKE Secret Manager add-on ────────────────────────────────────────────────

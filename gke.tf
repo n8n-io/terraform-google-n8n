@@ -150,8 +150,14 @@ resource "google_container_cluster" "n8n" {
 
   resource_labels = local.gcp_labels
 
-  # PSA peering must exist before the cluster if Cloud SQL/Memorystore are used.
-  depends_on = [google_service_networking_connection.psa]
+  # PSA peering must exist before the cluster if Cloud SQL/Memorystore are
+  # used. Also wait for the module-created key's IAM grant (kms.tf): GKE
+  # checks roles/cloudkms.cryptoKeyEncrypterDecrypter on the key during
+  # cluster creation, so the grant must land before the cluster, not race it.
+  depends_on = [
+    google_service_networking_connection.psa,
+    google_kms_crypto_key_iam_member.gke,
+  ]
 }
 
 # ── Node service account (least privilege) ────────────────────────────────────

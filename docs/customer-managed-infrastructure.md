@@ -47,7 +47,7 @@ because the module still does not touch resources it does not own.
 | Redis | `create_redis_instance` | `redis_host` (`redis_port`/`redis_tls_enabled`/`redis_username`/a password source as needed) | n8n's `redis.*` chart values, KEDA's `TriggerAuthentication` when any password source is present |
 | GCS bucket | `create_gcs_bucket` | `existing_gcs_bucket_name` | Bucket-scoped IAM for the effective HMAC identity (module-managed or BYO) |
 | GCS HMAC identity | (independent input) `gcs_hmac_service_account_email` | `gcs_hmac_access_id` plus `gcs_hmac_secret_name` or `gcs_hmac_secret` | The bucket IAM binding for that identity |
-| Cloud KMS (Cloud SQL / Redis / GCS) | `create_postgres_kms_key` / `create_redis_kms_key` / `create_gcs_kms_key` | `existing_postgres_kms_key_id` / `existing_redis_kms_key_id` / `existing_gcs_kms_key_id` | Nothing; the module grants no IAM on a supplied existing key, grant the relevant service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` out of band |
+| Cloud KMS (Cloud SQL / Redis / GCS / GKE) | `create_postgres_kms_key` / `create_redis_kms_key` / `create_gcs_kms_key` / `create_gke_kms_key` | `existing_postgres_kms_key_id` / `existing_redis_kms_key_id` / `existing_gcs_kms_key_id` / `existing_gke_kms_key_id` | Nothing; the module grants no IAM on a supplied existing key, grant the relevant service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` out of band |
 | KMS key ring | `create_kms_key_ring` | `existing_kms_key_ring_id` (only if any `create_*_kms_key` is true) | Nothing |
 | Namespace | `create_namespace` | `n8n_kube_namespace` names the existing namespace | Every namespaced resource (Secrets, ServiceAccount, Helm release) still targets it |
 | Core Secret | (independent input) `existing_n8n_core_secret_name` | `n8n_license_key_secret_ref` (the chart's core-Secret contract forbids a plain `n8n_license_key` alongside it) | Nothing for the core Secret/encryption key; other Secrets (DB, Redis, GCS HMAC) are independent |
@@ -390,12 +390,13 @@ orphaned `ScaledObject` finalizers behind, blocking namespace deletion, see
 ## Cloud KMS permissions
 
 A module-created CMEK key automatically grants the relevant Google Cloud
-service agent (Cloud SQL, Memorystore, or Cloud Storage)
+service agent (Cloud SQL, Memorystore, Cloud Storage, or GKE)
 `roles/cloudkms.cryptoKeyEncrypterDecrypter` on that key. A supplied existing
 key (`existing_postgres_kms_key_id`, `existing_redis_kms_key_id`,
-`existing_gcs_kms_key_id`) gets no IAM from the module; grant the same role
-to the corresponding service agent out of band, or the managed resource fails
-to create with a permission-denied error referencing the key.
+`existing_gcs_kms_key_id`, `existing_gke_kms_key_id`) gets no IAM from the
+module; grant the same role to the corresponding service agent out of band,
+or the managed resource fails to create with a permission-denied error
+referencing the key.
 
 ## Ingress route ownership
 

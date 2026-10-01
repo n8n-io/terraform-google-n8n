@@ -368,8 +368,12 @@ run "module_created_gke_key_wires_key_ring_and_iam" {
   }
 
   assert {
-    condition     = length(google_kms_crypto_key_iam_member.gke) == 1
-    error_message = "A module-created key must grant the GKE service agent IAM."
+    condition = (
+      length(google_kms_crypto_key_iam_member.gke) == 1 &&
+      google_kms_crypto_key_iam_member.gke[0].role == "roles/cloudkms.cryptoKeyEncrypterDecrypter" &&
+      google_kms_crypto_key_iam_member.gke[0].member == "serviceAccount:service-${data.google_project.n8n.number}@container-engine-robot.iam.gserviceaccount.com"
+    )
+    error_message = "A module-created key must grant roles/cloudkms.cryptoKeyEncrypterDecrypter to this project's container-engine-robot service agent, not some other role or principal."
   }
 
   assert {
@@ -423,6 +427,28 @@ run "existing_gke_key_creates_no_key_or_iam" {
     )
     error_message = "The managed cluster must use the supplied existing key."
   }
+}
+
+run "existing_gke_kms_key_id_malformed_shape_fails" {
+  command = plan
+
+  variables {
+    existing_gke_kms_key_id = "not-a-fully-qualified-key-id"
+  }
+
+  expect_failures = [var.existing_gke_kms_key_id]
+}
+
+run "existing_gke_kms_key_id_region_mismatch_fails" {
+  command = plan
+
+  variables {
+    # gcp_region is "us-east4" (file-level variables block above); this key's
+    # location segment deliberately does not match it.
+    existing_gke_kms_key_id = "projects/test-project/locations/europe-west1/keyRings/shared/cryptoKeys/gke"
+  }
+
+  expect_failures = [var.existing_gke_kms_key_id]
 }
 
 run "create_and_existing_gke_key_are_mutually_exclusive" {

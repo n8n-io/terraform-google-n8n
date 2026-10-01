@@ -81,7 +81,7 @@ check "gke_tuning_ignored_when_existing" {
       var.gke_node_disk_type == "pd-balanced" &&
       var.gke_secret_manager_addon_enabled == false
     )
-    error_message = "create_gke is false, but one or more managed-GKE tuning variables (gke_release_channel, gke_min_master_version, gke_deletion_protection, gke_enable_private_nodes, gke_node_type, gke_node_min_per_zone, gke_node_max_per_zone, gke_node_disk_size_gb, gke_node_disk_type, gke_secret_manager_addon_enabled) differ from their defaults. These are ignored when deploying onto an existing cluster; configure the existing cluster's node pools out of band instead."
+    error_message = "create_gke is false, but one or more managed-GKE tuning variables (gke_release_channel, gke_min_master_version, gke_deletion_protection, gke_enable_private_nodes, gke_node_type, gke_node_min_per_zone, gke_node_max_per_zone, gke_node_disk_size_gb, gke_node_disk_type, gke_secret_manager_addon_enabled) differ from their defaults. These are ignored when deploying onto an existing cluster; configure the existing cluster's node pools, and its Secret Manager CSI driver add-on, out of band instead."
   }
 }
 
