@@ -7,6 +7,15 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Fixed
+
+- Module-created Cloud KMS keys (`google_kms_crypto_key.postgres`, `.redis`,
+  and `.gcs`) now carry the module's standard labels (`local.gcp_labels`,
+  including `common_labels`), like every other labelled resource. Applying
+  this is an in-place label update on existing keys: no key replacement and
+  no re-encryption. Keys supplied through `existing_*_kms_key_id` are not
+  touched.
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release
