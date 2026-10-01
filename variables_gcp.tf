@@ -1055,7 +1055,7 @@ variable "gke_control_plane_authorized_networks" {
 }
 
 variable "gke_enable_private_endpoint" {
-  description = "When true, the GKE control-plane endpoint has no public IP (private_cluster_config.enable_private_endpoint) - only in-VPC, peered, or VPN/Interconnect-connected traffic can reach it. Default false preserves the current publicly reachable control plane. Requires gke_enable_private_nodes = true (GKE rejects a private endpoint on a cluster with public nodes) and a non-empty gke_control_plane_authorized_networks containing only internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) - Google rejects a public CIDR as an authorized network once the public endpoint is gone. Any caller applying this module (including CI/CD) needs that private connectivity once enabled: a bastion host inside the VPC, a VPN/Interconnect-connected network, or a Cloud Build private pool peered into the VPC. The control plane's private endpoint only resolves from the same region as the cluster (GKE's master_global_access_config default); an apply host outside gcp_region needs a region-matched peered network."
+  description = "When true, the GKE control-plane endpoint has no public IP (private_cluster_config.enable_private_endpoint) - only in-VPC, peered, or VPN/Interconnect-connected traffic can reach it. Default false preserves the current publicly reachable control plane. Requires gke_enable_private_nodes = true (GKE rejects a private endpoint on a cluster with public nodes) and a non-empty gke_control_plane_authorized_networks containing only internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) - Google rejects a public CIDR as an authorized network once the public endpoint is gone. Any caller applying this module (including CI/CD) needs that private connectivity once enabled: a bastion host inside the VPC, a VPN/Interconnect-connected network, or a Cloud Build private pool peered into the VPC. The control plane's private endpoint is reachable only from the same region as the cluster (GKE's master_global_access_config default); an apply host outside gcp_region needs a region-matched peered network."
   type        = bool
   default     = false
   nullable    = false
@@ -1070,10 +1070,13 @@ variable "gke_enable_private_endpoint" {
       length(var.gke_control_plane_authorized_networks) > 0 &&
       alltrue([
         for n in var.gke_control_plane_authorized_networks :
-        can(regex("^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.)", n.cidr_block))
+        can(cidrhost(n.cidr_block, 0)) && can(regex(
+          "^(10\\..+/([89]|1[0-9]|2[0-9]|3[0-2])|172\\.(1[6-9]|2[0-9]|3[0-1])\\..+/(1[2-9]|2[0-9]|3[0-2])|192\\.168\\..+/(1[6-9]|2[0-9]|3[0-2]))$",
+          n.cidr_block
+        ))
       ])
     )
-    error_message = "gke_enable_private_endpoint = true requires a non-empty gke_control_plane_authorized_networks whose entries are all internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Google rejects a public CIDR as an authorized network on a private endpoint (\"is not a reserved network, which is required for private endpoints\"), and the control plane has no public endpoint to fall back to."
+    error_message = "gke_enable_private_endpoint = true requires a non-empty gke_control_plane_authorized_networks whose entries are all valid, internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Google rejects a public CIDR as an authorized network on a private endpoint (\"is not a reserved network, which is required for private endpoints\"), and the control plane has no public endpoint to fall back to."
   }
 }
 

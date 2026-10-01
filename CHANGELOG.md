@@ -14,8 +14,8 @@ this project adheres to the stability contract in
   plan diff: `gke_enable_private_endpoint` (private GKE control-plane API
   server, validated to require `gke_enable_private_nodes = true` and a
   non-empty `gke_control_plane_authorized_networks` restricted to internal
-  RFC 1918 CIDRs) and `gke_security_group` (opts into GKE's RBAC-via-Google-
-  Groups feature, `authenticator_groups_config.security_group`, validated as
+  RFC 1918 CIDRs) and `gke_security_group` (opts into GKE's Google Groups
+  RBAC feature, `authenticator_groups_config.security_group`, validated as
   `gke-security-groups@<domain>`).
 
 ## [0.1.0] - 2026-09-29
