@@ -397,12 +397,13 @@ run "workload_identity_uses_effective_pool_for_existing_gke" {
 }
 
 # ── Canonical editor and webhook URLs (section 19) ──────────────────────────
-# The rendered config.extraEnv WEBHOOK_URL/N8N_WEBHOOK_URL/N8N_EDITOR_BASE_URL
+# The rendered config.extraEnv N8N_WEBHOOK_URL/WEBHOOK_URL/N8N_EDITOR_BASE_URL
 # entries live inside helm_release.n8n.values (unknown at plan time under the
 # mock provider - see AGENTS.md's known mock-provider limitations), so these
-# assert directly on local.effective_webhook_url (which n8n.tf's extraEnv
-# block sources both webhook names from) and on n8n_fqdn/n8n_webhook_url
-# themselves. End-to-end wiring is covered by tests/scripts/check-n8n-chart.sh.
+# assert directly on local.effective_webhook_url, on
+# local.n8n_webhook_url_env (the exact webhook list n8n.tf's extraEnv block
+# splices in), and on n8n_fqdn/n8n_webhook_url themselves. End-to-end wiring
+# is covered by tests/scripts/check-n8n-chart.sh.
 
 run "webhook_url_defaults_to_canonical_fqdn" {
   command = plan
@@ -482,5 +483,203 @@ run "webhook_url_accepts_path" {
   assert {
     condition     = local.effective_webhook_url == "https://hooks.example.com/n8n"
     error_message = "A valid https base URL with a path and no query/fragment/credentials must be accepted."
+  }
+}
+
+# ── Legacy WEBHOOK_URL ────────────────────────────────────────────────────────
+# n8n logs a deprecation warning for WEBHOOK_URL from 2.30.0, the release that
+# added N8N_WEBHOOK_URL. Older images build webhook URLs from it, so the module
+# drops the legacy name only when the tags prove the image is current and sends
+# it whenever they cannot (local.n8n_needs_legacy_webhook_url_env). Ported from
+# terraform-aws-n8n#160. List assertions compare a joined string, not the list
+# itself, because a list/object `==` between differently typed expressions
+# fails silently (see AGENTS.md).
+
+run "legacy_webhook_url_omitted_for_chart_default_image" {
+  command = plan
+
+  assert {
+    condition     = !local.n8n_needs_legacy_webhook_url_env
+    error_message = "A null n8n_image_tag runs the chart's default (2.30.0 or newer), which must not receive the deprecated WEBHOOK_URL."
+  }
+
+  assert {
+    condition     = join(",", [for e in local.n8n_webhook_url_env : "${e.name}=${e.value}"]) == "N8N_WEBHOOK_URL=https://n8n.test.example.com"
+    error_message = "At the defaults, config.extraEnv must carry N8N_WEBHOOK_URL alone."
+  }
+}
+
+run "legacy_webhook_url_omitted_from_2_30_0" {
+  command = plan
+
+  variables {
+    n8n_image_tag = "2.30.0"
+  }
+
+  assert {
+    condition     = !local.n8n_needs_legacy_webhook_url_env
+    error_message = "n8n 2.30.0 reads N8N_WEBHOOK_URL and must not receive the deprecated WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_emitted_before_2_30_0" {
+  command = plan
+
+  variables {
+    n8n_image_tag   = "2.29.8"
+    n8n_webhook_url = "https://hooks.example.com"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "n8n 2.29.x only reads WEBHOOK_URL, so the module must still emit it."
+  }
+
+  assert {
+    condition     = join(",", [for e in local.n8n_webhook_url_env : "${e.name}=${e.value}"]) == "N8N_WEBHOOK_URL=https://hooks.example.com,WEBHOOK_URL=https://hooks.example.com"
+    error_message = "For a pre-2.30.0 image, config.extraEnv must carry WEBHOOK_URL with the same value as N8N_WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_emitted_for_n8n_1_x" {
+  command = plan
+
+  variables {
+    n8n_image_tag = "1.123.4"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "n8n 1.x predates N8N_WEBHOOK_URL, so the module must emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_emitted_for_floating_upstream_tag" {
+  command = plan
+
+  variables {
+    n8n_image_tag             = "stable"
+    n8n_task_runner_image_tag = "2.41.4"
+  }
+
+  # The runner-tag fallback is for custom images only, and the chart pulls
+  # with IfNotPresent, so a floating tag can run an older cached image.
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "A floating upstream tag proves no version, even with a current runner tag, so the module must emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_uses_runner_tag_for_custom_image_tag" {
+  command = plan
+
+  variables {
+    n8n_image_repository      = "registry.example.com/n8n"
+    n8n_image_tag             = "mypackages"
+    n8n_task_runner_image_tag = "2.27.4"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "A custom tag with no version must fall back to n8n_task_runner_image_tag's version (2.27.4, pre-2.30.0)."
+  }
+}
+
+run "legacy_webhook_url_uses_current_runner_tag_for_custom_image_tag" {
+  command = plan
+
+  variables {
+    n8n_image_repository      = "registry.example.com/n8n"
+    n8n_image_tag             = "mypackages"
+    n8n_task_runner_image_tag = "2.41.4"
+  }
+
+  assert {
+    condition     = !local.n8n_needs_legacy_webhook_url_env
+    error_message = "A custom image whose runner tag is 2.30.0 or newer must not receive the deprecated WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_ignores_runner_tag_when_image_tag_is_null" {
+  command = plan
+
+  variables {
+    n8n_task_runner_image_tag = "2.27.4"
+  }
+
+  assert {
+    condition     = !local.n8n_needs_legacy_webhook_url_env
+    error_message = "A null n8n_image_tag runs the chart default, so a pre-2.30.0 runner tag must not emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_ignores_runner_tag_with_runners_disabled" {
+  command = plan
+
+  variables {
+    n8n_image_repository      = "registry.example.com/n8n"
+    n8n_image_tag             = "mypackages"
+    n8n_task_runner_image_tag = "2.41.4"
+    n8n_task_runners_enabled  = false
+  }
+
+  # Setting a runner tag with runners disabled also raises this warning.
+  expect_failures = [check.task_runner_image_tag_requires_task_runners]
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "With task runners disabled the runner tag is ignored, so a custom image with no version in its tag must emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_emitted_for_floating_chart_default" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.11.0"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "Charts 1.4.0 to 1.11.x default to the floating `stable` tag, so a null n8n_image_tag there must emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_emitted_for_chart_0_x_default" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "0.12.0"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "A null n8n_image_tag counts as current only at chart 1.12.0 or newer, so a 0.x chart with minor 12 must still emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_omitted_from_chart_1_12_0_default" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.12.0"
+  }
+
+  assert {
+    condition     = !local.n8n_needs_legacy_webhook_url_env
+    error_message = "Chart 1.12.0 defaults to n8n 2.39.6, so a null n8n_image_tag there must not emit WEBHOOK_URL."
+  }
+}
+
+run "legacy_webhook_url_emitted_for_custom_chart_repository_default" {
+  command = plan
+
+  variables {
+    n8n_chart_repository = "oci://registry.example.com/charts"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "A custom chart repository's default appVersion cannot be verified, so a null n8n_image_tag there must emit WEBHOOK_URL."
   }
 }

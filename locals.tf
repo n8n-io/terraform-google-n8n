@@ -9,9 +9,9 @@ locals {
   n8n_fqdn    = var.n8n_fqdn
 
   # One effective webhook base URL (task 19.1): explicit n8n_webhook_url,
-  # otherwise https://<n8n_fqdn>. Shared by both the legacy WEBHOOK_URL and
-  # current N8N_WEBHOOK_URL environment names in n8n.tf's config.extraEnv, so
-  # the two never drift apart.
+  # otherwise https://<n8n_fqdn>. Shared by N8N_WEBHOOK_URL and, on images
+  # that may predate n8n 2.30.0, the legacy WEBHOOK_URL
+  # (local.n8n_webhook_url_env), so the two never drift apart.
   effective_webhook_url = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
 
   # (GCP labels live in local.gcp_labels, network.tf.)
@@ -38,7 +38,7 @@ locals {
     "N8N_METRICS",
     "N8N_REINSTALL_MISSING_PACKAGES",
     "N8N_COMMUNITY_PACKAGES_PREVENT_LOADING",
-    "WEBHOOK_URL",
+    # WEBHOOK_URL is deliberately absent: it is in n8n_deprecated_env_names.
     "N8N_WEBHOOK_URL",
     "N8N_TEMPLATES_ENABLED",
     "N8N_PERSONALIZATION_ENABLED",
@@ -109,14 +109,19 @@ locals {
   ]
 
   # Env vars n8n has deprecated and logs a warning for on every start. The
-  # module does not set these on a current chart (one exception, noted
-  # below), and the n8n_extra_env/n8n_worker_extra_env/pool extra_env
+  # module does not set these on a current image (each has one exception,
+  # noted below), and the n8n_extra_env/n8n_worker_extra_env/pool extra_env
   # inputs reject them so a caller cannot bring the warning back either.
   n8n_deprecated_env_names = [
     # Ignored from n8n 2.0. Still sent to charts older than 1.14.0
     # (local.n8n_s3_storage_values), whose own default would otherwise drop
     # S3 from the available modes on n8n 1.x.
     "N8N_AVAILABLE_BINARY_DATA_MODES",
+    # Superseded by N8N_WEBHOOK_URL in n8n 2.30.0. Still sent when the image
+    # is not known to be 2.30.0 or newer
+    # (local.n8n_needs_legacy_webhook_url_env), since an older image cannot
+    # read the successor.
+    "WEBHOOK_URL",
   ]
 
   # Whole env-var families the module/chart owns, matched by prefix so the guard
@@ -423,7 +428,7 @@ locals {
     saveManualExecutions = var.n8n_executions_data_save_manual_executions
   }
 
-  # ── Chart-version gates ────────────────────────────────────────────────────
+  # ── Chart-version and image-version gates ──────────────────────────────────
   # Major and minor of n8n_chart_version. Its validation guarantees both are
   # numeric; split("+") drops build metadata as in capacity.tf. A prerelease
   # counts as its own major.minor ("1.14.0-rc.1" reads as 1.14).
@@ -445,6 +450,62 @@ locals {
   n8n_s3_storage_values = merge(
     { mode = "s3", forcePathStyle = true },
     local.n8n_chart_drops_available_modes ? {} : { availableModes = "filesystem,s3" },
+  )
+
+  # Whether the running n8n may predate N8N_WEBHOOK_URL (added in 2.30.0) and
+  # so still needs the legacy WEBHOOK_URL. Below 2.30.0, n8n builds webhook
+  # URLs from WEBHOOK_URL or else from N8N_PROTOCOL://N8N_HOST:N8N_PORT, which
+  # here is http://<n8n_fqdn>:5678/. Leaving WEBHOOK_URL out of an old image
+  # breaks webhook URLs silently, while sending it to a current one only costs
+  # a deprecation warning. So the module drops it only when the tags prove
+  # the image is current, and sends it whenever they cannot.
+  #
+  # The version, when one can be read:
+  #   - n8n_image_tag starts with a version ("2.27.4", "2.27.4-mypackages"):
+  #     that version decides.
+  #   - Otherwise, for a custom image (n8n_image_repository set) with a
+  #     non-null tag and task runners enabled, n8n_task_runner_image_tag,
+  #     since that is where callers put the underlying n8n version. It is
+  #     never read for a null n8n_image_tag (it only tags the sidecar), nor
+  #     with task runners disabled, where the input is documented as ignored.
+  #
+  # With no readable version, the image counts as current only when
+  # n8n_image_tag is null on the default chart repository at chart 1.12.0 or
+  # newer, whose appVersion is a concrete 2.39.6 or newer. A floating tag
+  # proves nothing: the chart pulls with IfNotPresent, so `stable`, `latest`,
+  # or the `stable` default of charts 1.4.0 to 1.11.x can run an older image
+  # a node cached earlier. A custom n8n_chart_repository's appVersion cannot
+  # be verified. An n8n_image_repository override with a null tag still
+  # counts as current: the chart tags it with the same concrete appVersion.
+  # Matches terraform-aws-n8n#160.
+  n8n_version_regex = "^v?([0-9]+)\\.([0-9]+)\\."
+  n8n_image_version_core = var.n8n_image_tag == null ? null : try(
+    regex(local.n8n_version_regex, var.n8n_image_tag),
+    var.n8n_image_repository != null && var.n8n_task_runners_enabled && var.n8n_task_runner_image_tag != null
+    ? try(regex(local.n8n_version_regex, var.n8n_task_runner_image_tag), null)
+    : null
+  )
+  n8n_image_known_current = (
+    var.n8n_image_tag == null &&
+    var.n8n_chart_repository == "oci://ghcr.io/n8n-io/n8n-helm-chart" && (
+      tonumber(local.n8n_chart_version_parts[0]) > 1 || (
+        tonumber(local.n8n_chart_version_parts[0]) == 1 &&
+        tonumber(local.n8n_chart_version_parts[1]) >= 12
+      )
+    )
+  )
+  n8n_needs_legacy_webhook_url_env = local.n8n_image_version_core != null ? (
+    tonumber(local.n8n_image_version_core[0]) < 2 ? true : (
+      tonumber(local.n8n_image_version_core[0]) == 2 && tonumber(local.n8n_image_version_core[1]) < 30
+    )
+  ) : !local.n8n_image_known_current
+
+  # The webhook env entries helm_release.n8n splices into config.extraEnv. A
+  # local so tests can assert the list: the release's values are unknown at
+  # plan under mocks (see AGENTS.md).
+  n8n_webhook_url_env = concat(
+    [{ name = "N8N_WEBHOOK_URL", value = local.effective_webhook_url }],
+    local.n8n_needs_legacy_webhook_url_env ? [{ name = "WEBHOOK_URL", value = local.effective_webhook_url }] : [],
   )
 
   # ── Caller-managed volumes (task 10) ───────────────────────────────────────

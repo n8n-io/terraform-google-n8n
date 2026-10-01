@@ -1944,6 +1944,49 @@ run "worker_pools_reject_deprecated_binary_data_modes" {
   expect_failures = [var.n8n_worker_pools]
 }
 
+# WEBHOOK_URL is on no other reserved list, so only the deprecated-names
+# validation can fail these runs.
+run "extra_env_rejects_deprecated_webhook_url" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "WEBHOOK_URL", value = "https://n8n.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
+run "worker_extra_env_rejects_deprecated_webhook_url" {
+  command = plan
+
+  variables {
+    n8n_worker_extra_env = [
+      { name = "WEBHOOK_URL", value = "https://n8n.example.com" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_extra_env]
+}
+
+run "worker_pools_reject_deprecated_webhook_url" {
+  command = plan
+
+  variables {
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "WEBHOOK_URL", value = "https://n8n.example.com" },
+        ]
+      },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
+}
+
 run "worker_pools_old_image_tag_triggers_check_warning" {
   command = plan
 
