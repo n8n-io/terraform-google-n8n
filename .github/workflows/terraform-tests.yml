@@ -139,10 +139,8 @@ jobs:
         # the block) to suppress false positives from terraform-docs output
         # (anchor tags, placeholder tokens) without hand-editing the
         # generated content itself. .markdownlint.json disables MD013
-        # (line-length; this repo does not hard-wrap prose), scopes MD024
-        # (no-duplicate-heading) to siblings_only (Keep a Changelog repeats
-        # "### Added"/"### Changed" under every release in CHANGELOG.md),
-        # MD036 (emphasis-as-heading; docs/troubleshooting.md's deliberate
+        # (line-length; this repo does not hard-wrap prose), MD036
+        # (emphasis-as-heading; docs/troubleshooting.md's deliberate
         # Symptom/Cause/Fix convention), MD040 (fenced-code-language; a
         # handful of pre-existing shell-prompt-style fences), and MD060
         # (table-column-style; a new pipe-alignment-style rule this repo's
