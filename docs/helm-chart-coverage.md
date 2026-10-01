@@ -48,7 +48,7 @@ this table never mentions.
 | `webhook` | See `webhookProcessor` | The chart's top-level `webhook` values namespace (as distinct from `webhookProcessor`) is not separately surfaced; verify against the pinned chart's schema before assuming they are the same key |
 | `executions` | `n8n_execution_timeout`, `n8n_execution_timeout_max`, `n8n_execution_concurrency_limit`, `n8n_executions_data_save_*` | |
 | `config` | `n8n_timezone`, `n8n_extra_env`, and the module's large set of dedicated `N8N_*`/`DB_*`/`QUEUE_*` inputs (via `config.extraEnv`) | Most application-level tuning flows through here as environment variables, not chart-native config keys |
-| `license` | `n8n_license_key`, `n8n_license_key_secret_ref` | |
+| `license` | `n8n_license_key`, `n8n_license_key_secret_ref`, `n8n_license_cert_secret_ref` (cert path renders through `config.extraEnv` instead of `license.existingSecret`) | |
 | `secretRefs` | Derived (`local.effective_core_secret_name`) | |
 | `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs | |
 | `redis` | `redis_*` inputs, KEDA/queue wiring, `n8n_queue_worker_lock_duration`/`n8n_queue_worker_lock_renew_time`/`n8n_queue_worker_stalled_interval`/`n8n_graceful_shutdown_timeout` (`redis.worker.*`) | `redis.worker.maxStalledCount` is not surfaced |
