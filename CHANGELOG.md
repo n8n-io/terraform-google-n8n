@@ -78,7 +78,9 @@ this project adheres to the stability contract in
   `license.existingSecret` block, which only ever maps to
   `N8N_LICENSE_ACTIVATION_KEY`. `license.enabled` stays `true` on this path
   because the chart also gates `N8N_MULTI_MAIN_SETUP_ENABLED` on
-  `license.enabled`, not on which credential backs it. See ["Offline license
+  `license.enabled`, not on which credential backs it. `name` and `key` are
+  validated as a Kubernetes Secret name (DNS-1123 subdomain) and data key
+  respectively, not just checked for non-blank. See ["Offline license
   activation"](./README.md#offline-license-activation) (ports
   [terraform-azurerm-n8n#51](https://github.com/n8n-io/terraform-azurerm-n8n/pull/51)).
 

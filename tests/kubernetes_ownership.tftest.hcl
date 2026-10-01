@@ -225,6 +225,7 @@ run "rejects_license_key_and_cert_secret_ref_together" {
   command = plan
 
   variables {
+    n8n_license_key             = "test-license-key-not-real"
     n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
   }
 
@@ -261,6 +262,28 @@ run "rejects_empty_license_cert_secret_ref_name" {
   variables {
     n8n_license_key             = null
     n8n_license_cert_secret_ref = { name = "", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_malformed_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "Not_A_Valid_K8s_Name!", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_malformed_license_cert_secret_ref_key" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "not a valid key" }
   }
 
   expect_failures = [var.n8n_license_cert_secret_ref]

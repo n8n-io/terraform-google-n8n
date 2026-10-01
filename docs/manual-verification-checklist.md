@@ -360,8 +360,11 @@ in a caller-managed Kubernetes Secret.
 1. Set `n8n_license_cert_secret_ref` (and `n8n_license_key = null`), ideally
    with egress to n8n's license server blocked, and `terraform apply`.
    Confirm `kubernetes_secret.n8n_license` is not created, and that
-   `helm get values n8n -n <namespace>` shows `license.enabled: true` with no
-   `existingSecret`/`activationKey`.
+   `helm get values n8n -n <namespace>` shows `license.enabled: true` with
+   an inert `existingSecret` block (empty `name`) and an empty
+   `activationKey` - that is the expected shape on this path, not a sign of
+   a leaked key - and that `kubectl -n n8n exec deploy/n8n-main -- printenv`
+   shows no `N8N_LICENSE_ACTIVATION_KEY`.
 2. Confirm activation from **Settings → License** or
    `kubectl -n n8n exec deploy/n8n-main -- n8n license:info`, with no
    outbound call to n8n's license server.
