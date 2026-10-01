@@ -413,9 +413,7 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
 
 - **`markdownlint`** (CI job, `markdownlint-cli2`) lints `README.md`,
   `AGENTS.md`, `CHANGELOG.md`, and `docs/*.md`. `.markdownlint.json` disables MD013
-  (line-length; this repo's prose is not hard-wrapped), scopes MD024
-  (no-duplicate-heading) to `siblings_only` (Keep a Changelog repeats
-  `### Added`/`### Changed` under every release in `CHANGELOG.md`), MD036
+  (line-length; this repo's prose is not hard-wrapped), MD036
   (emphasis-as-heading; `docs/troubleshooting.md`'s deliberate
   Symptom/Cause/Fix convention), MD040 (fenced-code-language; a handful of
   pre-existing shell-prompt-style fences), and MD060 (table-column-style; a
