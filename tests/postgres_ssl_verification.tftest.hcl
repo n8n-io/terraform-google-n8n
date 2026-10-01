@@ -189,6 +189,41 @@ run "ca_secret_ref_accepts_custom_key" {
   }
 }
 
+run "ca_secret_ref_rejects_blank_name" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_secret_ref = {
+      name = "   "
+    }
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_secret_ref]
+}
+
+run "ca_secret_ref_rejects_blank_key" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_secret_ref = {
+      name = "postgres-server-ca"
+      key  = ""
+    }
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_secret_ref]
+}
+
 # ── Cloud SQL server-side ssl_mode (postgres_ssl_mode) ──────────────────────
 
 run "postgres_ssl_mode_defaults_to_allow_unencrypted_and_encrypted" {
@@ -261,4 +296,37 @@ run "ca_secret_ref_ignored_when_managed_triggers_warning" {
   }
 
   expect_failures = [check.postgres_host_and_password_ignored_when_managed]
+}
+
+run "postgres_ssl_mode_encrypted_only_not_rejected_on_external_path" {
+  command = plan
+
+  variables {
+    create_postgres_instance = false
+    n8n_database_host        = "pg.external.example.com"
+    n8n_database_password    = "external-db-password"
+    postgres_ssl_mode        = "ENCRYPTED_ONLY"
+    # db_postgresdb_ssl_enabled left at its default (false): postgres_ssl_mode
+    # is documented as "Ignored when create_postgres_instance = false", so this
+    # combination must not trip the ENCRYPTED_ONLY validation on the external
+    # path, only the soft postgres_tuning_ignored_when_external warning.
+  }
+
+  expect_failures = [check.postgres_tuning_ignored_when_external]
+}
+
+run "ssl_enabled_null_falls_back_to_default_not_a_null_condition_crash" {
+  command = plan
+
+  variables {
+    postgres_ssl_mode         = "ENCRYPTED_ONLY"
+    db_postgresdb_ssl_enabled = null
+    # db_postgresdb_ssl_enabled is nullable = false with a default: Terraform
+    # substitutes the default (false) for an explicit null rather than
+    # propagating it, so the ENCRYPTED_ONLY validation below sees a real
+    # boolean and fires its own clear error_message instead of a generic
+    # null-condition type error.
+  }
+
+  expect_failures = [var.postgres_ssl_mode]
 }

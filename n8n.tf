@@ -343,7 +343,7 @@ resource "helm_release" "n8n" {
     # pods. The Redis CA entry comes first so it always exists regardless of
     # what the caller declares; local.n8n_caller_extra_volumes/
     # n8n_caller_extra_volume_mounts (locals.tf) already reject the reserved
-    # "redis-ca" volume name, so the two lists cannot collide.
+    # "redis-ca" and "postgres-ssl-ca" volume names, so these lists cannot collide.
     extraVolumes = concat(
       local.manage_redis_tls_ca ? [{
         name = "redis-ca"

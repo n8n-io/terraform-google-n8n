@@ -414,7 +414,7 @@ variable "n8n_custom_extensions_path" {
 # (locals.tf) and wired into helm_release.n8n (n8n.tf).
 
 variable "n8n_extra_volumes" {
-  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, and redis-ca belong to the chart/module and cannot be reused."
+  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, redis-ca, and postgres-ssl-ca belong to the chart/module and cannot be reused."
   type = list(object({
     name = string
     config_map = optional(object({
@@ -462,9 +462,9 @@ variable "n8n_extra_volumes" {
 
   validation {
     condition = alltrue([
-      for v in var.n8n_extra_volumes : !contains(["data", "task-runner-config", "redis-ca"], v.name)
+      for v in var.n8n_extra_volumes : !contains(["data", "task-runner-config", "redis-ca", "postgres-ssl-ca"], v.name)
     ])
-    error_message = "n8n_extra_volumes must not use a reserved volume name (data, task-runner-config, redis-ca), which the module/chart already owns."
+    error_message = "n8n_extra_volumes must not use a reserved volume name (data, task-runner-config, redis-ca, postgres-ssl-ca), which the module/chart already owns."
   }
 
   validation {
@@ -1285,6 +1285,7 @@ variable "db_postgresdb_ssl_enabled" {
   description = "Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl_mode ALLOW_UNENCRYPTED_AND_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped by default (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false) unless db_postgresdb_ssl_reject_unauthorized is also set, which additionally validates the server certificate (see that variable's description for its create_postgres_instance = false restriction)."
   type        = bool
   default     = false
+  nullable    = false
 }
 
 variable "db_postgresdb_ssl_reject_unauthorized" {
@@ -1306,6 +1307,14 @@ variable "db_postgresdb_ssl_ca_secret_ref" {
     key  = optional(string, "ca.crt")
   })
   default = null
+
+  validation {
+    condition = var.db_postgresdb_ssl_ca_secret_ref == null ? true : (
+      trimspace(var.db_postgresdb_ssl_ca_secret_ref.name) != "" &&
+      trimspace(var.db_postgresdb_ssl_ca_secret_ref.key) != ""
+    )
+    error_message = "db_postgresdb_ssl_ca_secret_ref.name and .key must be non-empty (not blank or whitespace-only)."
+  }
 }
 
 # ── Execution data storage ────────────────────────────────────────────────────

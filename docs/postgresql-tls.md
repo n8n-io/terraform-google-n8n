@@ -14,9 +14,8 @@ This module always connects to its module-managed Cloud SQL instance over the in
 
 Put together: enabling `db_postgresdb_ssl_reject_unauthorized` against the module-managed instance would always fail the TLS handshake with a hostname/IP SAN mismatch, on every connection, every pod, every time. Rather than ship a `verify-full`-style toggle that silently breaks a working deployment, `db_postgresdb_ssl_reject_unauthorized`'s own `validation` block rejects the combination at plan time:
 
-```
-db_postgresdb_ssl_reject_unauthorized requires db_postgresdb_ssl_enabled = true
-and create_postgres_instance = false
+```text
+db_postgresdb_ssl_reject_unauthorized requires db_postgresdb_ssl_enabled = true (an unencrypted connection has no certificate to verify) and create_postgres_instance = false (the module-managed Cloud SQL path connects over a private IP whose certificate never names that IP, so certificate verification always fails the TLS handshake there; see docs/postgresql-tls.md).
 ```
 
 If your organization's TLS policy requires certificate verification against the module-managed Cloud SQL instance, this module does not currently support it; verification only works on the external PostgreSQL path (below). Reaching it on the managed path would require this module to additionally wire the instance's own DNS name as the connection host and set up VPC-internal DNS resolution for it, neither of which this module does today.

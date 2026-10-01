@@ -70,8 +70,8 @@ data "google_sql_database_instance" "restore_source" {
 # operator require SSL on the n8n client side without breaking connectivity
 # for those who leave it at the documented default. postgres_ssl_mode
 # (variables_gcp.tf) opts the instance itself into ENCRYPTED_ONLY for
-# server-side enforcement; Checkov only scans the static default below, so
-# the skip stays regardless of the variable's actual value.
+# server-side enforcement; the caller-configurable value cannot be fully checked
+# statically, so the skip stays regardless of the variable's actual value.
 #
 # CKV_GCP_110 (pgAudit): a heavier, opt-in audit-logging feature beyond this
 # change's opt-in DDL/slow-query logging (postgres_query_logging_enabled);
