@@ -179,8 +179,8 @@ variable "postgres_ssl_mode" {
   }
 
   validation {
-    condition     = var.postgres_ssl_mode == "ENCRYPTED_ONLY" ? var.db_postgresdb_ssl_enabled : true
-    error_message = "postgres_ssl_mode = ENCRYPTED_ONLY requires db_postgresdb_ssl_enabled = true; otherwise n8n's plaintext connection attempt is rejected at the TLS layer and every n8n pod fails to reach the database."
+    condition     = var.postgres_ssl_mode == "ENCRYPTED_ONLY" && var.create_postgres_instance ? var.db_postgresdb_ssl_enabled == true : true
+    error_message = "postgres_ssl_mode = ENCRYPTED_ONLY requires db_postgresdb_ssl_enabled = true on the module-managed Cloud SQL path; otherwise n8n's plaintext connection attempt is rejected at the TLS layer and every n8n pod fails to reach the database. Ignored on the external path (create_postgres_instance = false), where postgres_ssl_mode itself has no effect."
   }
 }
 

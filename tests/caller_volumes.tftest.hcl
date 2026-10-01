@@ -173,6 +173,19 @@ run "extra_volumes_rejects_reserved_data_name" {
   expect_failures = [var.n8n_extra_volumes]
 }
 
+run "extra_volumes_rejects_reserved_postgres_ssl_ca_name" {
+  command = plan
+
+  variables {
+    n8n_extra_volumes = [{
+      name       = "postgres-ssl-ca"
+      config_map = { name = "some-configmap" }
+    }]
+  }
+
+  expect_failures = [var.n8n_extra_volumes]
+}
+
 # ── Item path validation ──────────────────────────────────────────────────
 
 run "extra_volumes_rejects_absolute_item_path" {
