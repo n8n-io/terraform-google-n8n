@@ -18,6 +18,48 @@ or start a fresh `terraform apply` against new state. See
 chart, and CI-toolchain pin this module makes and which bump tier each falls
 into.
 
+## Moving from chart 1.13.0 to 1.14.0
+
+The default `n8n_chart_version` moved from `1.13.0` to `1.14.0`
+([n8n-hosting v1.14.0](https://github.com/n8n-io/n8n-hosting/releases/tag/v1.14.0)).
+Check these points before you apply:
+
+- **Pin the n8n version first if it is not already pinned.** With
+  `n8n_image_tag = null`, the app moves with the chart's `appVersion`, from
+  n8n `2.40.5` to `2.41.4`. n8n `2.41.0` through `2.41.4` list no breaking
+  changes. Every n8n pod rolls once on the apply, because the image and the
+  env list change.
+- **Chart 1.14.0 needs n8n 2.0 or newer for S3 binary storage.** The chart
+  no longer renders `N8N_AVAILABLE_BINARY_DATA_MODES`
+  ([n8n-hosting#185](https://github.com/n8n-io/n8n-hosting/pull/185)). n8n
+  2.x ignores it, but n8n 1.x reads it and defaults to `filesystem` only. A
+  deployment that pins `n8n_image_tag` to a 1.x release cannot use the GCS
+  bucket for binary data on chart 1.14.0. Upgrade n8n to 2.x first (see the
+  [n8n 2.0 migration guide](https://docs.n8n.io/2-0-breaking-changes/)), or
+  keep `n8n_chart_version = "1.13.0"` until you do. On a chart older than
+  `1.14.0`, the module still sends `availableModes = "filesystem,s3"`
+  (`local.n8n_s3_storage_values`).
+- **`WEBHOOK_URL` is no longer sent to current images.** n8n `2.30.0`
+  introduced `N8N_WEBHOOK_URL` and logs a deprecation warning while
+  `WEBHOOK_URL` is set. The module now sends only `N8N_WEBHOOK_URL` when the
+  image tags prove n8n `2.30.0` or newer, and keeps sending both names
+  otherwise. See [Webhook URL](#webhook-url) for the exact rule.
+- **Both deprecated names are now rejected with a deprecation error.**
+  `n8n_extra_env`, `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env`
+  already rejected `N8N_AVAILABLE_BINARY_DATA_MODES` and `WEBHOOK_URL` as
+  module-managed names. They now reject both through
+  `local.n8n_deprecated_env_names`, with an error that says to remove the
+  entry. No configuration that was accepted before is rejected now.
+- **The chart's own webhook key changed name.** The chart's ConfigMap emits
+  `N8N_WEBHOOK_URL` instead of `WEBHOOK_URL`
+  ([n8n-hosting#184](https://github.com/n8n-io/n8n-hosting/pull/184), not in
+  the upstream release notes). This has no effect here: the chart only emits
+  it from its own `webhook.url` or `ingress` values, and the module sets
+  neither.
+- The worker, KEDA, and task-runner templates did not change, so
+  `local.n8n_chart_has_worker_only_runners` (`capacity.tf`) now also covers
+  `1.14.0`.
+
 ## GKE Dataplane V2 requires cluster replacement
 
 **Breaking default, minor release only:** module-managed GKE now sets
@@ -424,9 +466,26 @@ before or immediately after this upgrade.
 
 ### Webhook URL
 
-`n8n_webhook_url` (default `https://<n8n_fqdn>`) is now emitted under both the
-legacy `WEBHOOK_URL` name and n8n's current `N8N_WEBHOOK_URL` name, sourced
-from one effective value so the two can no longer drift apart.
+`n8n_webhook_url` (default `https://<n8n_fqdn>`) is emitted as
+`N8N_WEBHOOK_URL`. The legacy `WEBHOOK_URL` gets the same value, so the two
+can never drift apart, but only when the image may predate n8n `2.30.0`, the
+first release that reads `N8N_WEBHOOK_URL`. Without `WEBHOOK_URL`, an older
+image falls back to `http://<n8n_fqdn>:5678/` in every webhook URL, while a
+current image only logs a deprecation warning when it is set. So the module
+drops `WEBHOOK_URL` only when the tags prove the image is current
+(`local.n8n_needs_legacy_webhook_url_env`):
+
+- `n8n_image_tag` starts with a version of `2.30.0` or newer (for example
+  `2.41.4` or `2.41.4-mypackages`).
+- `n8n_image_tag` is a custom image tag with no version, task runners are
+  enabled, and `n8n_task_runner_image_tag` is `2.30.0` or newer.
+- `n8n_image_tag` is null, on the default chart repository, at chart
+  `1.12.0` or newer, whose `appVersion` is a concrete `2.39.6` or newer.
+
+Floating tags (`stable`, `latest`), a null tag on a private chart mirror or
+on a chart before `1.12.0`, and a custom image whose tags carry no version
+still get `WEBHOOK_URL` and its warning. Pin a versioned `n8n_image_tag` to
+remove it.
 `n8n_webhook_url` also now validates as an `https://` base URL with no
 embedded userinfo credentials, query string, or fragment; a previously
 accepted value that violated any of those now fails `terraform plan`.

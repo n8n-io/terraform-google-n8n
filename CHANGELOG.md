@@ -19,22 +19,48 @@ this project adheres to the stability contract in
   - The chart no longer renders `N8N_AVAILABLE_BINARY_DATA_MODES`
     (n8n-hosting#185; n8n deprecated it and logs a warning whenever it is
     set) and dropped `s3.storage.availableModes` from its schema. The module
-    stops passing that value, so the deprecated variable is no longer set
-    on any pod and its warning is gone. `n8n_extra_env`,
-    `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` still
-    reject it at plan time, now through a dedicated deprecated-variable rule
-    (`local.n8n_deprecated_env_names`) instead of the module-managed list, so
-    the error says to remove the entry rather than pointing at a module
-    input. No previously accepted configuration is rejected.
-    `tests/scripts/check-n8n-chart.sh` fails if the variable is ever
-    rendered.
+    no longer sends `availableModes` to chart `1.14.0` or newer, so the
+    deprecated variable is not set on any pod there and its warning is
+    gone. A pinned chart older than `1.14.0` still gets `"filesystem,s3"`
+    (`local.n8n_s3_storage_values`): its own default is `"filesystem"`,
+    which n8n 1.x still reads, so leaving it out would drop S3 from the
+    available modes. **Chart `1.14.0` and later need n8n 2.0 or newer for
+    S3 binary storage**, because n8n 1.x defaults the variable to
+    `filesystem` once the chart stops rendering it. Upgrade a 1.x pin to
+    2.x before taking this chart, or keep `n8n_chart_version = "1.13.0"`.
+  - The module no longer sends the deprecated `WEBHOOK_URL` to images that
+    are provably n8n `2.30.0` or newer (the first release that reads
+    `N8N_WEBHOOK_URL` and the first that warns about `WEBHOOK_URL` on every
+    start). `N8N_WEBHOOK_URL` carries the same value. Older images build
+    webhook URLs from `WEBHOOK_URL` only and fall back to
+    `http://<n8n_fqdn>:5678/` without it, so the module keeps sending both
+    names unless the tags prove the image is current: a versioned
+    `n8n_image_tag` (or, for a custom image whose tag is not a version and
+    with task runners enabled, `n8n_task_runner_image_tag`) of `2.30.0` or
+    newer, or a null tag on the default chart repository at chart `1.12.0`
+    or newer (`local.n8n_needs_legacy_webhook_url_env`). Floating tags
+    (`stable`, `latest`), a null tag on a private chart mirror, and a
+    custom image whose tags carry no version still get `WEBHOOK_URL`. Every
+    n8n pod rolls once on apply because the env list changes. Ported from
+    terraform-aws-n8n#160.
+  - `n8n_extra_env`, `n8n_worker_extra_env`, and
+    `n8n_worker_pools[*].extra_env` now reject both
+    `N8N_AVAILABLE_BINARY_DATA_MODES` and `WEBHOOK_URL` through a dedicated
+    deprecated-variable rule (`local.n8n_deprecated_env_names`) instead of
+    the module-managed list, so the error says to remove the entry. Both
+    names were already rejected, so no previously accepted configuration is
+    rejected now; only the message changes.
   - The chart's ConfigMap now emits `N8N_WEBHOOK_URL` instead of
     `WEBHOOK_URL` (n8n-hosting#184, missing from the upstream release
-    notes). Inert here: the module passes no chart `webhook.url` or
-    `ingress` values, so the chart emits neither name, and the module
-    already sets both from `n8n_webhook_url` via `config.extraEnv`.
+    notes). No effect here: the chart only emits it from its own
+    `webhook.url` or `ingress` values, and the module sets neither.
+    `tests/scripts/check-n8n-chart.sh` now fails if the chart renders the
+    legacy `WEBHOOK_URL` itself, or renders
+    `N8N_AVAILABLE_BINARY_DATA_MODES` (after confirming the S3 env block
+    rendered, so the check cannot pass vacuously).
   - The chart's own values validation now reports every failure in one
     render instead of stopping at the first (n8n-hosting#209).
+  - See `docs/upgrading-n8n.md`, "Moving from chart 1.13.0 to 1.14.0".
 
 ## [0.1.0] - 2026-09-29
 

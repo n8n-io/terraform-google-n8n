@@ -303,7 +303,7 @@ locals {
   )
 
   # The chart's values.yaml default for redis.worker.timeout, in seconds, as of
-  # the pinned n8n_chart_version (1.13.0). Used only by
+  # the pinned n8n_chart_version (1.14.0). Used only by
   # check.graceful_shutdown_fits_grace_period (checks.tf) for callers who leave
   # n8n_graceful_shutdown_timeout null. tests/scripts/check-n8n-chart.sh reads
   # this line and fails if the rendered chart default differs, so a chart bump
@@ -316,7 +316,7 @@ locals {
   # quiet there rather than warn on a number it cannot verify (same reasoning
   # as local.n8n_worker_keda_pause_supported in scaling.tf). Deliberately not
   # gated on n8n_chart_version: every published upstream chart, 1.0.0 through
-  # 1.13.0 including 1.11.0-preview.workerpools.1, defaults redis.worker.timeout
+  # 1.14.0 including 1.11.0-preview.workerpools.1, defaults redis.worker.timeout
   # to 30 and renders it unconditionally (verified by pulling each tag), so an
   # exact-version gate would only silence a correct warning on older pins. A
   # future chart that moves the default fails check-n8n-chart.sh once the
