@@ -198,6 +198,14 @@ this project adheres to the stability contract in
   This is an in-place configuration update with no instance restart, but it
   overwrites any `maxmemory-policy` set outside Terraform; see
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
+- Two independently opt-in GKE network/identity hardening inputs, both
+  defaulting to the module's current behavior so an existing caller sees no
+  plan diff: `gke_enable_private_endpoint` (private GKE control-plane API
+  server, validated to require `gke_enable_private_nodes = true` and a
+  non-empty `gke_control_plane_authorized_networks` restricted to internal
+  RFC 1918 CIDRs) and `gke_security_group` (opts into GKE's RBAC-via-Google-
+  Groups feature, `authenticator_groups_config.security_group`, validated as
+  `gke-security-groups@<domain>`).
 
 ## [0.1.0] - 2026-09-29
 

@@ -105,6 +105,37 @@ Workload Identity binds a Kubernetes ServiceAccount (KSA) to a Google service ac
 
 See [destroy-cleanup.md](./destroy-cleanup.md).
 
+## `gke_enable_private_endpoint = true`: provider/kubectl unreachable
+
+**Symptom**
+
+After enabling `gke_enable_private_endpoint`, `terraform apply` (or a
+standalone `kubectl`/`helm`) hangs or times out connecting to the cluster,
+even though the plan itself succeeded and the GKE cluster shows healthy in
+the Cloud Console.
+
+**Cause**
+
+The GKE control-plane API server has no public IP in this mode
+(`private_cluster_config.enable_private_endpoint`). Only a host with network
+connectivity to the VPC the cluster's subnet lives in, directly, peered, or
+via Cloud VPN/Interconnect, can reach it, and only from the same region as
+`gcp_region` unless the cluster's `master_global_access_config` is enabled
+out of band (this module leaves it at the provider default, disabled). A
+laptop or CI runner on the public internet, or in a different region's
+network, cannot reach it at all.
+
+**Fix**
+
+1. Confirm `terraform output -raw gke_cluster_endpoint` resolves to an
+   internal (RFC 1918) address, not a public IP.
+2. Run `terraform apply`/`kubectl`/`helm` from a host with that connectivity:
+   a bastion VM inside the VPC, a host on a peered/VPN-connected network, or
+   a Cloud Build private pool peered into the VPC.
+3. If the apply host is in a different region than `gcp_region`, either move
+   it into the same region or fork `gke.tf` to add a
+   `master_global_access_config { enabled = true }` block.
+
 ## Existing GKE cluster: provider fails before the first plan
 
 **Symptom**

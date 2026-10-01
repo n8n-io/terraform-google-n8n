@@ -71,3 +71,20 @@ to their defaults while disabled to avoid ignored-input warnings.
 (`create_redis_instance = false`); the module warns instead of failing if any
 are left set. The two schedule inputs are also ignored, with a warning, when
 `redis_persistence_enabled = false` on a module-managed instance.
+
+## Private control-plane endpoint reachability
+
+If `gke_enable_private_endpoint = true`, the GKE control-plane API server has
+no public IP; `kubectl` and the `kubernetes`/`helm` providers can only reach
+it from inside the VPC (directly, peered, or via VPN/Cloud Interconnect), and
+only from the same region as `gcp_region` unless the cluster's
+`master_global_access_config` is enabled out of band. Confirm reachability
+from your apply host before troubleshooting an unrelated failure:
+
+```bash
+terraform output -raw gke_cluster_endpoint   # must resolve to an internal (RFC 1918) IP
+kubectl cluster-info                          # hangs/times out from outside the VPC; succeeds from a bastion/VPN-connected host
+```
+
+See [`docs/troubleshooting.md`](./troubleshooting.md) if the cluster is
+unreachable after enabling this.

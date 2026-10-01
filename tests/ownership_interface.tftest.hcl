@@ -405,6 +405,35 @@ run "gke_tuning_ignored_when_existing_triggers_warning" {
   expect_failures = [check.gke_tuning_ignored_when_existing]
 }
 
+run "gke_security_group_ignored_when_existing_triggers_warning" {
+  command = plan
+
+  variables {
+    create_gke                             = false
+    existing_gke_cluster_name              = "shared-cluster"
+    existing_gke_prerequisites_attestation = true
+    gke_security_group                     = "gke-security-groups@example.com"
+  }
+
+  expect_failures = [check.gke_tuning_ignored_when_existing]
+}
+
+run "gke_private_endpoint_ignored_when_existing_triggers_warning" {
+  command = plan
+
+  variables {
+    create_gke                             = false
+    existing_gke_cluster_name              = "shared-cluster"
+    existing_gke_prerequisites_attestation = true
+    gke_enable_private_endpoint            = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0/24", display_name = "internal" },
+    ]
+  }
+
+  expect_failures = [check.gke_tuning_ignored_when_existing]
+}
+
 run "redis_tuning_ignored_when_existing_triggers_warning" {
   command = plan
 

@@ -1101,6 +1101,29 @@ variable "gke_control_plane_authorized_networks" {
   default = []
 }
 
+variable "gke_enable_private_endpoint" {
+  description = "When true, the GKE control-plane endpoint has no public IP (private_cluster_config.enable_private_endpoint) - only in-VPC, peered, or VPN/Interconnect-connected traffic can reach it. Default false preserves the current publicly reachable control plane. Requires gke_enable_private_nodes = true (GKE rejects a private endpoint on a cluster with public nodes) and a non-empty gke_control_plane_authorized_networks containing only internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) - Google rejects a public CIDR as an authorized network once the public endpoint is gone. Any caller applying this module (including CI/CD) needs that private connectivity once enabled: a bastion host inside the VPC, a VPN/Interconnect-connected network, or a Cloud Build private pool peered into the VPC. The control plane's private endpoint only resolves from the same region as the cluster (GKE's master_global_access_config default); an apply host outside gcp_region needs a region-matched peered network."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.gke_enable_private_endpoint || var.gke_enable_private_nodes
+    error_message = "gke_enable_private_endpoint = true requires gke_enable_private_nodes = true; GKE does not support a private control-plane endpoint on a cluster with public nodes."
+  }
+
+  validation {
+    condition = !var.gke_enable_private_endpoint ? true : (
+      length(var.gke_control_plane_authorized_networks) > 0 &&
+      alltrue([
+        for n in var.gke_control_plane_authorized_networks :
+        can(regex("^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.)", n.cidr_block))
+      ])
+    )
+    error_message = "gke_enable_private_endpoint = true requires a non-empty gke_control_plane_authorized_networks whose entries are all internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Google rejects a public CIDR as an authorized network on a private endpoint (\"is not a reserved network, which is required for private endpoints\"), and the control plane has no public endpoint to fall back to."
+  }
+}
+
 variable "gke_node_type" {
   description = "Node machine type."
   type        = string
@@ -1152,6 +1175,17 @@ variable "gke_node_disk_type" {
   description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd)."
   type        = string
   default     = "pd-balanced"
+}
+
+variable "gke_security_group" {
+  description = "Google Group used for GKE's RBAC-via-Google-Groups feature (authenticator_groups_config.security_group), e.g. \"gke-security-groups@example.com\". The group must already exist in the caller's own Cloud Identity/Workspace directory, and the GKE service agent must already be a member of it (Google's own prerequisite); this module cannot create or join the group. Group membership then flows into Kubernetes RBAC bindings the caller still writes (ClusterRoleBinding/RoleBinding), the same way kubectl/IAM identities do today. Null (the default) omits the authenticator_groups_config block entirely, leaving RBAC-via-Groups disabled - matching current behavior."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.gke_security_group == null ? true : can(regex("^gke-security-groups@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$", var.gke_security_group))
+    error_message = "gke_security_group must be null or exactly \"gke-security-groups@<domain>\" (e.g. \"gke-security-groups@example.com\") - GKE requires that literal group name per its RBAC-via-Google-Groups documentation."
+  }
 }
 
 # ── GKE customer-managed encryption (Cloud KMS) ─────────────────────────────
