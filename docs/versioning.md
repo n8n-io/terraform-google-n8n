@@ -24,8 +24,8 @@ upgrade guidance when a bump changes behavior.
 
 | Provider | Current constraint | Tier to bump |
 | --- | --- | --- |
-| `hashicorp/google` | `~> 6.0` | Verification-required (major); patch-safe within `6.x` |
-| `hashicorp/google-beta` | `~> 6.0` | Same as `google`; kept in lockstep |
+| `hashicorp/google` | `~> 6.23` | Verification-required (major); patch-safe within `6.x` |
+| `hashicorp/google-beta` | `~> 6.23` | Same as `google`; kept in lockstep |
 | `hashicorp/kubernetes` | `~> 3.0` | Verification-required (major); patch-safe within `3.x` |
 | `hashicorp/helm` | `~> 3.0` | Verification-required (major); patch-safe within `3.x` |
 | `gavinbunney/kubectl` | `~> 1.14` | Minor-required: this provider applies the raw Ingress-support CRs (`BackendConfig`/`FrontendConfig`/`ManagedCertificate`); verify `kubectl_manifest` behavior is unchanged before bumping |
@@ -65,7 +65,7 @@ release channel rather than pinning a Kubernetes minor directly:
 
 | Tool | Current pin | Tier to bump |
 | --- | --- | --- |
-| Terraform CLI (`TF_VERSION`) | `1.9.8` | **Deliberately not bumped for currency alone.** `AGENTS.md`'s "Known mock provider limitations" section documents validating against this exact floor's stricter `&&`/`\|\|` short-circuit evaluation; bumping it changes what CI proves, not just what CI uses. Treat as verification-required with a specific reason, never a routine bump. |
+| Terraform CLI (`TF_VERSION`) | `1.11.4` | **Verification-required; bumped with a specific reason, not for currency alone.** Raised from `1.9.8` alongside `required_version`'s new `>= 1.11` floor for `postgres_password_write_only`'s ephemeral variable and write-only argument (see `CHANGELOG.md`, Unreleased). `AGENTS.md`'s "Known mock provider limitations" section documents validating against this floor's stricter `&&`/`\|\|` evaluation: Terraform does not short-circuit those operators until 1.12 (1.13 for `validation`/`precondition` contexts), both still above this pin. |
 | tflint (`TFLINT_VERSION`) | `v0.64.0` | Minor-required: re-run `tflint --init` and the full target matrix; a new ruleset version can add a rule that fails a previously-clean target |
 | checkov (`bridgecrewio/checkov-action` ref) | `v12.3126.0` (bundles checkov `3.3.20`) | Verification-required: re-run the curated baseline (`tests/scripts/check-checkov.sh`, both passes) and update the referenced verification report if the finding set changes |
 | terraform-docs (`TERRAFORM_DOCS_VERSION`) | `v0.24.0` | Patch-safe; re-run `terraform-docs --output-check .` at every target after bumping, since output formatting can shift |

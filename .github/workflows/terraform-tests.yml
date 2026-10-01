@@ -11,7 +11,7 @@ permissions:
   pull-requests: write
 
 env:
-  TF_VERSION: "1.9.8"
+  TF_VERSION: "1.11.4"
   TFLINT_VERSION: "v0.64.0"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
@@ -144,7 +144,10 @@ jobs:
         # Symptom/Cause/Fix convention), MD040 (fenced-code-language; a
         # handful of pre-existing shell-prompt-style fences), and MD060
         # (table-column-style; a new pipe-alignment-style rule this repo's
-        # existing tables were never written against).
+        # existing tables were never written against), and scopes MD024
+        # (no-duplicate-heading) to siblings_only (Keep a Changelog repeats
+        # section headings such as "### Added" under every release in
+        # CHANGELOG.md).
         run: markdownlint-cli2 "README.md" "AGENTS.md" "CHANGELOG.md" "docs/*.md"
 
   validate:

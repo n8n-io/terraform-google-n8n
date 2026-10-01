@@ -85,6 +85,8 @@ resource "kubernetes_secret" "n8n_license" {
   depends_on = [kubernetes_namespace.n8n]
 }
 
+# Skipped when postgres_password_write_only = true (the caller supplies
+# n8n_database_password_secret_ref instead; see locals.tf's manage_db_secret).
 resource "kubernetes_secret" "n8n_db" {
   count = local.manage_db_secret ? 1 : 0
 
@@ -94,7 +96,10 @@ resource "kubernetes_secret" "n8n_db" {
   }
 
   data = {
-    # Use caller-supplied password when an external DB is provided, otherwise use the generated one.
+    # Use caller-supplied password when an external DB is provided, otherwise
+    # use the generated one. Never evaluated when postgres_password_write_only
+    # is true: manage_db_secret is false on that path, so this resource has
+    # count = 0 and random_password.db_password[0] is not dereferenced.
     password = var.create_postgres_instance ? random_password.db_password[0].result : var.n8n_database_password
   }
 

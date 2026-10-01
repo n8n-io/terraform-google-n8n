@@ -7,6 +7,36 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- `postgres_password_write_only`, `postgres_password_wo`, and
+  `postgres_password_wo_version` let the module-managed Cloud SQL
+  PostgreSQL user (`create_postgres_instance = true`) accept its password
+  through `google_sql_user.n8n`'s write-only `password_wo` argument instead
+  of a `random_password` resource whose result Terraform stores in plain
+  text in state. `postgres_password_wo` is an `ephemeral` module variable,
+  so the value you pass never lands in a plan or state file. This mode
+  requires `n8n_database_password_secret_ref` (the module cannot copy a
+  write-only value into the Kubernetes Secret it would otherwise manage),
+  makes the `n8n_database_password` output `null`, and is fully opt-in: the
+  default (`postgres_password_write_only = false`) behavior is unchanged.
+  See [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md) for the full
+  contract, including rotation (Ports
+  [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
+
+### Changed
+
+- **Breaking:** `required_version` is now `>= 1.11` (was `>= 1.9`) and the
+  `google`/`google-beta` provider requirements are now `~> 6.23` (was
+  `~> 6.0`). Both are needed to parse and use the `ephemeral` variable
+  `postgres_password_wo` and the write-only `password_wo` argument (see "Added"
+  above), and apply module-wide regardless of whether you set that variable,
+  because Terraform parses `ephemeral` and write-only syntax from this
+  module's HCL unconditionally. Upgrade the Terraform CLI and let the
+  `google`/`google-beta` providers resolve within the new range before
+  applying; see [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md) (Ports
+  [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release

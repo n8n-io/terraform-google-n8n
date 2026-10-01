@@ -7,7 +7,7 @@
 # throughout the root module.
 
 terraform {
-  required_version = ">= 1.9"
+  required_version = ">= 1.11"
 
   required_providers {
     kubernetes = {

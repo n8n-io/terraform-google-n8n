@@ -4,7 +4,7 @@
 # of the root wrapper. All providers are mocked, so no credentials or network
 # access are required and the suite runs offline.
 #
-# Run: terraform test (from modules/controllers - requires terraform >= 1.9)
+# Run: terraform test (from modules/controllers - requires terraform >= 1.11)
 
 mock_provider "kubernetes" {}
 mock_provider "helm" {}

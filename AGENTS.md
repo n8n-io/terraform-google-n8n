@@ -298,14 +298,17 @@ file. Use `command = plan` unless you specifically need apply semantics.
   `match[0].config` before indexing into it, since this rule uses
   `match.expr` instead of `match.config` (see the `for`/`anytrue` guidance
   above). Guard with `try(...)`, not `length(...) > 0 && ...[0]`: Terraform
-  does not short-circuit `&&`, so the CI-pinned 1.9.x still evaluates the
+  does not short-circuit `&&`, so the CI-pinned 1.11.x still evaluates the
   empty-list index and fails the run.
 
-- **CI pins Terraform 1.9.x (`TF_VERSION` in
+- **CI pins Terraform 1.11.x (`TF_VERSION` in
   `.github/workflows/terraform-tests.yml`); validate every expression against
-  that version's stricter evaluation, not just a newer local CLI.** Two
-  behaviors bite in particular, because Terraform never short-circuits `&&`
-  and `||`: (1) `contains(list, var.x)` errors when `var.x` is null, so a
+  that version's stricter evaluation, not just a newer local CLI.** Terraform
+  added short-circuit evaluation for `&&`/`||` in 1.12.0, and `validation`/
+  `precondition` blocks specifically needed 1.13 before it took effect there;
+  the 1.11.x floor this repo pins predates both, so every expression here
+  must still assume no short-circuiting. Three behaviors bite in particular:
+  (1) `contains(list, var.x)` errors when `var.x` is null, so a
   nullable variable's validation must use `var.x == null ? true :
   contains(...)` rather than `var.x == null || contains(...)`; (2) indexing
   a possibly-empty list on one side of `&&` errors even when the other side
@@ -415,7 +418,9 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   Symptom/Cause/Fix convention), MD040 (fenced-code-language; a handful of
   pre-existing shell-prompt-style fences), and MD060 (table-column-style; a
   rule new enough that none of this repo's existing tables were written
-  against it). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
+  against it), and scopes MD024 (no-duplicate-heading) to `siblings_only`
+  (Keep a Changelog repeats section headings such as `### Added` under every
+  release in `CHANGELOG.md`). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
   wrapped in `<!-- markdownlint-disable -->`/`<!-- markdownlint-restore -->`
   comments placed outside the block, so its anchor tags and placeholder
   tokens don't need hand-editing to pass MD033. Run locally with

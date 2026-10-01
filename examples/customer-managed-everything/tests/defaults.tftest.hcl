@@ -9,7 +9,7 @@
 # root module's own gke_ownership test fixture.
 #
 # Run: terraform test
-#   (from examples/customer-managed-everything/ - requires terraform >= 1.9)
+#   (from examples/customer-managed-everything/ - requires terraform >= 1.11)
 
 mock_provider "google" {
   mock_data "google_container_cluster" {

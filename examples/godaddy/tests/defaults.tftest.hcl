@@ -8,7 +8,7 @@
 # plan time.
 #
 # Run: terraform test
-#   (from examples/godaddy/ - requires terraform >= 1.9)
+#   (from examples/godaddy/ - requires terraform >= 1.11)
 
 mock_provider "google" {}
 mock_provider "google-beta" {}
