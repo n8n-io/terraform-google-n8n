@@ -7,6 +7,17 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- `docs/ingress-options.md`: when to pick GKE Gateway API, an internal
+  Application Load Balancer, Istio/Cloud Service Mesh, or a third-party
+  controller instead of the module's default native GKE Ingress, with
+  dated, cited Google Cloud documentation references. Linked from
+  README.md's Architecture section and cross-linked from
+  `docs/istio-ingress.md`; does not duplicate the routing contract already
+  documented in `docs/customer-managed-infrastructure.md` and
+  `docs/istio-ingress.md`.
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release

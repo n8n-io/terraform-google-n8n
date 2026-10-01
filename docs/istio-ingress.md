@@ -5,7 +5,10 @@ CRDs) instead of a GKE `gce`/`gce-internal` Ingress Controller. This is
 routing knowledge only: no new module input, output, resource, or example.
 The module's existing `create_ingress = false` contract and Service/route
 outputs already carry everything an Istio caller needs; this document maps
-them onto Istio's own resources instead of `kubernetes_ingress_v1`.
+them onto Istio's own resources instead of `kubernetes_ingress_v1`. For
+*whether* Istio/Cloud Service Mesh is the right fit compared to GKE Gateway
+API, an internal Application Load Balancer, or a third-party controller, see
+[`docs/ingress-options.md`](./ingress-options.md).
 
 ## The contract this module gives you
 
