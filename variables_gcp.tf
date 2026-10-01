@@ -325,7 +325,7 @@ variable "existing_postgres_kms_key_id" {
 # is required only when at least one service opts into a module-created key.
 
 variable "create_kms_key_ring" {
-  description = "When true, the module creates and manages a Cloud KMS key ring to host module-created CMEK keys (create_postgres_kms_key, create_redis_kms_key, create_gcs_kms_key). Ignored unless at least one service's create_*_kms_key switch is true. Set to false and supply existing_kms_key_ring_id to host module-created keys in an existing key ring instead. Defaults to false."
+  description = "When true, the module creates and manages a Cloud KMS key ring to host module-created CMEK keys (create_postgres_kms_key, create_redis_kms_key, create_gcs_kms_key, create_gke_kms_key). Ignored unless at least one service's create_*_kms_key switch is true. Set to false and supply existing_kms_key_ring_id to host module-created keys in an existing key ring instead. Defaults to false."
   type        = bool
   default     = false
   nullable    = false
@@ -340,9 +340,10 @@ variable "existing_kms_key_ring_id" {
     condition = var.create_kms_key_ring || !(
       (var.create_postgres_instance && var.create_postgres_kms_key) ||
       (var.create_redis_instance && var.create_redis_kms_key) ||
-      (var.create_gcs_bucket && var.create_gcs_kms_key)
+      (var.create_gcs_bucket && var.create_gcs_kms_key) ||
+      (var.create_gke && var.create_gke_kms_key)
     ) || var.existing_kms_key_ring_id != null
-    error_message = "existing_kms_key_ring_id is required when create_kms_key_ring = false and create_postgres_kms_key, create_redis_kms_key, or create_gcs_kms_key is true."
+    error_message = "existing_kms_key_ring_id is required when create_kms_key_ring = false and create_postgres_kms_key, create_redis_kms_key, create_gcs_kms_key, or create_gke_kms_key is true."
   }
 
   validation {
@@ -355,30 +356,30 @@ variable "existing_kms_key_ring_id" {
 
   validation {
     condition = var.existing_kms_key_ring_id == null ? true : (
-      (!(var.create_postgres_instance && var.create_postgres_kms_key) && !(var.create_redis_instance && var.create_redis_kms_key)) || try(lower(split("/", var.existing_kms_key_ring_id)[3]), "") == lower(var.gcp_region)
+      (!(var.create_postgres_instance && var.create_postgres_kms_key) && !(var.create_redis_instance && var.create_redis_kms_key) && !(var.create_gke && var.create_gke_kms_key)) || try(lower(split("/", var.existing_kms_key_ring_id)[3]), "") == lower(var.gcp_region)
       ) && (
       !(var.create_gcs_bucket && var.create_gcs_kms_key) || try(lower(split("/", var.existing_kms_key_ring_id)[3]), "") == (lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location))
     )
-    error_message = "The existing key ring location must match every service using a module-created key: gcp_region for Cloud SQL/Redis, and the GCS-compatible location (EU maps to europe) for GCS. A single ring cannot serve incompatible locations."
+    error_message = "The existing key ring location must match every service using a module-created key: gcp_region for Cloud SQL/Redis/GKE, and the GCS-compatible location (EU maps to europe) for GCS. A single ring cannot serve incompatible locations."
   }
 }
 
 variable "kms_key_ring_location" {
-  description = "Location for the module-managed Cloud KMS key ring. Defaults to gcp_region for Cloud SQL/Redis keys, or to the GCS-compatible bucket location for a GCS-only ring (EU maps to europe). Every service sharing the ring must support the same location."
+  description = "Location for the module-managed Cloud KMS key ring. Defaults to gcp_region for Cloud SQL/Redis/GKE keys, or to the GCS-compatible bucket location for a GCS-only ring (EU maps to europe). Every service sharing the ring must support the same location."
   type        = string
   default     = null
 
   validation {
     condition = !var.create_kms_key_ring || (
-      (!(var.create_postgres_instance && var.create_postgres_kms_key) && !(var.create_redis_instance && var.create_redis_kms_key)) || (var.kms_key_ring_location == null ? true : lower(var.kms_key_ring_location) == lower(var.gcp_region))
+      (!(var.create_postgres_instance && var.create_postgres_kms_key) && !(var.create_redis_instance && var.create_redis_kms_key) && !(var.create_gke && var.create_gke_kms_key)) || (var.kms_key_ring_location == null ? true : lower(var.kms_key_ring_location) == lower(var.gcp_region))
       ) && (
       !(var.create_gcs_bucket && var.create_gcs_kms_key) || (var.kms_key_ring_location == null ? true : lower(var.kms_key_ring_location) == (lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location)))
       ) && (
-      !((var.create_postgres_instance && var.create_postgres_kms_key) || (var.create_redis_instance && var.create_redis_kms_key)) ||
+      !((var.create_postgres_instance && var.create_postgres_kms_key) || (var.create_redis_instance && var.create_redis_kms_key) || (var.create_gke && var.create_gke_kms_key)) ||
       !(var.create_gcs_bucket && var.create_gcs_kms_key) ||
       lower(var.gcp_region) == (lower(var.gcs_location) == "eu" ? "europe" : lower(var.gcs_location))
     )
-    error_message = "kms_key_ring_location must match every service using the shared ring: gcp_region for Cloud SQL/Redis, and the GCS-compatible location (EU maps to europe) for GCS. A single ring cannot serve incompatible locations."
+    error_message = "kms_key_ring_location must match every service using the shared ring: gcp_region for Cloud SQL/Redis/GKE, and the GCS-compatible location (EU maps to europe) for GCS. A single ring cannot serve incompatible locations."
   }
 }
 
@@ -1105,4 +1106,71 @@ variable "gke_node_disk_type" {
   description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd)."
   type        = string
   default     = "pd-balanced"
+}
+
+# ── GKE customer-managed encryption (Cloud KMS) ─────────────────────────────
+# Same explicit create-or-reference contract as Cloud SQL, Memorystore, and
+# GCS (D4): create_gke_kms_key creates a key in the shared ring
+# (create_kms_key_ring/existing_kms_key_ring_id), existing_gke_kms_key_id
+# references an already-existing key, and leaving both unset keeps GKE's
+# default Google-managed etcd encryption. Only takes effect for a
+# module-managed cluster; ignored when create_gke = false (checks.tf emits
+# the ignored-input diagnostic).
+
+variable "create_gke_kms_key" {
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed GKE cluster's application-layer secrets encryption (etcd) to use it. Mutually exclusive with existing_gke_kms_key_id. Ignored when create_gke = false. Defaults to false (Google-managed etcd encryption). The created key is protected by lifecycle prevent_destroy; see docs/destroy-cleanup.md for how to back out of a module-created key."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.create_gke_kms_key || var.existing_gke_kms_key_id == null
+    error_message = "create_gke_kms_key and existing_gke_kms_key_id are mutually exclusive; create a key or reference an existing one, not both."
+  }
+}
+
+variable "existing_gke_kms_key_id" {
+  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed GKE cluster should use for application-layer secrets encryption (etcd). Mutually exclusive with create_gke_kms_key. The module grants no IAM on a supplied existing key; grant the GKE service agent (service-<project_number>@container-engine-robot.iam.gserviceaccount.com) roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. Ignored when create_gke = false."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.existing_gke_kms_key_id == null || can(regex(
+      "^projects/[^/]+/locations/[^/]+/keyRings/[^/]+/cryptoKeys/[^/]+$",
+      var.existing_gke_kms_key_id,
+    ))
+    error_message = "existing_gke_kms_key_id must be null or a fully qualified Cloud KMS CryptoKey ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>)."
+  }
+
+  validation {
+    condition = var.existing_gke_kms_key_id == null ? true : (
+      !var.create_gke || try(lower(split("/", var.existing_gke_kms_key_id)[3]), "") == lower(var.gcp_region)
+    )
+    error_message = "existing_gke_kms_key_id must be a regional key in gcp_region: the module-managed GKE cluster's application-layer secrets encryption requires the key and cluster to share a region. Ignored when create_gke = false."
+  }
+}
+
+# ── GKE Secret Manager add-on ────────────────────────────────────────────────
+# Opt-in GKE-managed CSI add-on (D7, mirrors n8n_secret_manager_enabled in
+# secret_manager.tf, which grants n8n's own Workload Identity SA access to
+# caller-named Secret Manager secrets for n8n's in-product External Secrets
+# feature): this toggle instead enables the GKE-managed Secret Manager CSI
+# driver component on the cluster itself, letting any pod mount Secret
+# Manager secrets as files or sync them into the Kubernetes Secrets the
+# existing `*_secret_ref` inputs already read (e.g.
+# n8n_license_key_secret_ref, n8n_credentials_overwrite_secret_ref). Workload
+# Identity (workload_identity.tf) already lets a Kubernetes ServiceAccount
+# authenticate as a Google service account with Secret Manager IAM; this
+# add-on is the cluster-side half of that pattern. The module grants no
+# Secret Manager IAM here; the caller's pod-level Workload Identity SA needs
+# roles/secretmanager.secretAccessor on its own secrets out of band (or via
+# n8n_secret_manager_enabled's grant, for n8n's own External Secrets use).
+# Only takes effect for a module-managed cluster; ignored when create_gke =
+# false (checks.tf emits the ignored-input diagnostic).
+
+variable "gke_secret_manager_addon_enabled" {
+  description = "When true and create_gke is true, enables the GKE-managed Secret Manager CSI driver add-on (secret_manager_config) on the module-managed cluster, letting pods mount Google Secret Manager secrets or sync them into the Kubernetes Secrets the *_secret_ref inputs read. Defaults to false. Ignored when create_gke = false."
+  type        = bool
+  default     = false
+  nullable    = false
 }

@@ -312,17 +312,18 @@ fallback, not the first choice.
 
 **Symptom**
 
-`google_sql_database_instance.n8n`, `google_redis_instance.n8n`, or
-`google_storage_bucket.n8n` fails to create/update with a permission-denied
-error referencing the Cloud KMS key.
+`google_sql_database_instance.n8n`, `google_redis_instance.n8n`,
+`google_storage_bucket.n8n`, or `google_container_cluster.n8n` fails to
+create/update with a permission-denied error referencing the Cloud KMS key.
 
 **Cause**
 
 A module-created CMEK key (`create_postgres_kms_key`/`create_redis_kms_key`/
-`create_gcs_kms_key`) automatically grants the correct service agent
-`roles/cloudkms.cryptoKeyEncrypterDecrypter`. A supplied *existing* key
-(`existing_postgres_kms_key_id`/`existing_redis_kms_key_id`/
-`existing_gcs_kms_key_id`) gets no IAM from the module by design, see
+`create_gcs_kms_key`/`create_gke_kms_key`) automatically grants the correct
+service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A supplied
+*existing* key (`existing_postgres_kms_key_id`/`existing_redis_kms_key_id`/
+`existing_gcs_kms_key_id`/`existing_gke_kms_key_id`) gets no IAM from the
+module by design, see
 [Cloud KMS permissions](./customer-managed-infrastructure.md#cloud-kms-permissions).
 
 **Fix**
@@ -344,6 +345,11 @@ gcloud kms keys add-iam-policy-binding <key> --keyring <ring> --location <loc> \
 # GCS
 gcloud kms keys add-iam-policy-binding <key> --keyring <ring> --location <loc> \
   --member="serviceAccount:service-<project_number>@gs-project-accounts.iam.gserviceaccount.com" \
+  --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
+
+# GKE
+gcloud kms keys add-iam-policy-binding <key> --keyring <ring> --location <loc> \
+  --member="serviceAccount:service-<project_number>@container-engine-robot.iam.gserviceaccount.com" \
   --role=roles/cloudkms.cryptoKeyEncrypterDecrypter
 ```
 
