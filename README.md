@@ -72,7 +72,7 @@ Users and inbound webhooks hit a **Google Cloud L7 HTTPS load balancer** provisi
 - **Memorystore for Redis** for leader election and the worker queue
 - **Google Cloud Storage** (S3-compatible, via HMAC key) for binary data
 
-Pods authenticate to GCP via **Workload Identity** (the exception is GCS, which uses the HMAC key). TLS is terminated at the load balancer; the certificate source is selectable (see below).
+Pods authenticate to GCP via **Workload Identity** (the exception is GCS, which uses the HMAC key). TLS is terminated at the load balancer; the certificate source is selectable (see below). For why the module defaults to native GKE Ingress and when GKE Gateway API, an internal Application Load Balancer, Istio/Cloud Service Mesh, or a third-party controller fits better instead, see [`docs/ingress-options.md`](./docs/ingress-options.md).
 
 Every layer above is independently ownable. A static `create_*` (or
 `install_*`) switch per layer, network, GKE, PostgreSQL, Redis, GCS bucket,
