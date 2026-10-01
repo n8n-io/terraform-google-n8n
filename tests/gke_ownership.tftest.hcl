@@ -325,3 +325,178 @@ run "gke_references_ignored_when_managed_triggers_warning" {
 
   expect_failures = [check.gke_references_ignored_when_managed]
 }
+
+# ── Application-layer Secrets Encryption (Cloud KMS) ──────────────────────────
+
+run "defaults_omit_database_encryption_and_secret_manager_addon" {
+  command = plan
+
+  assert {
+    condition = (
+      length(google_container_cluster.n8n[0].database_encryption) == 0 &&
+      length(google_container_cluster.n8n[0].secret_manager_config) == 0
+    )
+    error_message = "Neither database_encryption nor secret_manager_config must render on the default plan."
+  }
+
+  assert {
+    condition = (
+      length(google_kms_crypto_key.gke) == 0 &&
+      length(google_kms_crypto_key_iam_member.gke) == 0 &&
+      length(google_project_service_identity.gke) == 0
+    )
+    error_message = "No GKE CMEK key, IAM grant, or service identity must be created by default."
+  }
+}
+
+run "module_created_gke_key_wires_key_ring_and_iam" {
+  command = plan
+
+  variables {
+    create_kms_key_ring = true
+    create_gke_kms_key  = true
+  }
+
+  assert {
+    condition     = length(google_kms_key_ring.n8n) == 1
+    error_message = "create_kms_key_ring = true must create the shared key ring."
+  }
+
+  assert {
+    condition     = length(google_kms_crypto_key.gke) == 1
+    error_message = "create_gke_kms_key = true must create the GKE CryptoKey."
+  }
+
+  assert {
+    condition     = length(google_kms_crypto_key_iam_member.gke) == 1
+    error_message = "A module-created key must grant the GKE service agent IAM."
+  }
+
+  assert {
+    condition = (
+      length(google_project_service_identity.gke) == 1 &&
+      google_project_service_identity.gke[0].project == "test-project" &&
+      google_project_service_identity.gke[0].service == "container.googleapis.com"
+    )
+    error_message = "A module-created GKE key must materialize the target project's GKE service agent before granting IAM."
+  }
+
+  # database_encryption's key_name feeds from the module-created key's
+  # computed id, which stays unknown under the mock provider at plan time
+  # (see AGENTS.md, "Known mock provider limitations"); the rendered
+  # database_encryption block itself is exercised with a known literal key
+  # in existing_gke_key_creates_no_key_or_iam below instead.
+
+  # CKV_GCP_43: every module-created CMEK key rotates within 90 days.
+  assert {
+    condition     = google_kms_crypto_key.gke[0].rotation_period == "7776000s"
+    error_message = "A module-created GKE CryptoKey must rotate every 90 days."
+  }
+}
+
+run "existing_gke_key_creates_no_key_or_iam" {
+  command = plan
+
+  variables {
+    existing_gke_kms_key_id = "projects/test-project/locations/us-east4/keyRings/shared/cryptoKeys/gke"
+  }
+
+  assert {
+    condition     = length(google_kms_key_ring.n8n) == 0
+    error_message = "An existing key must not require a module-managed key ring."
+  }
+
+  assert {
+    condition     = length(google_kms_crypto_key.gke) == 0
+    error_message = "An existing key must not be created."
+  }
+
+  assert {
+    condition     = length(google_kms_crypto_key_iam_member.gke) == 0
+    error_message = "An existing key must get no module-managed IAM grant."
+  }
+
+  assert {
+    condition = (
+      google_container_cluster.n8n[0].database_encryption[0].state == "ENCRYPTED" &&
+      google_container_cluster.n8n[0].database_encryption[0].key_name == "projects/test-project/locations/us-east4/keyRings/shared/cryptoKeys/gke"
+    )
+    error_message = "The managed cluster must use the supplied existing key."
+  }
+}
+
+run "create_and_existing_gke_key_are_mutually_exclusive" {
+  command = plan
+
+  variables {
+    create_gke_kms_key      = true
+    existing_gke_kms_key_id = "projects/test-project/locations/us-east4/keyRings/shared/cryptoKeys/gke"
+  }
+
+  expect_failures = [var.create_gke_kms_key]
+}
+
+run "module_created_gke_key_without_ring_reference_fails" {
+  command = plan
+
+  variables {
+    create_gke_kms_key = true
+    # create_kms_key_ring left false and existing_kms_key_ring_id unset.
+  }
+
+  expect_failures = [var.existing_kms_key_ring_id]
+}
+
+run "gke_kms_ignored_when_existing_cluster_triggers_warning" {
+  command = plan
+
+  variables {
+    create_gke                             = false
+    existing_gke_cluster_name              = "shared-cluster"
+    existing_gke_prerequisites_attestation = true
+    create_gke_kms_key                     = true
+    create_kms_key_ring                    = true
+  }
+
+  expect_failures = [check.gke_kms_ignored_when_existing]
+
+  assert {
+    condition = (
+      length(google_kms_key_ring.n8n) == 0 &&
+      length(google_kms_crypto_key.gke) == 0 &&
+      length(google_kms_crypto_key_iam_member.gke) == 0
+    )
+    error_message = "Ignored GKE CMEK inputs must not create a key ring, key, or IAM binding for an existing cluster."
+  }
+}
+
+# ── Secret Manager CSI driver add-on ───────────────────────────────────────────
+
+run "gke_secret_manager_addon_renders_when_enabled" {
+  command = plan
+
+  variables {
+    gke_secret_manager_addon_enabled = true
+  }
+
+  assert {
+    condition = (
+      length(google_container_cluster.n8n[0].secret_manager_config) == 1 &&
+      google_container_cluster.n8n[0].secret_manager_config[0].enabled == true
+    )
+    error_message = "secret_manager_config must render enabled = true when gke_secret_manager_addon_enabled is true."
+  }
+}
+
+run "gke_secret_manager_addon_ignored_when_existing_cluster_triggers_warning" {
+  command = plan
+
+  variables {
+    create_gke                             = false
+    existing_gke_cluster_name              = "shared-cluster"
+    existing_gke_prerequisites_attestation = true
+    gke_secret_manager_addon_enabled       = true
+  }
+
+  expect_failures = [check.gke_tuning_ignored_when_existing]
+}
