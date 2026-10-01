@@ -417,6 +417,18 @@ run "redis_tuning_ignored_when_existing_triggers_warning" {
   expect_failures = [check.redis_tuning_ignored_when_existing]
 }
 
+run "redis_maxmemory_policy_ignored_when_external_triggers_warning" {
+  command = plan
+
+  variables {
+    create_redis_instance  = false
+    redis_host             = "10.9.8.8"
+    redis_maxmemory_policy = "allkeys-lru"
+  }
+
+  expect_failures = [check.redis_tuning_ignored_when_existing]
+}
+
 run "gcs_tuning_ignored_when_existing_triggers_warning" {
   command = plan
 
