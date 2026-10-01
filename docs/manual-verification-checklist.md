@@ -363,10 +363,10 @@ in a caller-managed Kubernetes Secret.
    `helm get values n8n -n <namespace>` shows `license.enabled: true` with
    an inert `existingSecret` block (empty `name`) and an empty
    `activationKey` - that is the expected shape on this path, not a sign of
-   a leaked key - and that `kubectl -n n8n exec deploy/n8n-main -- printenv`
+   a leaked key - and that `kubectl -n <namespace> exec deploy/n8n-main -- printenv`
    shows no `N8N_LICENSE_ACTIVATION_KEY`.
 2. Confirm activation from **Settings → License** or
-   `kubectl -n n8n exec deploy/n8n-main -- n8n license:info`, with no
+   `kubectl -n <namespace> exec deploy/n8n-main -- n8n license:info`, with no
    outbound call to n8n's license server.
 3. Confirm multi-main still runs (2+ main replicas) on the certificate path,
    since `license.enabled` staying `true` is what keeps
