@@ -1574,6 +1574,61 @@ run "rejects_private_endpoint_with_public_authorized_network" {
   expect_failures = [var.gke_enable_private_endpoint]
 }
 
+run "rejects_private_endpoint_with_cidr_just_below_172_block" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "172.15.0.0/16", display_name = "just-below-172-rfc1918" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_with_undersized_10_block_mask" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0/7", display_name = "wider-than-10-block" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_with_malformed_cidr" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0", display_name = "missing-prefix-length" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "accepts_private_endpoint_with_172_16_12_block" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "172.16.0.0/12", display_name = "full-172-rfc1918-block" },
+    ]
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].private_cluster_config[0].enable_private_endpoint == true
+    error_message = "172.16.0.0/12 is the full RFC 1918 172 block and must be accepted as an authorized network."
+  }
+}
+
 run "gke_enable_private_endpoint_renders_private_endpoint" {
   command = plan
 

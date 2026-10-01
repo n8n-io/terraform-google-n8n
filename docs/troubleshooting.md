@@ -119,20 +119,27 @@ the Cloud Console.
 The GKE control-plane API server has no public IP in this mode
 (`private_cluster_config.enable_private_endpoint`). Only a host with network
 connectivity to the VPC the cluster's subnet lives in, directly, peered, or
-via Cloud VPN/Interconnect, can reach it, and only from the same region as
-`gcp_region` unless the cluster's `master_global_access_config` is enabled
-out of band (this module leaves it at the provider default, disabled). A
-laptop or CI runner on the public internet, or in a different region's
-network, cannot reach it at all.
+via Cloud VPN/Interconnect, can reach it, and even then only if its source
+CIDR is allowed by `gke_control_plane_authorized_networks` and it is in the
+same region as `gcp_region` unless the cluster's
+`master_global_access_config` is enabled out of band (this module leaves it
+at the provider default, disabled). A laptop or CI runner on the public
+internet, in a different region's network, or whose source CIDR is not in
+`gke_control_plane_authorized_networks` cannot reach it at all.
 
 **Fix**
 
 1. Confirm `terraform output -raw gke_cluster_endpoint` resolves to an
    internal (RFC 1918) address, not a public IP.
-2. Run `terraform apply`/`kubectl`/`helm` from a host with that connectivity:
+2. Confirm the apply host's source CIDR is one of the entries in
+   `gke_control_plane_authorized_networks` (`gcloud container clusters
+   describe <cluster> --format='value(masterAuthorizedNetworksConfig)'`);
+   a host with the right network path but an unlisted source CIDR is still
+   rejected by the control plane.
+3. Run `terraform apply`/`kubectl`/`helm` from a host with that connectivity:
    a bastion VM inside the VPC, a host on a peered/VPN-connected network, or
    a Cloud Build private pool peered into the VPC.
-3. If the apply host is in a different region than `gcp_region`, either move
+4. If the apply host is in a different region than `gcp_region`, either move
    it into the same region or fork `gke.tf` to add a
    `master_global_access_config { enabled = true }` block.
 
