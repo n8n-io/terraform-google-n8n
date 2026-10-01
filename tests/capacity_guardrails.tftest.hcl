@@ -487,7 +487,7 @@ run "postgres_connection_budget_check_knows_g1_small" {
   expect_failures = [check.postgres_pool_size_fits_known_max_connections]
 }
 
-run "postgres_connection_budget_check_stays_silent_for_an_unresolvable_machine_type_shape" {
+run "postgres_connection_budget_check_knows_perf_optimized_n2" {
   command = plan
 
   variables {
@@ -497,14 +497,35 @@ run "postgres_connection_budget_check_stays_silent_for_an_unresolvable_machine_t
     gke_node_max_per_zone                    = 4
   }
 
+  # db-perf-optimized-N-2 is Google's documented 16 GB (16384 MiB) N2 shape
+  # (https://cloud.google.com/sql/docs/postgres/machine-series-overview),
+  # which falls in the 15-to-<30 GB bucket: 500 default connections.
+  assert {
+    condition     = local.postgres_max_user_connections_known == 500
+    error_message = "db-perf-optimized-N-2 (16 GB) must resolve to Google's documented 500-connection default."
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}
+
+run "postgres_connection_budget_check_stays_silent_for_an_unresolvable_machine_type_shape" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    postgres_edition                         = "ENTERPRISE_PLUS"
+    postgres_machine_type                    = "db-perf-optimized-C4-2"
+    gke_node_max_per_zone                    = 4
+  }
+
   # checks.tf's regex-based memory derivation only understands Enterprise
-  # edition's db-custom-<vcpus>-<memory_mb> naming, so an ENTERPRISE_PLUS
-  # db-perf-optimized-N-<vcpus> shape must stay silent rather than guess,
-  # even though the module's default ceilings would otherwise far exceed any
-  # real Cloud SQL tier.
+  # edition's db-custom-<vcpus>-<memory_mb> naming and the N2
+  # db-perf-optimized-N-<vcpus> table, so an ENTERPRISE_PLUS C4 shape must
+  # stay silent rather than guess, even though the module's default ceilings
+  # would otherwise far exceed any real Cloud SQL tier.
   assert {
     condition     = local.postgres_max_user_connections_known == null
-    error_message = "A machine-type shape outside the db-custom-<vcpus>-<memory_mb>/db-f1-micro/db-g1-small set must resolve to a null known-connections lookup rather than a guessed limit."
+    error_message = "A machine-type shape outside the covered set must resolve to a null known-connections lookup rather than a guessed limit."
   }
 }
 
