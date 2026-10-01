@@ -69,6 +69,19 @@ this project adheres to the stability contract in
   `ALLOW_UNENCRYPTED_AND_ENCRYPTED`. Default is unchanged, so existing
   deployments see no plan diff.
 
+- `n8n_license_cert_secret_ref` supports offline license activation
+  (`N8N_LICENSE_CERT`) for air-gapped or egress-restricted clusters that
+  cannot reach n8n's license server. It is mutually exclusive with
+  `n8n_license_key` and `n8n_license_key_secret_ref` - exactly one of the
+  three must be set. The certificate renders through the shared
+  `config.extraEnv` list as a `secretKeyRef`, not through the chart's
+  `license.existingSecret` block, which only ever maps to
+  `N8N_LICENSE_ACTIVATION_KEY`. `license.enabled` stays `true` on this path
+  because the chart also gates `N8N_MULTI_MAIN_SETUP_ENABLED` on
+  `license.enabled`, not on which credential backs it. See ["Offline license
+  activation"](./README.md#offline-license-activation) (ports
+  [terraform-azurerm-n8n#51](https://github.com/n8n-io/terraform-azurerm-n8n/pull/51)).
+
 ### Changed
 
 - Default `n8n_chart_version` bumped to `1.14.0` (was `1.13.0`; n8n-hosting

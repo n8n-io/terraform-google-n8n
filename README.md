@@ -60,7 +60,10 @@ If neither is done, the apply fails when creating `google_storage_hmac_key`.
 
 ### 4. Enterprise license
 
-Multi-main requires an n8n Enterprise license (`n8n_license_key`).
+Multi-main requires an n8n Enterprise license (`n8n_license_key`), or an
+offline license certificate for air-gapped or egress-restricted clusters that
+cannot reach n8n's license server (`n8n_license_cert_secret_ref`, see
+[Offline license activation](#offline-license-activation)).
 
 ---
 
@@ -154,6 +157,35 @@ Every hostname in `n8n_additional_domains` gets the identical main/webhook route
 
 ---
 
+## Offline license activation
+
+For air-gapped or egress-restricted clusters that cannot reach n8n's license
+server, set `n8n_license_cert_secret_ref` instead of `n8n_license_key` - a
+reference to a caller-managed Kubernetes Secret holding a base64-encoded
+[offline license certificate](https://docs.n8n.io/hosting/configuration/environment-variables/licenses/)
+(`N8N_LICENSE_CERT`, obtained from n8n directly):
+
+```hcl
+n8n_license_key             = null
+n8n_license_cert_secret_ref = { name = "n8n-license-cert", key = "cert" }
+```
+
+`n8n_license_key`, `n8n_license_key_secret_ref`, and
+`n8n_license_cert_secret_ref` are mutually exclusive - set exactly one. The
+certificate renders through the shared `config.extraEnv` list as a
+`secretKeyRef` on every n8n pod (main, worker, webhook processor), not through
+the chart's `license.existingSecret` block, because the pinned chart's
+license helper only ever maps `existingSecret` to
+`N8N_LICENSE_ACTIVATION_KEY`. `license.enabled` stays `true` on this path,
+because the chart separately gates `N8N_MULTI_MAIN_SETUP_ENABLED` on
+`license.enabled`, not on which credential backs it - multi-main leader
+election still requires `feat:multipleMainInstances` on the certificate
+itself. The module never reads the Secret's value, so it cannot detect a
+rotated payload; restart `n8n-main`, `n8n-worker`, and
+`n8n-webhook-processor` after updating the Secret.
+
+---
+
 ## Key inputs
 
 | Variable | Description |
@@ -163,6 +195,7 @@ Every hostname in `n8n_additional_domains` gets the identical main/webhook route
 | `friendly_name_prefix` | Prefix used to derive the name of every Google Cloud resource (<= 20 chars). |
 | `n8n_fqdn` | Hostname n8n is served on. |
 | `n8n_license_key` | n8n Enterprise activation key. |
+| `n8n_license_cert_secret_ref` | Offline license certificate Secret ref, for air-gapped clusters; see [Offline license activation](#offline-license-activation). |
 | `gcs_location` | GCS bucket location; keep near `gcp_region` (`US` / `EU` / a region). |
 | `tls_mode` | Certificate source (table above). |
 | `manage_sa_key_org_policy` | Opt-in org-policy override for the HMAC key (see Prerequisites). Default `false`. |
@@ -502,7 +535,7 @@ license, and quotas.
 | <a name="input_existing_gke_workload_identity_pool"></a> [existing\_gke\_workload\_identity\_pool](#input\_existing\_gke\_workload\_identity\_pool) | Workload Identity pool of the existing GKE cluster (normally <project\_id>.svc.id.goog). Only needed when the existing cluster's Workload Identity pool belongs to a different Google Cloud project than project\_id (a cross-project binding). Ignored when create\_gke = true. Leave null to use <project\_id>.svc.id.goog. | `string` | `null` | no |
 | <a name="input_existing_keda_prerequisites_attestation"></a> [existing\_keda\_prerequisites\_attestation](#input\_existing\_keda\_prerequisites\_attestation) | Explicit attestation that a compatible KEDA operator and CRDs are already installed and running on the cluster. The module cannot safely audit this; it trusts this attestation. Required (must be true) when install\_keda = false and n8n\_worker\_keda\_enabled = true. Ignored otherwise. | `bool` | `false` | no |
 | <a name="input_existing_kms_key_ring_id"></a> [existing\_kms\_key\_ring\_id](#input\_existing\_kms\_key\_ring\_id) | Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>) of an existing Cloud KMS key ring to host module-created CMEK keys. Required when create\_kms\_key\_ring = false and at least one service's create\_*\_kms\_key switch is true. Ignored when create\_kms\_key\_ring = true or no module-created key is requested. | `string` | `null` | no |
-| <a name="input_existing_n8n_core_secret_name"></a> [existing\_n8n\_core\_secret\_name](#input\_existing\_n8n\_core\_secret\_name) | Name of an existing Kubernetes Secret (in n8n\_kube\_namespace) holding N8N\_ENCRYPTION\_KEY, N8N\_HOST, N8N\_PORT, and N8N\_PROTOCOL - the n8n Helm chart's secretRefs.existingSecret core-Secret contract. When set, the module creates no core Secret and generates no encryption key; n8n\_license\_key\_secret\_ref must then be set, because the chart's core-Secret contract requires the license to come from a separate Secret, not n8n\_license\_key. Leave null (the default) for the module to generate the encryption key and create the core Secret itself. | `string` | `null` | no |
+| <a name="input_existing_n8n_core_secret_name"></a> [existing\_n8n\_core\_secret\_name](#input\_existing\_n8n\_core\_secret\_name) | Name of an existing Kubernetes Secret (in n8n\_kube\_namespace) holding N8N\_ENCRYPTION\_KEY, N8N\_HOST, N8N\_PORT, and N8N\_PROTOCOL - the n8n Helm chart's secretRefs.existingSecret core-Secret contract. When set, the module creates no core Secret and generates no encryption key; n8n\_license\_key\_secret\_ref or n8n\_license\_cert\_secret\_ref must then be set (not n8n\_license\_key), because the chart's core-Secret contract requires the license to come from a separate Secret. Leave null (the default) for the module to generate the encryption key and create the core Secret itself. | `string` | `null` | no |
 | <a name="input_existing_network_name"></a> [existing\_network\_name](#input\_existing\_network\_name) | Name of the existing VPC network to use. Required when create\_network = false. Ignored otherwise. | `string` | `null` | no |
 | <a name="input_existing_network_project_id"></a> [existing\_network\_project\_id](#input\_existing\_network\_project\_id) | Host project ID of the existing network, when it lives in a Shared VPC host project different from project\_id. Ignored when create\_network = true. Defaults to project\_id (the network lives in the same project) when left null. | `string` | `null` | no |
 | <a name="input_existing_pods_range_name"></a> [existing\_pods\_range\_name](#input\_existing\_pods\_range\_name) | Name of the existing secondary IP range on existing\_subnetwork\_name used for GKE pod alias IPs. Required when create\_network = false. Ignored otherwise. | `string` | `null` | no |
@@ -577,9 +610,10 @@ license, and quotas.
 | <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n application image tag to deploy (e.g. "2.27.4"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.41.4 for the default 1.14.0), a fixed n8n version that only moves when n8n\_chart\_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. This module requires n8n 2.0 or newer; n8n 1.x is not supported. The tag also decides whether the module still sends the legacy WEBHOOK\_URL: only when it names a version below n8n 2.30.0, or when no version can be established (a floating or unversioned tag, or a null tag on a private chart mirror or a chart before 1.12.0). A null tag on the default chart repository at chart 1.12.0 or newer runs the chart's appVersion and gets no WEBHOOK\_URL. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide. | `string` | `null` | no |
 | <a name="input_n8n_kube_namespace"></a> [n8n\_kube\_namespace](#input\_n8n\_kube\_namespace) | Kubernetes namespace to deploy n8n into. Also names the existing namespace when create\_namespace = false. | `string` | `"n8n"` | no |
 | <a name="input_n8n_kube_svc_account"></a> [n8n\_kube\_svc\_account](#input\_n8n\_kube\_svc\_account) | Kubernetes ServiceAccount the n8n pods run as (annotated for Workload Identity). Matches the n8n Helm chart's serviceAccount name. | `string` | `"n8n"` | no |
+| <a name="input_n8n_license_cert_secret_ref"></a> [n8n\_license\_cert\_secret\_ref](#input\_n8n\_license\_cert\_secret\_ref) | Reference to an existing Kubernetes Secret (in the n8n namespace) holding a base64-encoded n8n Enterprise offline license certificate (N8N\_LICENSE\_CERT), for air-gapped or egress-restricted clusters that cannot reach n8n's license server to activate n8n\_license\_key. key defaults to "cert" when omitted. The module never reads the referenced Secret's value; it only renders the name and key into the shared config.extraEnv list as a secretKeyRef, never into the chart's license.existingSecret block. Mutually exclusive with n8n\_license\_key and n8n\_license\_key\_secret\_ref - exactly one of the three is required. | <pre>object({<br/>    name = string<br/>    key  = optional(string, "cert")<br/>  })</pre> | `null` | no |
 | <a name="input_n8n_license_detach_floating_on_shutdown"></a> [n8n\_license\_detach\_floating\_on\_shutdown](#input\_n8n\_license\_detach\_floating\_on\_shutdown) | Whether n8n main pods detach their floating license entitlement on shutdown. Maps to N8N\_LICENSE\_DETACH\_FLOATING\_ON\_SHUTDOWN. n8n's upstream default is true, which is safe for a single main but breaks multi-main (the module default, two main replicas): the leader main detaches on shutdown and zeroes the shared floating cert in the database, so any fresh main pod that starts as a follower reads the zeroed cert, fails the init-time license gate, and crash-loops, which can push a Helm release with atomic = true into a stuck pending-rollback state. The module defaults this to false, overriding n8n's own default, because all mains share the same device fingerprint: a single floating seat is reused across restarts and nothing leaks. Set to true only to restore n8n's upstream behavior, and only for single-main deployments. | `bool` | `false` | no |
-| <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key. Get one at https://n8n.io/pricing. Exactly one of n8n\_license\_key or n8n\_license\_key\_secret\_ref is required. | `string` | `null` | no |
-| <a name="input_n8n_license_key_secret_ref"></a> [n8n\_license\_key\_secret\_ref](#input\_n8n\_license\_key\_secret\_ref) | Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n\_license\_key. key defaults to "license-key" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Exactly one of n8n\_license\_key or n8n\_license\_key\_secret\_ref is required. Also required (instead of n8n\_license\_key) when existing\_n8n\_core\_secret\_name is set, per the chart's core-Secret contract (see existing\_n8n\_core\_secret\_name). | <pre>object({<br/>    name = string<br/>    key  = optional(string, "license-key")<br/>  })</pre> | `null` | no |
+| <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key. Get one at https://n8n.io/pricing. Leave null when n8n\_license\_key\_secret\_ref selects a caller-managed Kubernetes Secret holding the key instead, or when n8n\_license\_cert\_secret\_ref selects a caller-managed Secret holding an offline N8N\_LICENSE\_CERT certificate for air-gapped or egress-restricted clusters that cannot reach n8n's license server - exactly one of the three must be set. | `string` | `null` | no |
+| <a name="input_n8n_license_key_secret_ref"></a> [n8n\_license\_key\_secret\_ref](#input\_n8n\_license\_key\_secret\_ref) | Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n\_license\_key. key defaults to "license-key" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Mutually exclusive with n8n\_license\_key and n8n\_license\_cert\_secret\_ref - exactly one of the three is required. Also required (instead of n8n\_license\_key) when existing\_n8n\_core\_secret\_name is set, per the chart's core-Secret contract (see existing\_n8n\_core\_secret\_name). | <pre>object({<br/>    name = string<br/>    key  = optional(string, "license-key")<br/>  })</pre> | `null` | no |
 | <a name="input_n8n_log_level"></a> [n8n\_log\_level](#input\_n8n\_log\_level) | n8n log level. Maps to the N8N\_LOG\_LEVEL environment variable. One of: silent, error, warn, info, debug, verbose. | `string` | `"info"` | no |
 | <a name="input_n8n_log_output"></a> [n8n\_log\_output](#input\_n8n\_log\_output) | n8n log output destination(s). Maps to the N8N\_LOG\_OUTPUT environment variable. Comma-separated subset of: console, file (e.g. "console", "file", "console,file"). Note: this variable does NOT control log *format*, setting an invalid value (e.g. "json") leaves Winston with no transport and silently drops all logs. To emit JSON-formatted logs, configure n8n's logging block separately; this env var only selects destinations. | `string` | `"console"` | no |
 | <a name="input_n8n_log_streaming_destinations"></a> [n8n\_log\_streaming\_destinations](#input\_n8n\_log\_streaming\_destinations) | List of log streaming destination objects, JSON-encoded into N8N\_LOG\_STREAMING\_DESTINATIONS. Each entry must set type to webhook, syslog, or sentry, plus the type-specific fields documented at https://docs.n8n.io/log-streaming/#configure-using-environment-variables (common fields: label, enabled, subscribedEvents, anonymizeAuditMessages, circuitBreaker). Typed as any because the three destination shapes differ structurally. Marked sensitive because webhook headers and Sentry DSNs typically carry credentials, note the value is still injected as a literal env var: it is persisted in plaintext in Terraform state and visible in the pod environment (kubectl describe / printenv). Ignored when n8n\_log\_streaming\_managed\_by\_env = false. | `any` | `[]` | no |

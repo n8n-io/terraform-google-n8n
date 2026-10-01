@@ -69,7 +69,10 @@ resource "kubernetes_secret" "n8n" {
 # Wraps a direct license value (n8n_license_key) so the chart never renders
 # the literal activation key into Helm values/pod specs. Skipped when the
 # caller supplies an existing Secret instead (n8n_license_key_secret_ref,
-# used as-is); see locals.tf's manage_license_secret / effective_license_secret_*.
+# used as-is), or an offline license certificate instead
+# (n8n_license_cert_secret_ref, rendered through config.extraEnv - see
+# local.n8n_license_cert_env); see locals.tf's manage_license_secret /
+# effective_license_secret_*.
 resource "kubernetes_secret" "n8n_license" {
   count = local.manage_license_secret ? 1 : 0
 
@@ -231,6 +234,16 @@ resource "helm_release" "n8n" {
     # into the module-managed kubernetes_secret.n8n_license; a caller-supplied
     # n8n_license_key_secret_ref is referenced as-is and creates no managed
     # Secret (mutually exclusive, enforced by variables.tf's validation).
+    # On the offline-certificate path (n8n_license_cert_secret_ref),
+    # effective_license_secret_name/key resolve to the empty string / the
+    # unused "license-key" placeholder (locals.tf), so existingSecret.name
+    # reads as falsy and the chart's license helper emits no
+    # N8N_LICENSE_ACTIVATION_KEY at all; local.n8n_license_cert_env below
+    # renders N8N_LICENSE_CERT through config.extraEnv instead. license.enabled
+    # stays true on every path: the chart also gates
+    # N8N_MULTI_MAIN_SETUP_ENABLED on license.enabled alone, not on which
+    # credential backs it, so turning it off would silently break multi-main
+    # leader election.
     license = {
       enabled       = true
       activationKey = ""
@@ -594,6 +607,9 @@ resource "helm_release" "n8n" {
         # One-replica election staging. At higher counts the chart supplies
         # the flag through its main-only ConfigMap reference instead.
         local.n8n_main_election_staging_env,
+        # Offline license activation (N8N_LICENSE_CERT). Empty unless
+        # n8n_license_cert_secret_ref is set; see local.n8n_license_cert_env.
+        local.n8n_license_cert_env,
         # Redis command-channel prefix, synchronized with the Bull queue-key
         # prefix (redis.prefix above) and the KEDA/exporter queue key names
         # (local.effective_redis_queue_keys) so all three consumers agree on

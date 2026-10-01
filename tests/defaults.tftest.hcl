@@ -977,6 +977,18 @@ run "extra_env_rejects_license_name" {
   expect_failures = [var.n8n_extra_env]
 }
 
+run "extra_env_rejects_license_cert_name" {
+  command = plan
+
+  variables {
+    n8n_extra_env = [
+      { name = "N8N_LICENSE_CERT", value = "stolen-cert" },
+    ]
+  }
+
+  expect_failures = [var.n8n_extra_env]
+}
+
 # A genuinely non-managed var that happens to be timezone-related stays allowed:
 # the chart sets TZ (blocked) but not GENERIC_TIMEZONE, so callers can set it.
 run "extra_env_accepts_generic_timezone" {

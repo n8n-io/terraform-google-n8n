@@ -84,18 +84,20 @@ variable "n8n_webhook_url" {
 }
 
 variable "n8n_license_key" {
-  description = "n8n Enterprise license activation key. Get one at https://n8n.io/pricing. Exactly one of n8n_license_key or n8n_license_key_secret_ref is required."
+  description = "n8n Enterprise license activation key. Get one at https://n8n.io/pricing. Leave null when n8n_license_key_secret_ref selects a caller-managed Kubernetes Secret holding the key instead, or when n8n_license_cert_secret_ref selects a caller-managed Secret holding an offline N8N_LICENSE_CERT certificate for air-gapped or egress-restricted clusters that cannot reach n8n's license server - exactly one of the three must be set."
   type        = string
   default     = null
   sensitive   = true
 }
 
-# The completeness/mutual-exclusivity condition below references both this
-# variable and n8n_license_key, so it lives on exactly one of the two (here)
-# rather than being duplicated on both, per the acyclicity rationale documented
-# on n8n_database_password_secret_ref.
+# The completeness/mutual-exclusivity condition below references this
+# variable, n8n_license_key, and n8n_license_cert_secret_ref, so it lives on
+# exactly one of the three (here) rather than being duplicated on all of
+# them, per the acyclicity rationale documented on
+# n8n_database_password_secret_ref (two variables validating each other
+# cycles Terraform's validation graph).
 variable "n8n_license_key_secret_ref" {
-  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n_license_key. key defaults to \"license-key\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Exactly one of n8n_license_key or n8n_license_key_secret_ref is required. Also required (instead of n8n_license_key) when existing_n8n_core_secret_name is set, per the chart's core-Secret contract (see existing_n8n_core_secret_name)."
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n_license_key. key defaults to \"license-key\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Mutually exclusive with n8n_license_key and n8n_license_cert_secret_ref - exactly one of the three is required. Also required (instead of n8n_license_key) when existing_n8n_core_secret_name is set, per the chart's core-Secret contract (see existing_n8n_core_secret_name)."
   type = object({
     name = string
     key  = optional(string, "license-key")
@@ -103,8 +105,33 @@ variable "n8n_license_key_secret_ref" {
   default = null
 
   validation {
-    condition     = (var.n8n_license_key != null) != (var.n8n_license_key_secret_ref != null)
-    error_message = "Exactly one of n8n_license_key or n8n_license_key_secret_ref is required."
+    condition = length([
+      for v in [var.n8n_license_key, var.n8n_license_key_secret_ref, var.n8n_license_cert_secret_ref] : v if v != null
+    ]) == 1
+    error_message = "Set exactly one of n8n_license_key, n8n_license_key_secret_ref, or n8n_license_cert_secret_ref."
+  }
+}
+
+# Offline license activation (N8N_LICENSE_CERT): for air-gapped or
+# egress-restricted clusters that cannot reach n8n's license server. Rendered
+# through the shared config.extraEnv list as a secretKeyRef (n8n.tf's
+# local.n8n_license_cert_env), not through the chart's license.existingSecret
+# block, which only ever maps to N8N_LICENSE_ACTIVATION_KEY - the chart has no
+# cert-shaped equivalent of that block. license.enabled still renders true on
+# this path (n8n.tf) because the chart also gates
+# N8N_MULTI_MAIN_SETUP_ENABLED on license.enabled, not on which credential
+# backs it; turning it off would silently break multi-main leader election.
+variable "n8n_license_cert_secret_ref" {
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding a base64-encoded n8n Enterprise offline license certificate (N8N_LICENSE_CERT), for air-gapped or egress-restricted clusters that cannot reach n8n's license server to activate n8n_license_key. key defaults to \"cert\" when omitted. The module never reads the referenced Secret's value; it only renders the name and key into the shared config.extraEnv list as a secretKeyRef, never into the chart's license.existingSecret block. Mutually exclusive with n8n_license_key and n8n_license_key_secret_ref - exactly one of the three is required."
+  type = object({
+    name = string
+    key  = optional(string, "cert")
+  })
+  default = null
+
+  validation {
+    condition     = var.n8n_license_cert_secret_ref == null ? true : (trimspace(var.n8n_license_cert_secret_ref.name) != "" && trimspace(var.n8n_license_cert_secret_ref.key) != "")
+    error_message = "n8n_license_cert_secret_ref.name and .key must be non-empty when set."
   }
 }
 
@@ -191,13 +218,13 @@ variable "n8n_encryption_key" {
 }
 
 variable "existing_n8n_core_secret_name" {
-  description = "Name of an existing Kubernetes Secret (in n8n_kube_namespace) holding N8N_ENCRYPTION_KEY, N8N_HOST, N8N_PORT, and N8N_PROTOCOL - the n8n Helm chart's secretRefs.existingSecret core-Secret contract. When set, the module creates no core Secret and generates no encryption key; n8n_license_key_secret_ref must then be set, because the chart's core-Secret contract requires the license to come from a separate Secret, not n8n_license_key. Leave null (the default) for the module to generate the encryption key and create the core Secret itself."
+  description = "Name of an existing Kubernetes Secret (in n8n_kube_namespace) holding N8N_ENCRYPTION_KEY, N8N_HOST, N8N_PORT, and N8N_PROTOCOL - the n8n Helm chart's secretRefs.existingSecret core-Secret contract. When set, the module creates no core Secret and generates no encryption key; n8n_license_key_secret_ref or n8n_license_cert_secret_ref must then be set (not n8n_license_key), because the chart's core-Secret contract requires the license to come from a separate Secret. Leave null (the default) for the module to generate the encryption key and create the core Secret itself."
   type        = string
   default     = null
 
   validation {
-    condition     = var.existing_n8n_core_secret_name == null || var.n8n_license_key_secret_ref != null
-    error_message = "n8n_license_key_secret_ref is required when existing_n8n_core_secret_name is set; the chart's core-Secret contract requires the license to come from a separate Secret reference, not n8n_license_key."
+    condition     = var.existing_n8n_core_secret_name == null ? true : (var.n8n_license_key_secret_ref != null || var.n8n_license_cert_secret_ref != null)
+    error_message = "n8n_license_key_secret_ref or n8n_license_cert_secret_ref is required when existing_n8n_core_secret_name is set; the chart's core-Secret contract requires the license to come from a separate Secret reference, not n8n_license_key."
   }
 }
 

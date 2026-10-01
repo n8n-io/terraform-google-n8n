@@ -1395,7 +1395,7 @@ fi
 if kubectl get secret n8n-license-secret -n "$NAMESPACE" &>/dev/null; then
   pass "Managed license Secret 'n8n-license-secret' exists (n8n_license_key delivered by reference, no literal key in Helm values)"
 else
-  info "Secret 'n8n-license-secret' not found (expected when n8n_license_key is unset or n8n_license_key_secret_ref is used instead)"
+  info "Secret 'n8n-license-secret' not found (expected when n8n_license_key is unset, or n8n_license_key_secret_ref / n8n_license_cert_secret_ref is used instead)"
 fi
 
 header "Additional Ingress Hostnames"
