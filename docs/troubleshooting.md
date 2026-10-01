@@ -129,11 +129,12 @@ internet, in a different region's network, or whose source CIDR is not in
 
 **Fix**
 
-1. Confirm `terraform output -raw gke_cluster_endpoint` resolves to an
-   internal (RFC 1918) address, not a public IP.
+1. Confirm `terraform output -raw gke_cluster_endpoint` is an internal
+   (RFC 1918) address, not a public IP.
 2. Confirm the apply host's source CIDR is one of the entries in
    `gke_control_plane_authorized_networks` (`gcloud container clusters
-   describe <cluster> --format='value(masterAuthorizedNetworksConfig)'`);
+   describe <cluster> --region <gcp_region>
+   --format='value(masterAuthorizedNetworksConfig)'`);
    a host with the right network path but an unlisted source CIDR is still
    rejected by the control plane.
 3. Run `terraform apply`/`kubectl`/`helm` from a host with that connectivity:
