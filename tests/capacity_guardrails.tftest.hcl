@@ -346,3 +346,211 @@ run "capacity_check_skips_when_machine_type_is_unresolvable" {
     error_message = "An empty machine-type lookup result must resolve to a zero estimate, which the check blocks treat as unresolvable and skip."
   }
 }
+
+# ── PostgreSQL connection budget (opt-in advisory) ────────────────────────────
+# check.postgres_pool_size_fits_known_max_connections (checks.tf) compares
+# db_postgresdb_pool_size times the modeled main/worker/webhook-processor/
+# n8n_worker_pools replica ceilings against Google's published
+# max_connections default for postgres_machine_type. Off by default
+# (postgres_connection_budget_check_enabled = false) because the module's
+# own default ceilings (main 20 + worker 10 + webhook 50 = 80 pods) at the
+# default db_postgresdb_pool_size = 10 already demand 800 connections,
+# over db-g1-small's known 50.
+
+run "postgres_connection_budget_check_disabled_by_default_stays_silent_even_over_budget" {
+  command = plan
+
+  # gke_node_max_per_zone reverts the file-level pin back to the module's
+  # own default (4) so the unrelated GKE capacity checks do not also fire
+  # at full default replica ceilings (see defaults_fit_the_default_node_pool_ceiling).
+  variables {
+    gke_node_max_per_zone = 4
+  }
+
+  assert {
+    condition     = var.postgres_connection_budget_check_enabled == false
+    error_message = "postgres_connection_budget_check_enabled must default to false."
+  }
+
+  assert {
+    condition     = local.n8n_postgres_peak_connections > local.postgres_max_user_connections_known
+    error_message = "This run's fixture (module defaults) must genuinely exceed the known budget, or this test is not exercising the disabled-by-default path."
+  }
+}
+
+run "postgres_connection_budget_check_enabled_and_over_budget_warns" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    gke_node_max_per_zone                    = 4
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}
+
+run "postgres_connection_budget_check_enabled_and_within_budget_plans_cleanly" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    db_postgresdb_pool_size                  = 3
+    n8n_main_hpa_min_replicas                = 1
+    n8n_main_hpa_max_replicas                = 1
+    n8n_worker_keda_min_replicas             = 1
+    n8n_worker_keda_max_replicas             = 1
+    n8n_webhook_hpa_min_replicas             = 1
+    n8n_webhook_hpa_max_replicas             = 1
+  }
+
+  assert {
+    condition     = local.n8n_postgres_peak_connections == 9 && local.postgres_max_user_connections_known == 50
+    error_message = "Single-main/worker/webhook at db_postgresdb_pool_size=3 must demand 9 connections, comfortably under db-g1-small's 50-connection budget."
+  }
+}
+
+run "postgres_connection_budget_check_boundary_just_under_bucket_warns" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    postgres_machine_type                    = "db-custom-1-6143"
+    db_postgresdb_pool_size                  = 10
+    n8n_main_hpa_min_replicas                = 5
+    n8n_main_hpa_max_replicas                = 5
+    n8n_worker_keda_min_replicas             = 5
+    n8n_worker_keda_max_replicas             = 5
+    n8n_webhook_hpa_min_replicas             = 5
+    n8n_webhook_hpa_max_replicas             = 5
+  }
+
+  assert {
+    condition     = local.postgres_max_user_connections_known == 100 && local.n8n_postgres_peak_connections == 150
+    error_message = "6143 MiB sits just under the 6144 MiB bucket boundary and must resolve to the 100-connection tier, under this fixture's 150-connection demand."
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}
+
+run "postgres_connection_budget_check_boundary_at_bucket_edge_plans_cleanly" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    postgres_machine_type                    = "db-custom-1-6144"
+    db_postgresdb_pool_size                  = 10
+    n8n_main_hpa_min_replicas                = 5
+    n8n_main_hpa_max_replicas                = 5
+    n8n_worker_keda_min_replicas             = 5
+    n8n_worker_keda_max_replicas             = 5
+    n8n_webhook_hpa_min_replicas             = 5
+    n8n_webhook_hpa_max_replicas             = 5
+  }
+
+  assert {
+    condition     = local.postgres_max_user_connections_known == 200 && local.n8n_postgres_peak_connections == 150
+    error_message = "6144 MiB sits exactly on the next bucket boundary and must resolve to the 200-connection tier, covering this fixture's 150-connection demand."
+  }
+}
+
+run "postgres_connection_budget_check_knows_f1_micro" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    postgres_machine_type                    = "db-f1-micro"
+    postgres_edition                         = "ENTERPRISE"
+    gke_node_max_per_zone                    = 4
+  }
+
+  assert {
+    condition     = local.postgres_max_user_connections_known == 25
+    error_message = "db-f1-micro must resolve to Google's documented 25-connection default."
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}
+
+run "postgres_connection_budget_check_knows_g1_small" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    gke_node_max_per_zone                    = 4
+  }
+
+  assert {
+    condition     = var.postgres_machine_type == "db-g1-small" && local.postgres_max_user_connections_known == 50
+    error_message = "The module's own default postgres_machine_type (db-g1-small) must resolve to Google's documented 50-connection default."
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}
+
+run "postgres_connection_budget_check_stays_silent_for_an_unresolvable_machine_type_shape" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    postgres_edition                         = "ENTERPRISE_PLUS"
+    postgres_machine_type                    = "db-perf-optimized-N-2"
+    gke_node_max_per_zone                    = 4
+  }
+
+  # checks.tf's regex-based memory derivation only understands Enterprise
+  # edition's db-custom-<vcpus>-<memory_mb> naming, so an ENTERPRISE_PLUS
+  # db-perf-optimized-N-<vcpus> shape must stay silent rather than guess,
+  # even though the module's default ceilings would otherwise far exceed any
+  # real Cloud SQL tier.
+  assert {
+    condition     = local.postgres_max_user_connections_known == null
+    error_message = "A machine-type shape outside the db-custom-<vcpus>-<memory_mb>/db-f1-micro/db-g1-small set must resolve to a null known-connections lookup rather than a guessed limit."
+  }
+}
+
+run "postgres_connection_budget_check_stays_silent_for_an_external_database" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    create_postgres_instance                 = false
+    n8n_database_host                        = "10.9.8.7"
+    n8n_database_password                    = "external-db-password"
+    gke_node_max_per_zone                    = 4
+  }
+
+  # No module-managed Cloud SQL instance exists to size, so the check must
+  # stay silent regardless of how far the pod-ceiling arithmetic would
+  # otherwise exceed any tier's budget.
+  assert {
+    condition     = length(google_sql_database_instance.n8n) == 0
+    error_message = "create_postgres_instance = false must not create a Cloud SQL instance."
+  }
+}
+
+run "postgres_connection_budget_check_counts_worker_pools" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    n8n_chart_version                        = "1.11.0-preview.workerpools.1"
+    n8n_main_hpa_min_replicas                = 1
+    n8n_main_hpa_max_replicas                = 1
+    n8n_worker_keda_min_replicas             = 1
+    n8n_worker_keda_max_replicas             = 1
+    n8n_webhook_hpa_min_replicas             = 1
+    n8n_webhook_hpa_max_replicas             = 1
+    db_postgresdb_pool_size                  = 10
+    n8n_worker_pools = [
+      { name = "heavy", min_replicas = 1, max_replicas = 2 },
+      { name = "light", min_replicas = 1, max_replicas = 3 },
+    ]
+  }
+
+  assert {
+    condition     = local.n8n_worker_pools_max_replicas_sum == 5 && local.n8n_postgres_peak_connections == 80
+    error_message = "n8n_worker_pools max_replicas (2 + 3 = 5) must be added to the main/worker/webhook ceiling (1 + 1 + 1 = 3) before multiplying by db_postgresdb_pool_size (10), for 80 total."
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}

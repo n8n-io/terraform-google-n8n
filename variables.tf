@@ -1227,7 +1227,7 @@ variable "n8n_database_password_secret_ref" {
 }
 
 variable "db_postgresdb_pool_size" {
-  description = "Maximum number of TypeORM connection pool slots per n8n pod. Pool connections are acquired lazily on demand, up to this ceiling, not held open continuously from startup; a pod that never reaches this many concurrent queries never opens this many connections. db_ping_timeout_ms/db_postgresdb_connection_timeout_ms bound how long a request waits to acquire a slot from this pool once it is exhausted. Rule of thumb: pool_size >= worker_concurrency / 4. With PgBouncer in transaction mode a lower value (5) is sufficient; without PgBouncer use a value matching concurrency (10-20)."
+  description = "Maximum number of TypeORM connection pool slots per n8n pod. Pool connections are acquired lazily on demand, up to this ceiling, not held open continuously from startup; a pod that never reaches this many concurrent queries never opens this many connections. db_ping_timeout_ms/db_postgresdb_connection_timeout_ms bound how long a request waits to acquire a slot from this pool once it is exhausted. Rule of thumb: pool_size >= worker_concurrency / 4. With PgBouncer in transaction mode a lower value (5) is sufficient; without PgBouncer use a value matching concurrency (10-20). When postgres_connection_budget_check_enabled is true, check.postgres_pool_size_fits_known_max_connections (checks.tf) warns at plan time when this times the modeled main/worker/webhook-processor/worker-pool replica ceiling exceeds the known default max_connections for postgres_machine_type; see docs/sandbox.md."
   type        = number
   default     = 10
 
