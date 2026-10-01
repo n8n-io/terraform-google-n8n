@@ -7,6 +7,22 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- Optional GKE application-layer secrets encryption (etcd) with a Cloud KMS
+  key (`create_gke_kms_key`, `existing_gke_kms_key_id`), following the same
+  create-or-reference contract and shared key ring as Cloud SQL, Memorystore,
+  and GCS (`create_kms_key_ring`/`existing_kms_key_ring_id`). The module
+  grants the GKE service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter`
+  on a module-created key only. Gated on `create_gke = true`.
+- Optional GKE Secret Manager CSI driver add-on
+  (`gke_secret_manager_addon_enabled`), letting pods mount Google Secret
+  Manager secrets or sync them into the Kubernetes Secrets the `*_secret_ref`
+  inputs already read. The module grants no Secret Manager IAM for this
+  add-on; pair it with Workload Identity and `n8n_secret_manager_enabled` (or
+  an out-of-band grant) for the pod-level SA to actually read a secret.
+  Gated on `create_gke = true`.
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release
