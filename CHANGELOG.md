@@ -7,6 +7,22 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- `docs/shared-responsibility.md`: a single table summarizing what the
+  module does versus what the caller owns across cluster security add-ons,
+  network egress and DNS, edge protection, TLS, secrets and Terraform state,
+  backup/restore, observability, upgrades, licence, and quotas, linked from
+  the README's "Out of scope" section.
+
+### Changed
+
+- `.markdownlint.json`: set `MD024.siblings_only = true` so the
+  Keep a Changelog convention of repeating `### Added`/`### Changed`/
+  `### Fixed` headers under each version section no longer false-positives
+  as a duplicate heading against the same header in a different version
+  section.
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release
