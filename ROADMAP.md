@@ -29,13 +29,14 @@ Features we may want to address along the way:
 
 ## Already shipped
 
-Previously listed as candidates, now covered by the module or by n8n itself:
+Previously listed as candidates, now covered by the module or by n8n itself.
+See [`CHANGELOG.md`](./CHANGELOG.md) for details on each release.
 
 - **Install community packages via API.** `n8n_reinstall_missing_packages`,
-  `n8n_community_packages_registry` and
+  `n8n_unverified_packages_enabled`, `n8n_community_packages_registry` and
   `n8n_community_packages_prevent_loading` (`variables.tf`) expose the
-  relevant n8n settings, and the API surface itself is n8n's, documented in
-  the n8n docs.
+  relevant n8n settings. The install API itself is n8n's
+  (`POST /api/v1/community-packages`), documented in the n8n docs.
 - **Bring your own Secret Manager secrets.** `n8n_secret_manager_enabled` and
   `n8n_secret_manager_secret_ids` (`variables.tf`) grant the n8n Workload
   Identity service account `roles/secretmanager.secretAccessor` on an
