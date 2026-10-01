@@ -78,9 +78,11 @@ check "gke_tuning_ignored_when_existing" {
       var.gke_node_min_per_zone == 1 &&
       var.gke_node_max_per_zone == 4 &&
       var.gke_node_disk_size_gb == 100 &&
-      var.gke_node_disk_type == "pd-balanced"
+      var.gke_node_disk_type == "pd-balanced" &&
+      var.gke_enable_private_endpoint == false &&
+      var.gke_security_group == null
     )
-    error_message = "create_gke is false, but one or more managed-GKE tuning variables (gke_release_channel, gke_min_master_version, gke_deletion_protection, gke_enable_private_nodes, gke_node_type, gke_node_min_per_zone, gke_node_max_per_zone, gke_node_disk_size_gb, gke_node_disk_type) differ from their defaults. These are ignored when deploying onto an existing cluster; configure the existing cluster's node pools out of band instead."
+    error_message = "create_gke is false, but one or more managed-GKE tuning variables (gke_release_channel, gke_min_master_version, gke_deletion_protection, gke_enable_private_nodes, gke_node_type, gke_node_min_per_zone, gke_node_max_per_zone, gke_node_disk_size_gb, gke_node_disk_type, gke_enable_private_endpoint, gke_security_group) differ from their defaults. These are ignored when deploying onto an existing cluster; configure the existing cluster's node pools, control-plane endpoint, and RBAC-via-Groups out of band instead."
   }
 }
 
