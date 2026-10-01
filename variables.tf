@@ -1282,9 +1282,30 @@ variable "db_postgresdb_connection_timeout_ms" {
 }
 
 variable "db_postgresdb_ssl_enabled" {
-  description = "Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl_mode ALLOW_UNENCRYPTED_AND_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false)."
+  description = "Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl_mode ALLOW_UNENCRYPTED_AND_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped by default (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false) unless db_postgresdb_ssl_reject_unauthorized is also set, which additionally validates the server certificate (see that variable's description for its create_postgres_instance = false restriction)."
   type        = bool
   default     = false
+}
+
+variable "db_postgresdb_ssl_reject_unauthorized" {
+  description = "When true and db_postgresdb_ssl_enabled = true, n8n verifies the PostgreSQL server's certificate (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true) instead of the hardcoded false this module used before, which encrypted the connection but never validated the server certificate. node-postgres (n8n's driver) has no equivalent of libpq's chain-only verify-ca: enabling this performs the same full certificate-chain-plus-hostname check as PostgreSQL's verify-full, whichever name you think of it as. Restricted to create_postgres_instance = false (external PostgreSQL): the module-managed Cloud SQL path always connects over the instance's private IP, and Cloud SQL's server certificate never carries that private IP as a Subject Alternative Name (only DNS names are ever included, even with postgres_ssl_mode's server_ca_mode left at its default), so the hostname check would deterministically fail the TLS handshake on every connection attempt there. On the external path, point n8n_database_host at a DNS hostname matching the external server's own certificate (not a bare IP) for the hostname check to succeed, and supply the issuing CA via db_postgresdb_ssl_ca_secret_ref unless the pod image's default trust store already trusts it. See docs/postgresql-tls.md."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.db_postgresdb_ssl_reject_unauthorized ? (var.db_postgresdb_ssl_enabled && !var.create_postgres_instance) : true
+    error_message = "db_postgresdb_ssl_reject_unauthorized requires db_postgresdb_ssl_enabled = true (an unencrypted connection has no certificate to verify) and create_postgres_instance = false (the module-managed Cloud SQL path connects over a private IP whose certificate never names that IP, so certificate verification always fails the TLS handshake there; see docs/postgresql-tls.md)."
+  }
+}
+
+variable "db_postgresdb_ssl_ca_secret_ref" {
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding a PEM-encoded CA certificate bundle, mounted read-only on every n8n role (main, worker, webhook processor) and pointed at by DB_POSTGRESDB_SSL_CA_FILE whenever db_postgresdb_ssl_reject_unauthorized = true. key defaults to \"ca.crt\" when omitted. The module never reads the referenced Secret's value. Applies only to the external PostgreSQL path (create_postgres_instance = false; ignored otherwise, since db_postgresdb_ssl_reject_unauthorized is itself rejected on the module-managed path, see that variable). Leave null to fall back to the pod image's bundled trust store, which validates successfully only if the external server's certificate chains to a publicly trusted root CA."
+  type = object({
+    name = string
+    key  = optional(string, "ca.crt")
+  })
+  default = null
 }
 
 # ── Execution data storage ────────────────────────────────────────────────────

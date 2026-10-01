@@ -95,9 +95,10 @@ check "postgres_tuning_ignored_when_external" {
       var.postgres_deletion_protection == true &&
       var.postgres_backup_retained_backups == null &&
       var.postgres_transaction_log_retention_days == null &&
-      var.postgres_query_logging_enabled == false
+      var.postgres_query_logging_enabled == false &&
+      var.postgres_ssl_mode == "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
     )
-    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection, postgres_backup_retained_backups, postgres_transaction_log_retention_days, postgres_query_logging_enabled) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
+    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection, postgres_backup_retained_backups, postgres_transaction_log_retention_days, postgres_query_logging_enabled, postgres_ssl_mode) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
   }
 }
 
@@ -106,9 +107,10 @@ check "postgres_host_and_password_ignored_when_managed" {
     condition = !var.create_postgres_instance || (
       var.n8n_database_host == null &&
       var.n8n_database_password == null &&
-      var.n8n_database_password_secret_ref == null
+      var.n8n_database_password_secret_ref == null &&
+      var.db_postgresdb_ssl_ca_secret_ref == null
     )
-    error_message = "create_postgres_instance is true, but n8n_database_host, n8n_database_password, or n8n_database_password_secret_ref is set. These are ignored for the module-managed instance; the module generates its own password and reports the instance's private IP via the postgres_host output."
+    error_message = "create_postgres_instance is true, but n8n_database_host, n8n_database_password, n8n_database_password_secret_ref, or db_postgresdb_ssl_ca_secret_ref is set. These are ignored for the module-managed instance; the module generates its own password and reports the instance's private IP via the postgres_host output, and db_postgresdb_ssl_reject_unauthorized (the only thing that reads the CA Secret) is itself rejected on the managed path."
   }
 }
 

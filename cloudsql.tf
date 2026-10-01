@@ -62,13 +62,16 @@ data "google_sql_database_instance" "restore_source" {
 # to any supported version, including the current literal this check
 # expects.
 #
-# CKV_GCP_6 (require SSL): ssl_mode is intentionally
+# CKV_GCP_6 (require SSL): ssl_mode (postgres_ssl_mode) defaults to
 # ALLOW_UNENCRYPTED_AND_ENCRYPTED (not ENCRYPTED_ONLY), matching n8n's own
 # default DB_POSTGRESDB_SSL_ENABLED=false client behavior over a private VPC
 # connection (Private Services Access, never a public IP); see the file-level
 # comment and db_postgresdb_ssl_enabled in variables.tf, which lets an
 # operator require SSL on the n8n client side without breaking connectivity
-# for those who leave it at the documented default.
+# for those who leave it at the documented default. postgres_ssl_mode
+# (variables_gcp.tf) opts the instance itself into ENCRYPTED_ONLY for
+# server-side enforcement; Checkov only scans the static default below, so
+# the skip stays regardless of the variable's actual value.
 #
 # CKV_GCP_110 (pgAudit): a heavier, opt-in audit-logging feature beyond this
 # change's opt-in DDL/slow-query logging (postgres_query_logging_enabled);
@@ -126,7 +129,7 @@ resource "google_sql_database_instance" "n8n" {
     ip_configuration {
       ipv4_enabled    = false
       private_network = local.effective_network_id
-      ssl_mode        = "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+      ssl_mode        = var.postgres_ssl_mode
     }
 
     backup_configuration {
