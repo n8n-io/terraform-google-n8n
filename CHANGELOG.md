@@ -23,6 +23,14 @@ this project adheres to the stability contract in
   network egress and DNS, edge protection, TLS, secrets and Terraform state,
   backup/restore, observability, upgrades, license, and quotas, linked from
   the README's "Out of scope" section.
+- `docs/ingress-options.md`: when to pick GKE Gateway API, an internal
+  Application Load Balancer, Istio/Cloud Service Mesh, or a third-party
+  controller instead of the module's default native GKE Ingress, with
+  dated, cited Google Cloud documentation references. Linked from
+  README.md's Architecture section and cross-linked from
+  `docs/istio-ingress.md`; does not duplicate the routing contract already
+  documented in `docs/customer-managed-infrastructure.md` and
+  `docs/istio-ingress.md`.
 
 ### Changed
 
