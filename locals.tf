@@ -200,6 +200,58 @@ locals {
   effective_db_password_secret_name = local.manage_db_secret ? kubernetes_secret.n8n_db[0].metadata[0].name : var.n8n_database_password_secret_ref.name
   effective_db_password_secret_key  = local.manage_db_secret ? "password" : var.n8n_database_password_secret_ref.key
 
+  # ── PostgreSQL TLS server-certificate verification (opt-in) ────────────────
+  # db_postgresdb_ssl_reject_unauthorized is validated (variables.tf) to only
+  # ever be true when create_postgres_instance = false, so
+  # manage_postgres_ssl_ca never fires for the module-managed Cloud SQL path.
+  # Mirrors the Redis TLS CA volume/mount shape below (manage_redis_tls_ca /
+  # n8n_redis_tls), but references the caller's own Secret directly instead
+  # of wrapping a module-generated one: the module never creates or reads a
+  # CA certificate here, it only mounts the Secret
+  # var.db_postgresdb_ssl_ca_secret_ref names.
+  manage_postgres_ssl_ca = var.db_postgresdb_ssl_reject_unauthorized && var.db_postgresdb_ssl_ca_secret_ref != null
+
+  n8n_postgres_ssl_ca_volume = local.manage_postgres_ssl_ca ? {
+    name = "postgres-ssl-ca"
+    secret = {
+      secretName = var.db_postgresdb_ssl_ca_secret_ref.name
+      items = [{
+        key  = var.db_postgresdb_ssl_ca_secret_ref.key
+        path = "ca.crt"
+      }]
+    }
+  } : null
+
+  n8n_postgres_ssl_ca_mount = local.manage_postgres_ssl_ca ? {
+    name      = "postgres-ssl-ca"
+    mountPath = "/etc/n8n-certs/postgres-ssl-ca.crt"
+    subPath   = "ca.crt"
+    readOnly  = true
+  } : null
+
+  # DB_POSTGRESDB_SSL_* env fragment for helm_release.n8n's config.extraEnv
+  # (n8n.tf). Kept as a named local (rather than inline, like most
+  # single-field DB_* tuning fragments elsewhere in this file) so its shape
+  # is directly assertable under the mock provider, where helm_release.values
+  # is unknown at plan time (AGENTS.md's known mock-provider limitations).
+  # The db_postgresdb_ssl_enabled = false branch is unchanged from before
+  # this change; the true branch only adds DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+  # (tostring(false) renders the same literal "false" the module hardcoded
+  # previously, so a caller who never sets db_postgresdb_ssl_reject_unauthorized
+  # sees no plan diff) and, only once a CA is actually mounted,
+  # DB_POSTGRESDB_SSL_CA_FILE.
+  n8n_postgres_ssl_env = var.db_postgresdb_ssl_enabled ? concat(
+    [
+      { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
+      { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = tostring(var.db_postgresdb_ssl_reject_unauthorized) },
+    ],
+    local.manage_postgres_ssl_ca ? [
+      { name = "DB_POSTGRESDB_SSL_CA_FILE", value = local.n8n_postgres_ssl_ca_mount.mountPath },
+    ] : [],
+    ) : [
+    { name = "DB_POSTGRESDB_SSL_ENABLED", value = "false" },
+  ]
+
   # Namespace: the name is the same whether the module creates it or not.
   effective_namespace = var.n8n_kube_namespace
 
