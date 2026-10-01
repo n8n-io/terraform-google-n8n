@@ -544,8 +544,11 @@ run "legacy_webhook_url_emitted_before_2_30_0" {
 run "legacy_webhook_url_emitted_for_n8n_1_x" {
   command = plan
 
+  # n8n 1.x on chart 1.14.0 or newer fails helm_release.n8n's precondition
+  # (no N8N_AVAILABLE_BINARY_DATA_MODES), so pin the last chart that renders it.
   variables {
-    n8n_image_tag = "1.123.4"
+    n8n_chart_version = "1.13.0"
+    n8n_image_tag     = "1.123.4"
   }
 
   assert {
@@ -582,6 +585,23 @@ run "legacy_webhook_url_uses_runner_tag_for_custom_image_tag" {
   assert {
     condition     = local.n8n_needs_legacy_webhook_url_env
     error_message = "A custom tag with no version must fall back to n8n_task_runner_image_tag's version (2.27.4, pre-2.30.0)."
+  }
+}
+
+# cubic on #13: "2.30.mypackages" carries no full version, so it must not count
+# as proof of 2.30.0; the pre-2.30.0 runner tag decides instead.
+run "legacy_webhook_url_ignores_tag_without_a_numeric_patch" {
+  command = plan
+
+  variables {
+    n8n_image_repository      = "registry.example.com/n8n"
+    n8n_image_tag             = "2.30.mypackages"
+    n8n_task_runner_image_tag = "2.27.4"
+  }
+
+  assert {
+    condition     = local.n8n_needs_legacy_webhook_url_env
+    error_message = "A tag without a numeric patch (2.30.mypackages) must not prove n8n 2.30.0; the 2.27.4 runner tag must decide, so WEBHOOK_URL is emitted."
   }
 }
 

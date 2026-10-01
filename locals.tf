@@ -461,8 +461,8 @@ locals {
   # the image is current, and sends it whenever they cannot.
   #
   # The version, when one can be read:
-  #   - n8n_image_tag starts with a version ("2.27.4", "2.27.4-mypackages"):
-  #     that version decides.
+  #   - n8n_image_tag starts with a full MAJOR.MINOR.PATCH version ("2.27.4",
+  #     "2.27.4-mypackages"): that version decides.
   #   - Otherwise, for a custom image (n8n_image_repository set) with a
   #     non-null tag and task runners enabled, n8n_task_runner_image_tag,
   #     since that is where callers put the underlying n8n version. It is
@@ -477,8 +477,10 @@ locals {
   # a node cached earlier. A custom n8n_chart_repository's appVersion cannot
   # be verified. An n8n_image_repository override with a null tag still
   # counts as current: the chart tags it with the same concrete appVersion.
-  # Matches terraform-aws-n8n#160.
-  n8n_version_regex = "^v?([0-9]+)\\.([0-9]+)\\."
+  # Matches terraform-aws-n8n#160, except that a numeric patch is required
+  # here: a custom tag such as "2.30.mypackages" carries no full version and
+  # must not count as proof of 2.30.0.
+  n8n_version_regex = "^v?([0-9]+)\\.([0-9]+)\\.[0-9]+"
   n8n_image_version_core = var.n8n_image_tag == null ? null : try(
     regex(local.n8n_version_regex, var.n8n_image_tag),
     var.n8n_image_repository != null && var.n8n_task_runners_enabled && var.n8n_task_runner_image_tag != null
@@ -499,6 +501,19 @@ locals {
       tonumber(local.n8n_image_version_core[0]) == 2 && tonumber(local.n8n_image_version_core[1]) < 30
     )
   ) : !local.n8n_image_known_current
+
+  # A tag that names n8n 1.x on a chart that no longer renders
+  # N8N_AVAILABLE_BINARY_DATA_MODES (1.14.0 or newer). n8n 1.x defaults that
+  # variable to "filesystem" when it is unset, so S3 binary storage would
+  # silently fall back to each pod's own filesystem, breaking binary data
+  # shared across mains and workers. helm_release.n8n's precondition rejects
+  # it. Only a readable version can trip this; an unversioned or null tag
+  # does not.
+  n8n_image_is_1_x_on_chart_without_available_modes = (
+    local.n8n_image_version_core == null ? false : (
+      local.n8n_chart_drops_available_modes ? tonumber(local.n8n_image_version_core[0]) < 2 : false
+    )
+  )
 
   # The webhook env entries helm_release.n8n splices into config.extraEnv. A
   # local so tests can assert the list: the release's values are unknown at

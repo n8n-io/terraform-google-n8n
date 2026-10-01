@@ -34,7 +34,10 @@ Check these points before you apply:
   ([n8n-hosting#185](https://github.com/n8n-io/n8n-hosting/pull/185)). n8n
   2.x ignores it, but n8n 1.x reads it and defaults to `filesystem` only. A
   deployment that pins `n8n_image_tag` to a 1.x release cannot use the GCS
-  bucket for binary data on chart 1.14.0. Upgrade n8n to 2.x first (see the
+  bucket for binary data on chart 1.14.0, so the module fails the plan when
+  `n8n_image_tag` (or, for a custom image, `n8n_task_runner_image_tag`)
+  names a 1.x version on chart `1.14.0` or newer. Upgrade n8n to 2.x first
+  (see the
   [n8n 2.0 migration guide](https://docs.n8n.io/2-0-breaking-changes/)), or
   keep `n8n_chart_version = "1.13.0"` until you do. On a chart older than
   `1.14.0`, the module still sends `availableModes = "filesystem,s3"`
@@ -475,8 +478,9 @@ current image only logs a deprecation warning when it is set. So the module
 drops `WEBHOOK_URL` only when the tags prove the image is current
 (`local.n8n_needs_legacy_webhook_url_env`):
 
-- `n8n_image_tag` starts with a version of `2.30.0` or newer (for example
-  `2.41.4` or `2.41.4-mypackages`).
+- `n8n_image_tag` starts with a full `MAJOR.MINOR.PATCH` version of
+  `2.30.0` or newer (for example `2.41.4` or `2.41.4-mypackages`). A tag
+  such as `2.30.mypackages` has no numeric patch and proves nothing.
 - `n8n_image_tag` is a custom image tag with no version, task runners are
   enabled, and `n8n_task_runner_image_tag` is `2.30.0` or newer.
 - `n8n_image_tag` is null, on the default chart repository, at chart

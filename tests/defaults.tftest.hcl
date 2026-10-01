@@ -1901,6 +1901,64 @@ run "s3_storage_values_omit_available_modes_on_a_new_major_chart" {
   }
 }
 
+# Chart 1.14.0 and later render no N8N_AVAILABLE_BINARY_DATA_MODES, and n8n
+# 1.x then defaults it to filesystem only, so helm_release.n8n's precondition
+# rejects a tag that names n8n 1.x on such a chart instead of letting S3
+# binary storage silently fall back to pod-local disk.
+run "n8n_1_x_image_on_chart_1_14_0_fails_precondition" {
+  command = plan
+
+  variables {
+    n8n_image_tag = "1.123.4"
+  }
+
+  expect_failures = [helm_release.n8n]
+}
+
+run "n8n_1_x_runner_tag_for_custom_image_on_chart_1_14_0_fails_precondition" {
+  command = plan
+
+  variables {
+    n8n_image_repository      = "registry.example.com/n8n"
+    n8n_image_tag             = "mypackages"
+    n8n_task_runner_image_tag = "1.123.4"
+  }
+
+  expect_failures = [helm_release.n8n]
+}
+
+run "n8n_1_x_image_on_chart_1_13_0_is_accepted" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.13.0"
+    n8n_image_tag     = "1.123.4"
+  }
+
+  assert {
+    condition     = !local.n8n_image_is_1_x_on_chart_without_available_modes
+    error_message = "Chart 1.13.0 still renders N8N_AVAILABLE_BINARY_DATA_MODES, so an n8n 1.x tag there must be accepted."
+  }
+
+  assert {
+    condition     = try(local.n8n_s3_storage_values.availableModes, null) == "filesystem,s3"
+    error_message = "n8n 1.x on chart 1.13.0 must keep receiving availableModes = filesystem,s3."
+  }
+}
+
+run "n8n_2_x_image_on_chart_1_14_0_is_accepted" {
+  command = plan
+
+  variables {
+    n8n_image_tag = "2.0.0"
+  }
+
+  assert {
+    condition     = !local.n8n_image_is_1_x_on_chart_without_available_modes
+    error_message = "n8n 2.0 ignores N8N_AVAILABLE_BINARY_DATA_MODES, so it must be accepted on chart 1.14.0."
+  }
+}
+
 # n8n logs a deprecation warning on every start while a name in
 # local.n8n_deprecated_env_names is set; all three env passthroughs reject it.
 run "extra_env_rejects_deprecated_binary_data_modes" {

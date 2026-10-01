@@ -893,6 +893,14 @@ resource "helm_release" "n8n" {
       condition     = length(var.n8n_worker_pools) > 0 ? local.n8n_chart_renders_worker_pools : true
       error_message = local.n8n_worker_pools_chart_error
     }
+
+    precondition {
+      # Chart 1.14.0 dropped N8N_AVAILABLE_BINARY_DATA_MODES, which n8n 1.x
+      # needs to keep S3 available; without it binary data silently goes to
+      # each pod's own filesystem (local.n8n_image_is_1_x_on_chart_without_available_modes).
+      condition     = !local.n8n_image_is_1_x_on_chart_without_available_modes
+      error_message = "n8n_image_tag (or, for a custom image, n8n_task_runner_image_tag) names an n8n 1.x version, but n8n_chart_version ${var.n8n_chart_version} no longer renders N8N_AVAILABLE_BINARY_DATA_MODES (removed in chart 1.14.0). n8n 1.x then defaults that variable to filesystem only, so S3 binary storage would silently fall back to each pod's own disk. Upgrade n8n to 2.x (see https://docs.n8n.io/2-0-breaking-changes/), or pin n8n_chart_version = \"1.13.0\" until you do."
+    }
   }
 
   depends_on = [

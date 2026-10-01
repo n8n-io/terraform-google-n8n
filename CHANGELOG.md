@@ -26,8 +26,12 @@ this project adheres to the stability contract in
     which n8n 1.x still reads, so leaving it out would drop S3 from the
     available modes. **Chart `1.14.0` and later need n8n 2.0 or newer for
     S3 binary storage**, because n8n 1.x defaults the variable to
-    `filesystem` once the chart stops rendering it. Upgrade a 1.x pin to
-    2.x before taking this chart, or keep `n8n_chart_version = "1.13.0"`.
+    `filesystem` once the chart stops rendering it. **The plan now fails**
+    (a `helm_release.n8n` precondition) when `n8n_image_tag`, or for a
+    custom image `n8n_task_runner_image_tag`, names an n8n 1.x version on
+    chart `1.14.0` or newer, instead of letting binary data silently fall
+    back to each pod's own disk. Upgrade a 1.x pin to 2.x before taking
+    this chart, or keep `n8n_chart_version = "1.13.0"`.
   - The module no longer sends the deprecated `WEBHOOK_URL` to images that
     are provably n8n `2.30.0` or newer (the first release that reads
     `N8N_WEBHOOK_URL` and the first that warns about `WEBHOOK_URL` on every
@@ -38,7 +42,9 @@ this project adheres to the stability contract in
     `n8n_image_tag` (or, for a custom image whose tag is not a version and
     with task runners enabled, `n8n_task_runner_image_tag`) of `2.30.0` or
     newer, or a null tag on the default chart repository at chart `1.12.0`
-    or newer (`local.n8n_needs_legacy_webhook_url_env`). Floating tags
+    or newer (`local.n8n_needs_legacy_webhook_url_env`). A tag only counts
+    as versioned with a full numeric `MAJOR.MINOR.PATCH` prefix, so a custom
+    tag such as `2.30.mypackages` proves nothing. Floating tags
     (`stable`, `latest`), a null tag on a private chart mirror, and a
     custom image whose tags carry no version still get `WEBHOOK_URL`. Every
     n8n pod rolls once on apply because the env list changes. Ported from
