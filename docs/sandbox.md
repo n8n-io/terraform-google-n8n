@@ -27,13 +27,15 @@ Every input below is a plain override on the root module:
 
 ## PostgreSQL connection budget
 
-Cloud SQL for PostgreSQL derives `max_connections` once, at instance
-provisioning, from the selected machine type's memory, and does **not**
-recalculate it if you change `postgres_machine_type` later; the old ceiling
-sticks until the instance is re-created ([Cloud SQL database
-flags](https://cloud.google.com/sql/docs/postgres/flags), the
+Cloud SQL for PostgreSQL automatically manages `max_connections` from the
+instance's current memory, and recalculates it whenever you change
+`postgres_machine_type` (the instance, and any read replicas, briefly
+restart; under 60 seconds on Enterprise edition). See [Cloud SQL instance
+settings](https://cloud.google.com/sql/docs/postgres/instance-settings) and
+the [Cloud SQL database
+flags](https://cloud.google.com/sql/docs/postgres/flags) page's
 `max_connections` row: "The default value depends on the amount of memory
-of the largest instance in the chain of primaries"). Each main, worker, and
+of the largest instance in the chain of primaries". Each main, worker, and
 webhook-processor pod can lazily open up to `db_postgresdb_pool_size`
 connections against the same instance (`db_postgresdb_pool_size`'s
 description in `variables.tf`), so the aggregate ceiling is:
@@ -53,7 +55,12 @@ also add a worker pool or raise any replica ceiling. `db_postgresdb_pool_size
 The root module's `check.postgres_pool_size_fits_known_max_connections`
 (`checks.tf`) can warn at plan time whenever this arithmetic exceeds the
 known limit for `postgres_machine_type`, derived from Google's own published
-memory-to-`max_connections` table. It is opt-in
+memory-to-`max_connections` table. The check only runs when
+`create_postgres_instance = true`, and only recognizes `db-f1-micro`,
+`db-g1-small`, `db-custom-<vcpus>-<memory_mb>`, and
+`db-perf-optimized-N-<vcpus>` shapes; it stays silent for other shapes (e.g.
+`db-perf-optimized-C4-*`, `db-c4a-highmem-*`, predefined series) rather than
+guess at their memory. It is opt-in
 (`postgres_connection_budget_check_enabled`, default `false`): the module's
 own *default* autoscaler ceilings (main 20, worker 10, webhook 50) already
 request up to 800 connections at the default `db_postgresdb_pool_size = 10`,

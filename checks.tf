@@ -317,11 +317,13 @@ check "graceful_shutdown_fits_grace_period" {
 # module's own default autoscaler ceilings already exceed db-g1-small's
 # known budget (see below), so this stays off until a caller has settled on
 # both a postgres_machine_type and replica ceilings and wants this advisory
-# guard against a later regression. Cloud SQL for PostgreSQL derives
-# max_connections once, at instance provisioning, from the selected machine
-# type's memory, and does not recalculate it on a later postgres_machine_type
-# change (same caveat Azure documents for Flexible Server; see
-# docs/sandbox.md).
+# guard against a later regression. Cloud SQL for PostgreSQL automatically
+# manages max_connections from the instance's current memory and
+# recalculates it whenever postgres_machine_type changes (the instance, and
+# any read replicas, briefly restart; see docs/sandbox.md and
+# https://cloud.google.com/sql/docs/postgres/instance-settings). This check
+# only evaluates the budget for the postgres_machine_type in the current
+# plan, not any prior value.
 # This check catches the arithmetic db_postgresdb_pool_size's own
 # description already asks callers to budget by hand: pool size times the
 # modeled pod ceiling (effective main, worker, webhook-processor, and any
@@ -345,38 +347,74 @@ check "graceful_shutdown_fits_grace_period" {
 #   >= 120                          | 1,000
 # db-f1-micro/db-g1-small (the legacy shared-core tiers, including this
 # module's own postgres_machine_type default) match the "tiny"/"small" rows
-# literally; every other recognized shape derives its memory from the
-# Enterprise-edition db-custom-<vcpus>-<memory_mb> naming convention, which
-# Google documents as encoding memory in MiB directly in the name (see
+# literally. Enterprise-edition custom tiers derive their memory from the
+# db-custom-<vcpus>-<memory_mb> naming convention, which Google documents as
+# encoding memory in MiB directly in the name (see
 # https://cloud.google.com/sql/docs/postgres/instance-settings, "Machine
 # Type", and https://cloud.google.com/compute/docs/instances/creating-instance-with-custom-machine-type
 # for the underlying Compute Engine convention Cloud SQL reuses). regex()
 # is wrapped in try() because Terraform 1.9 does not short-circuit && / ||
 # (AGENTS.md); a non-matching string must not raise an error here. With
 # exactly one capture group, regex() returns a one-element list (not a bare
-# string), hence the [0] index before tonumber(). Other recognized tiers --
-# ENTERPRISE_PLUS db-perf-optimized-N-<vcpus>, and any predefined series
-# such as n2-standard-<N> -- encode vCPU count, not memory, in the name, and
-# Cloud SQL's documented GB-per-vCPU ratio for those varies by series
-# (6.75-8 GB/vCPU); deriving memory for them reliably would need a second
-# per-series table this change does not add, so they resolve to null
-# (silent) rather than a guessed bucket.
+# string), hence the [0] index before tonumber(). ENTERPRISE_PLUS
+# db-perf-optimized-N-<vcpus> tiers (N2 machine series) have a fixed,
+# Google-documented vCPU-to-memory table (not a uniform per-vCPU ratio, e.g.
+# the 128-vCPU shape is 864 GB rather than 1,024 GB); see
+# https://cloud.google.com/sql/docs/postgres/machine-series-overview, "N2
+# machine types". That table is reproduced in
+# postgres_perf_optimized_n_memory_gb below. Every other recognized shape
+# (other ENTERPRISE_PLUS series such as C4/C4A, and predefined series such
+# as n2-standard-<N>) is not covered: deriving memory for those reliably
+# would need a second per-series table this change does not add, so they
+# resolve to null (silent) rather than a guessed bucket. The check is also
+# silent when create_postgres_instance = false (no module-managed instance
+# to size) or postgres_connection_budget_check_enabled = false.
 locals {
   postgres_machine_type_custom_memory_mb = try(
     tonumber(regex("^db-custom-[0-9]+-([0-9]+)$", var.postgres_machine_type)[0]),
     null
   )
 
+  # Google-documented N2 machine series table (db-perf-optimized-N-<vcpus>),
+  # https://cloud.google.com/sql/docs/postgres/machine-series-overview.
+  postgres_perf_optimized_n_memory_gb = {
+    "2"   = 16
+    "4"   = 32
+    "8"   = 64
+    "16"  = 128
+    "32"  = 256
+    "48"  = 384
+    "64"  = 512
+    "80"  = 640
+    "96"  = 768
+    "128" = 864
+  }
+
+  postgres_machine_type_perf_optimized_n_vcpus = try(
+    regex("^db-perf-optimized-N-([0-9]+)$", var.postgres_machine_type)[0],
+    null
+  )
+
+  postgres_machine_type_perf_optimized_n_memory_mb = local.postgres_machine_type_perf_optimized_n_vcpus == null ? null : (
+    lookup(local.postgres_perf_optimized_n_memory_gb, local.postgres_machine_type_perf_optimized_n_vcpus, null) == null ? null :
+    local.postgres_perf_optimized_n_memory_gb[local.postgres_machine_type_perf_optimized_n_vcpus] * 1024
+  )
+
+  postgres_machine_type_memory_mb = (
+    local.postgres_machine_type_custom_memory_mb != null ? local.postgres_machine_type_custom_memory_mb :
+    local.postgres_machine_type_perf_optimized_n_memory_mb
+  )
+
   postgres_max_user_connections_known = (
     var.postgres_machine_type == "db-f1-micro" ? 25 :
     var.postgres_machine_type == "db-g1-small" ? 50 :
-    local.postgres_machine_type_custom_memory_mb == null ? null :
-    local.postgres_machine_type_custom_memory_mb < 6144 ? 100 :
-    local.postgres_machine_type_custom_memory_mb < 7680 ? 200 :
-    local.postgres_machine_type_custom_memory_mb < 15360 ? 400 :
-    local.postgres_machine_type_custom_memory_mb < 30720 ? 500 :
-    local.postgres_machine_type_custom_memory_mb < 61440 ? 600 :
-    local.postgres_machine_type_custom_memory_mb < 122880 ? 800 :
+    local.postgres_machine_type_memory_mb == null ? null :
+    local.postgres_machine_type_memory_mb < 6144 ? 100 :
+    local.postgres_machine_type_memory_mb < 7680 ? 200 :
+    local.postgres_machine_type_memory_mb < 15360 ? 400 :
+    local.postgres_machine_type_memory_mb < 30720 ? 500 :
+    local.postgres_machine_type_memory_mb < 61440 ? 600 :
+    local.postgres_machine_type_memory_mb < 122880 ? 800 :
     1000
   )
 
@@ -404,8 +442,8 @@ check "postgres_pool_size_fits_known_max_connections" {
       local.n8n_worker_pools_max_replicas_sum > 0 ? " + worker pools ${local.n8n_worker_pools_max_replicas_sum}" : "",
       ") demands up to ${local.n8n_postgres_peak_connections} connections at full scale-out, over the ",
       "${coalesce(local.postgres_max_user_connections_known, 0)}-connection budget Cloud SQL allocates by default for postgres_machine_type = ",
-      "\"${var.postgres_machine_type}\" (fixed at provisioning from the machine type's memory; a later ",
-      "postgres_machine_type change does not recalculate it, see docs/sandbox.md). Fix with one of: (1) lower ",
+      "\"${var.postgres_machine_type}\" (Cloud SQL derives this from the machine type's current memory and ",
+      "recalculates it on a later postgres_machine_type change too; see docs/sandbox.md). Fix with one of: (1) lower ",
       "db_postgresdb_pool_size, (2) lower the main/worker/webhook-processor autoscaler maxima (or any ",
       "n8n_worker_pools max_replicas), or (3) move to a larger postgres_machine_type whose budget covers the ",
       "demand above. A database_flags max_connections override set out of band also works but this module ",
