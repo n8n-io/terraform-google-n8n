@@ -174,6 +174,136 @@ run "license_key_missing_source_fails_validation" {
   expect_failures = [var.n8n_license_key_secret_ref]
 }
 
+run "license_cert_secret_ref_creates_no_managed_secret" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "cert" }
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 0
+    error_message = "n8n_license_cert_secret_ref must not create a managed license Secret."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == ""
+    error_message = "The offline-certificate path must resolve effective_license_secret_name to the empty string, so the chart's license.existingSecret.name reads as falsy and emits no N8N_LICENSE_ACTIVATION_KEY."
+  }
+
+  assert {
+    condition     = length(local.n8n_license_cert_env) == 1
+    error_message = "local.n8n_license_cert_env must carry exactly one entry when n8n_license_cert_secret_ref is set."
+  }
+
+  assert {
+    condition = (
+      local.n8n_license_cert_env[0].name == "N8N_LICENSE_CERT" &&
+      local.n8n_license_cert_env[0].valueFrom.secretKeyRef.name == "platform-n8n-license-cert" &&
+      local.n8n_license_cert_env[0].valueFrom.secretKeyRef.key == "cert"
+    )
+    error_message = "local.n8n_license_cert_env's single entry must be N8N_LICENSE_CERT sourced from n8n_license_cert_secret_ref via secretKeyRef."
+  }
+}
+
+run "license_cert_secret_ref_key_defaults_to_cert" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+  }
+
+  assert {
+    condition     = var.n8n_license_cert_secret_ref.key == "cert"
+    error_message = "n8n_license_cert_secret_ref.key must default to \"cert\" when omitted."
+  }
+}
+
+run "rejects_license_key_and_cert_secret_ref_together" {
+  command = plan
+
+  variables {
+    n8n_license_key             = "test-license-key-not-real"
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+  }
+
+  expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "rejects_license_key_secret_ref_and_cert_secret_ref_together" {
+  command = plan
+
+  variables {
+    n8n_license_key = null
+    n8n_license_key_secret_ref = {
+      name = "platform-n8n-license"
+    }
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+  }
+
+  expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "rejects_no_license_credential_set" {
+  command = plan
+
+  variables {
+    n8n_license_key = null
+  }
+
+  expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "rejects_empty_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_malformed_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "Not_A_Valid_K8s_Name!", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_malformed_license_cert_secret_ref_key" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "not a valid key" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "existing_core_secret_accepts_license_cert_secret_ref" {
+  command = plan
+
+  variables {
+    existing_n8n_core_secret_name = "existing-core-secrets"
+    n8n_license_key               = null
+    n8n_license_cert_secret_ref   = { name = "platform-n8n-license-cert" }
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n) == 0
+    error_message = "An existing core Secret must not create the module-managed core Secret, whichever license source satisfies it."
+  }
+}
+
 # ── Core Secret reference ─────────────────────────────────────────────────────
 
 run "existing_core_secret_creates_no_managed_secret_or_key" {

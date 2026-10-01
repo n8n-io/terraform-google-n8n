@@ -33,6 +33,10 @@ With `tls_mode = "google_managed"`, the certificate cannot provision until this 
 
 Open `https://n8n.yourdomain.com` in your browser. Create your owner account, then select **Settings** > **License** and enter your activation key.
 
+### Offline license activation
+
+If you deployed with `n8n_license_cert_secret_ref` instead of `n8n_license_key` or `n8n_license_key_secret_ref` (an air-gapped or egress-restricted cluster; see ["Offline license activation"](../README.md#offline-license-activation) in the root README), there is no key to paste in **Settings** > **License**: the certificate in your caller-managed Secret already activated the license as `N8N_LICENSE_CERT` at pod startup, with no round trip to n8n's license server. Confirm activation from **Settings** > **License**, or with `kubectl -n n8n exec deploy/n8n-main -- n8n license:info`. Rotating the certificate means updating the caller-managed Secret's payload and restarting the `n8n-main`, `n8n-worker`, and `n8n-webhook-processor` deployments, since the module never reads the Secret's value and cannot detect a payload change itself.
+
 ## Redis persistence and recovery
 
 `redis_persistence_enabled` (default `false`) turns on Memorystore's own RDB

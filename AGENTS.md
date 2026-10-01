@@ -31,8 +31,14 @@ single `terraform apply` brings up the full stack:
   this). Other `tls_mode` values (`secret`, `custom`, `self_signed`) cover
   cert-manager, bring-your-own-PEM, and pre-DNS smoke testing.
 
-An **n8n Enterprise license key** is required (`var.n8n_license_key`); the
-module does not provision a community-edition deployment.
+An **n8n Enterprise license credential** is required (the module does not
+provision a community-edition deployment): supply exactly one of
+`var.n8n_license_key`, `var.n8n_license_key_secret_ref` (a caller-managed
+Secret holding the key), or, for air-gapped and egress-restricted clusters,
+`var.n8n_license_cert_secret_ref` (a caller-managed Secret holding an
+offline license certificate rendered as `N8N_LICENSE_CERT` through
+`config.extraEnv`, never through the chart's `license.existingSecret`
+block - see "Offline license activation" in README.md).
 
 The module **creates its own VPC**. Reference deployments are organized as
 **three sizing tiers**: [`examples/small/`](./examples/small/) is the smallest
@@ -415,7 +421,9 @@ conventions](https://developer.hashicorp.com/terraform/language/modules/develop/
   Symptom/Cause/Fix convention), MD040 (fenced-code-language; a handful of
   pre-existing shell-prompt-style fences), and MD060 (table-column-style; a
   rule new enough that none of this repo's existing tables were written
-  against it). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
+  against it), and scopes MD024 (no-duplicate-heading) to `siblings_only`
+  (Keep a Changelog repeats section headings such as `### Added` under every
+  release in `CHANGELOG.md`). README.md's generated `<!-- BEGIN_TF_DOCS -->` block is
   wrapped in `<!-- markdownlint-disable -->`/`<!-- markdownlint-restore -->`
   comments placed outside the block, so its anchor tags and placeholder
   tokens don't need hand-editing to pass MD033. Run locally with

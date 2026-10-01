@@ -95,6 +95,10 @@ locals {
     "N8N_DEFAULT_BINARY_DATA_MODE",
     "N8N_AVAILABLE_BINARY_DATA_MODES",
     "N8N_LICENSE_ACTIVATION_KEY",
+    # Offline license activation (N8N_LICENSE_CERT), emitted via config.extraEnv
+    # only when n8n_license_cert_secret_ref is set (local.n8n_license_cert_env,
+    # n8n.tf).
+    "N8N_LICENSE_CERT",
     "N8N_HOST",
     "N8N_PORT",
     "N8N_PROTOCOL",
@@ -220,12 +224,41 @@ locals {
   # module-managed Secret (n8n.tf's kubernetes_secret.n8n_license) instead of
   # rendering the literal activation key into Helm values; a caller-supplied
   # n8n_license_key_secret_ref is used as-is and creates no managed Secret.
-  # The two sources remain mutually exclusive (variables.tf's validation), so
-  # exactly one of these branches is ever active.
+  # n8n_license_cert_secret_ref (offline activation) creates no managed Secret
+  # either, and is rendered through config.extraEnv instead of
+  # license.existingSecret, so the effective_license_secret_* locals resolve to
+  # the empty string on that path (n8n.tf's license.existingSecret.name then
+  # reads as falsy, so the chart's n8n.licenseEnv helper emits no
+  # N8N_LICENSE_ACTIVATION_KEY at all; see local.n8n_license_cert_env for the
+  # N8N_LICENSE_CERT entry it emits instead). All three sources remain
+  # mutually exclusive (variables.tf's validation), so exactly one of these
+  # branches is ever active.
   manage_license_secret = var.n8n_license_key != null
+  n8n_license_uses_cert = var.n8n_license_cert_secret_ref != null
 
-  effective_license_secret_name = local.manage_license_secret ? kubernetes_secret.n8n_license[0].metadata[0].name : var.n8n_license_key_secret_ref.name
-  effective_license_secret_key  = local.manage_license_secret ? "license-key" : var.n8n_license_key_secret_ref.key
+  effective_license_secret_name = local.manage_license_secret ? kubernetes_secret.n8n_license[0].metadata[0].name : (local.n8n_license_uses_cert ? "" : var.n8n_license_key_secret_ref.name)
+  effective_license_secret_key  = local.manage_license_secret ? "license-key" : (local.n8n_license_uses_cert ? "license-key" : var.n8n_license_key_secret_ref.key)
+
+  # Offline license activation (N8N_LICENSE_CERT): rendered through the shared
+  # config.extraEnv list (n8n.tf) rather than the chart's license.existingSecret
+  # block. The pinned chart's license helper (n8n.licenseEnv /
+  # deployment-webhook-processor.yaml's inline equivalent) only ever maps
+  # license.existingSecret to N8N_LICENSE_ACTIVATION_KEY - it has no cert
+  # equivalent - so the certificate Secret is wired in as an ordinary
+  # config.extraEnv entry with a secretKeyRef, the same mechanism the chart
+  # itself uses for that env var. Empty list (no entry) unless
+  # n8n_license_cert_secret_ref is set.
+  n8n_license_cert_env = local.n8n_license_uses_cert ? [
+    {
+      name = "N8N_LICENSE_CERT"
+      valueFrom = {
+        secretKeyRef = {
+          name = var.n8n_license_cert_secret_ref.name
+          key  = var.n8n_license_cert_secret_ref.key
+        }
+      }
+    },
+  ] : []
 
   # Redis. ACL usernames are meaningful only on the external path; managed
   # Memorystore has no concept of one. manage_redis_secret/
