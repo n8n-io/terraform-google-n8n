@@ -1857,8 +1857,52 @@ run "worker_extra_env_rejects_pool_name_var" {
   expect_failures = [var.n8n_worker_extra_env]
 }
 
-# n8n logs a deprecation warning on every start while
-# N8N_AVAILABLE_BINARY_DATA_MODES is set; all three env passthroughs reject it.
+# s3.storage.availableModes: dropped from chart 1.14.0 on, kept for older pins
+# whose own "filesystem" default would drop S3 on n8n 1.x. helm_release values
+# are unknown under mocks, so these assert local.n8n_s3_storage_values, the
+# exact map n8n.tf sends. Keys/try instead of a map `==` (see AGENTS.md).
+run "s3_storage_values_omit_available_modes_on_the_default_chart" {
+  command = plan
+
+  assert {
+    condition     = !contains(keys(local.n8n_s3_storage_values), "availableModes")
+    error_message = "Chart 1.14.0 removed s3.storage.availableModes, so the module must not send it."
+  }
+
+  assert {
+    condition     = local.n8n_s3_storage_values.mode == "s3" && local.n8n_s3_storage_values.forcePathStyle == true
+    error_message = "s3.storage must keep mode = s3 and forcePathStyle = true for the GCS S3-compatible endpoint."
+  }
+}
+
+run "s3_storage_values_keep_available_modes_before_chart_1_14_0" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "1.13.0"
+  }
+
+  assert {
+    condition     = try(local.n8n_s3_storage_values.availableModes, null) == "filesystem,s3"
+    error_message = "Charts before 1.14.0 default availableModes to filesystem, so the module must keep sending filesystem,s3."
+  }
+}
+
+run "s3_storage_values_omit_available_modes_on_a_new_major_chart" {
+  command = plan
+
+  variables {
+    n8n_chart_version = "2.0.0"
+  }
+
+  assert {
+    condition     = !contains(keys(local.n8n_s3_storage_values), "availableModes")
+    error_message = "A chart major above 1 postdates 1.14.0, so the module must not send availableModes."
+  }
+}
+
+# n8n logs a deprecation warning on every start while a name in
+# local.n8n_deprecated_env_names is set; all three env passthroughs reject it.
 run "extra_env_rejects_deprecated_binary_data_modes" {
   command = plan
 

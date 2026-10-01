@@ -108,11 +108,14 @@ locals {
     "TZ",
   ]
 
-  # Env vars n8n has deprecated and logs a warning for on every start, even
-  # though it otherwise ignores them. The module never sets these, and the
-  # n8n_extra_env/n8n_worker_extra_env/pool extra_env inputs reject them so a
-  # caller cannot bring the warning back either.
+  # Env vars n8n has deprecated and logs a warning for on every start. The
+  # module does not set these on a current chart (one exception, noted
+  # below), and the n8n_extra_env/n8n_worker_extra_env/pool extra_env
+  # inputs reject them so a caller cannot bring the warning back either.
   n8n_deprecated_env_names = [
+    # Ignored from n8n 2.0. Still sent to charts older than 1.14.0
+    # (local.n8n_s3_storage_values), whose own default would otherwise drop
+    # S3 from the available modes on n8n 1.x.
     "N8N_AVAILABLE_BINARY_DATA_MODES",
   ]
 
@@ -419,6 +422,30 @@ locals {
     saveOnProgress       = var.n8n_executions_data_save_on_progress
     saveManualExecutions = var.n8n_executions_data_save_manual_executions
   }
+
+  # ── Chart-version gates ────────────────────────────────────────────────────
+  # Major and minor of n8n_chart_version. Its validation guarantees both are
+  # numeric; split("+") drops build metadata as in capacity.tf. A prerelease
+  # counts as its own major.minor ("1.14.0-rc.1" reads as 1.14).
+  n8n_chart_version_parts = split(".", split("+", var.n8n_chart_version)[0])
+
+  # s3.storage: only mode and forcePathStyle from chart 1.14.0 on. That
+  # release dropped storage.availableModes and the
+  # N8N_AVAILABLE_BINARY_DATA_MODES it rendered (n8n-io/n8n-hosting#185),
+  # which n8n 2.x ignores and warns about on every start. A chart pinned
+  # below 1.14.0 still renders the env var from its own default,
+  # "filesystem", and n8n 1.x still reads it, so those charts keep getting
+  # "filesystem,s3" or S3 would drop out of the available modes.
+  n8n_chart_drops_available_modes = (
+    tonumber(local.n8n_chart_version_parts[0]) > 1 || (
+      tonumber(local.n8n_chart_version_parts[0]) == 1 &&
+      tonumber(local.n8n_chart_version_parts[1]) >= 14
+    )
+  )
+  n8n_s3_storage_values = merge(
+    { mode = "s3", forcePathStyle = true },
+    local.n8n_chart_drops_available_modes ? {} : { availableModes = "filesystem,s3" },
+  )
 
   # ── Caller-managed volumes (task 10) ───────────────────────────────────────
   # Transforms var.n8n_extra_volumes/n8n_extra_volume_mounts into the chart's

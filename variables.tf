@@ -295,7 +295,7 @@ variable "create_pd_balanced_storage_class" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.41.4 for the default 1.14.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
+  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.41.4 for the default 1.14.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. From chart 1.14.0 the chart no longer renders N8N_AVAILABLE_BINARY_DATA_MODES, which n8n 1.x needs to use S3 binary storage, so chart 1.14.0 and later require n8n 2.0 or newer. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
   type        = string
   default     = null
 

@@ -391,10 +391,9 @@ resource "helm_release" "n8n" {
           key  = "accessSecret"
         }
       }
-      storage = {
-        mode           = "s3"
-        forcePathStyle = true
-      }
+      # mode and forcePathStyle, plus availableModes for charts older than
+      # 1.14.0 only (local.n8n_s3_storage_values).
+      storage = local.n8n_s3_storage_values
     }
 
     # The n8n pods run as this KSA, annotated for Workload Identity so
@@ -766,7 +765,9 @@ resource "helm_release" "n8n" {
         # duplicate env names last-wins, so this would override anything above
         # it; var.n8n_extra_env is validated against local.n8n_managed_env_names
         # and local.n8n_managed_env_prefixes (variables.tf) so it cannot shadow a
-        # module- or chart-managed connection/identity/storage/license var.
+        # module- or chart-managed connection/identity/storage/license var, and
+        # against local.n8n_deprecated_env_names so it cannot bring back a
+        # deprecation warning.
         var.n8n_extra_env
       )
     }
