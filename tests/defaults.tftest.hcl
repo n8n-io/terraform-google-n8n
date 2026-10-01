@@ -5,7 +5,7 @@
 # so no credentials or network access are required and the suite runs offline.
 #
 # Run: terraform test
-#   (from the module root - requires terraform >= 1.9)
+#   (from the module root - requires terraform >= 1.11)
 #
 # Two kinds of assertion appear below:
 #   * Resource-level: static (plan-time-known) attributes of the resources the
