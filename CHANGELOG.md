@@ -28,8 +28,8 @@ this project adheres to the stability contract in
 
 - **Breaking:** `required_version` is now `>= 1.11` (was `>= 1.9`) and the
   `google`/`google-beta` provider requirements are now `~> 6.23` (was
-  `~> 6.0`). Both are needed to parse and use `postgres_password_write_only`'s
-  `ephemeral` variable and write-only `password_wo` argument (see "Added"
+  `~> 6.0`). Both are needed to parse and use the `ephemeral` variable
+  `postgres_password_wo` and the write-only `password_wo` argument (see "Added"
   above), and apply module-wide regardless of whether you set that variable,
   because Terraform parses `ephemeral` and write-only syntax from this
   module's HCL unconditionally. Upgrade the Terraform CLI and let the

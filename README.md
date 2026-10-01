@@ -306,7 +306,7 @@ unintentionally. This contract goes away at 1.0.0 in favor of standard SemVer.
 
 The module ships against specific provider majors and validated versions. See [`docs/versioning.md`](./docs/versioning.md) for the complete pin inventory (every provider, chart, and CI toolchain version, with its bump tier).
 
-- **Google provider:** `~> 6.0` (hashicorp/google).
+- **Google provider:** `~> 6.23` (hashicorp/google).
 - **Kubernetes provider:** `~> 3.0` (see [`CHANGELOG.md`](./CHANGELOG.md), Known limitations, for the deprecation warnings it prints). If your root module declares its own `kubernetes` provider constraint at `~> 2.0`, widen it first, or `terraform init` cannot satisfy both.
 - **`time` provider:** `~> 0.14`.
 - **n8n Helm chart:** default `1.13.0`.
