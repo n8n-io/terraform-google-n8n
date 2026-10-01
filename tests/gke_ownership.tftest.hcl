@@ -396,6 +396,14 @@ run "module_created_gke_key_wires_key_ring_and_iam" {
     condition     = google_kms_crypto_key.gke[0].rotation_period == "7776000s"
     error_message = "A module-created GKE CryptoKey must rotate every 90 days."
   }
+
+  assert {
+    condition = (
+      try(google_kms_crypto_key.gke[0].labels["managed_by"], null) == "terraform" &&
+      try(google_kms_crypto_key.gke[0].labels["app"], null) == "n8n"
+    )
+    error_message = "A module-created GKE CryptoKey must carry the module's standard labels (local.gcp_labels)."
+  }
 }
 
 run "existing_gke_key_creates_no_key_or_iam" {
