@@ -148,11 +148,12 @@ check "redis_tuning_ignored_when_existing" {
       var.redis_version == "REDIS_7_2" &&
       var.redis_auth_enabled == false &&
       var.redis_transit_encryption_enabled == false &&
+      var.redis_maxmemory_policy == "noeviction" &&
       var.redis_persistence_enabled == false &&
       var.redis_rdb_snapshot_period == "TWENTY_FOUR_HOURS" &&
       var.redis_rdb_snapshot_start_time == null
     )
-    error_message = "create_redis_instance is false, but one or more managed-Memorystore tuning variables (redis_tier, redis_memory_size_gb, redis_version, redis_auth_enabled, redis_transit_encryption_enabled, redis_persistence_enabled, redis_rdb_snapshot_period, redis_rdb_snapshot_start_time) differ from their defaults. These are ignored when using an external Redis host; configure the external service out of band instead."
+    error_message = "create_redis_instance is false, but one or more managed-Memorystore tuning variables (redis_tier, redis_memory_size_gb, redis_version, redis_auth_enabled, redis_transit_encryption_enabled, redis_maxmemory_policy, redis_persistence_enabled, redis_rdb_snapshot_period, redis_rdb_snapshot_start_time) differ from their defaults. These are ignored when using an external Redis host; configure the external service out of band instead."
   }
 }
 

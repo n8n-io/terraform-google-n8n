@@ -7,6 +7,15 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Changed
+
+- **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
+  sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
+  instance, overriding Memorystore's own `volatile-lru` default, which could
+  silently evict TTL-bearing Bull queue keys under memory pressure and drop
+  in-flight or queued n8n executions. A safe in-place config update; see
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release

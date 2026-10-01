@@ -466,6 +466,24 @@ on snapshot recovery. Snapshot schedule inputs are omitted while disabled;
 reset them to their defaults to clear ignored-input warnings. To re-enable,
 set the switch to true and review the desired schedule again.
 
+### Memorystore maxmemory-policy now defaults to noeviction
+
+`redis_maxmemory_policy` (default `"noeviction"`) now wires
+`redis_configs["maxmemory-policy"]` into the module-managed Memorystore
+instance. Memorystore's own unconfigured default is `volatile-lru`, which
+silently evicts TTL-bearing keys, including Bull's queue keys, once the
+instance is full, dropping in-flight or queued n8n executions without an
+error. `noeviction` instead returns a write error at that point: a visible
+failure in place of silent job loss.
+
+This is a safe in-place Memorystore configuration update (no restart, no
+data loss, no cluster/replica replacement), but it changes behavior at
+capacity: write errors surface where evictions previously happened quietly.
+Set `redis_maxmemory_policy` back to `"volatile-lru"` to keep the prior
+behavior, or review your instance's memory headroom
+(`redis_memory_size_gb`) before the next `apply` if you were relying on
+silent eviction to stay under capacity.
+
 ## Sizing and observability additions
 
 Sections 16 and 17 add an opt-in private Redis exporter

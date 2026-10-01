@@ -62,6 +62,11 @@ run "defaults_create_managed_redis_resources" {
   }
 
   assert {
+    condition     = google_redis_instance.n8n[0].redis_configs["maxmemory-policy"] == "noeviction"
+    error_message = "redis_maxmemory_policy should default to noeviction, overriding Memorystore's own volatile-lru default to avoid silently dropping TTL-bearing Bull queue keys."
+  }
+
+  assert {
     condition     = output.redis_kms_key_id == null
     error_message = "redis_kms_key_id output must be null when no KMS key is configured."
   }
@@ -132,6 +137,29 @@ run "redis_tier_rejects_invalid_value" {
   }
 
   expect_failures = [var.redis_tier]
+}
+
+run "redis_maxmemory_policy_propagates_to_managed_instance" {
+  command = plan
+
+  variables {
+    redis_maxmemory_policy = "allkeys-lru"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].redis_configs["maxmemory-policy"] == "allkeys-lru"
+    error_message = "redis_maxmemory_policy must propagate to redis_configs[\"maxmemory-policy\"] on the managed instance."
+  }
+}
+
+run "redis_maxmemory_policy_rejects_invalid_value" {
+  command = plan
+
+  variables {
+    redis_maxmemory_policy = "allkeys-fifo"
+  }
+
+  expect_failures = [var.redis_maxmemory_policy]
 }
 
 run "standard_ha_requires_timeout_threshold_at_least_failover_window" {

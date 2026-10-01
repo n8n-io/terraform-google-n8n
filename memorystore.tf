@@ -46,6 +46,10 @@ resource "google_redis_instance" "n8n" {
   transit_encryption_mode = var.redis_transit_encryption_enabled ? "SERVER_AUTHENTICATION" : "DISABLED"
   customer_managed_key    = local.effective_redis_kms_key_id
 
+  redis_configs = {
+    "maxmemory-policy" = var.redis_maxmemory_policy
+  }
+
   labels = local.gcp_labels
 
   # Opt-in RDB persistence (redis_persistence_enabled): Memorystore's own
