@@ -192,8 +192,10 @@ transitions, and any resource-address changes needing a manual
 `terraform state mv`.
 
 Several inputs and hardcoded values pick a resource's shape once, at create
-time; changing them later forces replacement (data loss/downtime) or is
-rejected by GCP outright. See
+time; changing them later forces replacement (data loss/downtime), is
+rejected by GCP outright, or (for the GKE node pool's machine type/disk
+shape) is silently ignored, with `terraform apply` succeeding while the
+running node pool keeps its old shape. See
 [`docs/build-time-decisions.md`](./docs/build-time-decisions.md) for the full,
 verified list.
 

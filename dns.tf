@@ -42,7 +42,7 @@ resource "google_compute_global_address" "lb" {
 # for a caller upgrading from a pre-20.2 release; that one-time transition
 # needs a manual `terraform state mv 'google_dns_record_set.n8n[0]'
 # 'google_dns_record_set.n8n["<n8n_fqdn value>"]'` before apply, documented
-# in docs/upgrading-n8n.md (task 26.1), to avoid an unnecessary record
+# in docs/upgrading-n8n.md's "Cloud DNS record: `count` to `for_each`" section,
 # delete/recreate.
 resource "google_dns_record_set" "n8n" {
   for_each = var.create_ingress && var.cloud_dns_zone_name != "" ? toset(local.n8n_effective_ingress_hosts) : toset([])
