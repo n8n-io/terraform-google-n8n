@@ -37,7 +37,7 @@ cd "$(dirname "$0")/../.."
 
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
-CHART_VERSION="1.13.0"
+CHART_VERSION="1.14.0"
 
 # Fail fast if the pins above drift from the module's own chart defaults.
 # Several assertions below (e.g. the graceful shutdown timeout default compared
@@ -139,7 +139,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -239,6 +238,31 @@ assert_env_count "EXECUTIONS_DATA_SAVE_ON_ERROR" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_SUCCESS" "2" "all"
 assert_env_count "EXECUTIONS_DATA_SAVE_ON_PROGRESS" "2" "false"
 assert_env_count "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS" "2" "true"
+
+# n8n deprecated N8N_AVAILABLE_BINARY_DATA_MODES and logs a warning whenever
+# it is set, even though n8n 2.x otherwise ignores it. Chart 1.14.0 stopped
+# rendering it (n8n-hosting#185), and the module never sends
+# s3.storage.availableModes (n8n.tf). This proves the pinned chart does not
+# bring it back on its own. The S3 env block
+# must have rendered first, or the absence check would pass vacuously.
+if ! grep -q -- '- name: N8N_DEFAULT_BINARY_DATA_MODE$' "$RENDERED"; then
+  fail "S3 fixture did not render N8N_DEFAULT_BINARY_DATA_MODE; the N8N_AVAILABLE_BINARY_DATA_MODES absence check below would pass vacuously"
+elif awk '/- name: N8N_AVAILABLE_BINARY_DATA_MODES$/ { found = 1 } END { exit !found }' "$RENDERED"; then
+  fail "N8N_AVAILABLE_BINARY_DATA_MODES is rendered; n8n deprecated it and warns on every start"
+else
+  pass "N8N_AVAILABLE_BINARY_DATA_MODES absent from every rendered container (S3 env block rendered)"
+fi
+
+# The legacy WEBHOOK_URL is deprecated too (n8n 2.30.0). Chart 1.14.0 renamed
+# its own ConfigMap key to N8N_WEBHOOK_URL (n8n-hosting#184), so the chart
+# must not render the legacy name itself; the module adds it through
+# config.extraEnv only for images that may predate 2.30.0
+# (local.n8n_webhook_url_env, asserted in tests/kubernetes_ownership.tftest.hcl).
+if grep -qE -- '(- name: |key: |^  )WEBHOOK_URL(:|$)' "$RENDERED"; then
+  fail "the chart renders the deprecated WEBHOOK_URL itself; local.n8n_webhook_url_env can no longer control it"
+else
+  pass "the chart renders no legacy WEBHOOK_URL of its own"
+fi
 
 # ── Mixed execution-save policy (task 6.1) ──────────────────────────────────
 # A second render of the same fixture with a non-default, non-uniform
@@ -367,7 +391,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -645,7 +668,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -698,7 +720,9 @@ fi
 # ── Canonical editor/webhook URLs (task 19.1) ───────────────────────────────
 # A fourth render with config.extraEnv carrying WEBHOOK_URL, N8N_WEBHOOK_URL,
 # and N8N_EDITOR_BASE_URL (n8n.tf's extraEnv block, sourced from
-# local.effective_webhook_url and https://<n8n_fqdn> respectively), using
+# local.effective_webhook_url and https://<n8n_fqdn> respectively). This is
+# the legacy-image shape: WEBHOOK_URL is only in local.n8n_webhook_url_env when
+# the image may predate n8n 2.30.0, so the fixture covers the larger list. Using
 # distinct editor and webhook hosts so a passing render proves the chart
 # keeps the two independent rather than collapsing to one host, on every
 # container that reads config.extraEnv (main, worker, webhook-processor).
@@ -766,7 +790,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
@@ -899,7 +922,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 

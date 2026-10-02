@@ -27,7 +27,7 @@ variable "n8n_fqdn" {
 }
 
 variable "public_webhook_fqdn" {
-  description = "Public hostname n8n's webhooks are served on. Reachable through the public ingress (google_compute_global_address.public); passed to the module as n8n_webhook_url so WEBHOOK_URL/N8N_WEBHOOK_URL resolve externally while the editor stays private."
+  description = "Public hostname n8n's webhooks are served on. Reachable through the public ingress (google_compute_global_address.public); passed to the module as n8n_webhook_url so N8N_WEBHOOK_URL (and the legacy WEBHOOK_URL on images older than n8n 2.30.0) resolves externally while the editor stays private."
   type        = string
 }
 

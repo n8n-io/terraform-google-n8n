@@ -118,9 +118,9 @@ locals {
   # taskRunners block), never webhook-processor pods. Whether main also gets
   # one depends on the pinned chart: n8n-hosting#179 (n8n.mainTaskRunnersEnabled)
   # gates the main sidecar on standalone mode only, shipped in chart 1.12.0 and
-  # unchanged through 1.13.0 (verified by diffing deployment-main.yaml between
-  # the two). Since this module always runs queue mode, main carries no
-  # sidecar on those two verified releases; an unverified n8n_chart_version
+  # unchanged through 1.14.0 (verified by diffing deployment-main.yaml between
+  # each release). Since this module always runs queue mode, main carries no
+  # sidecar on those verified releases; an unverified n8n_chart_version
   # (a different mirror, a preview build such as examples/worker-pools'
   # "1.11.0-preview.workerpools.1", or a future/older numbered release) keeps
   # the conservative allowance: an older or unrelated chart may still render
@@ -132,7 +132,7 @@ locals {
   # pinned default.
   n8n_chart_has_worker_only_runners = (
     var.n8n_chart_repository == "oci://ghcr.io/n8n-io/n8n-helm-chart" &&
-    contains(["1.12.0", "1.13.0"], split("+", var.n8n_chart_version)[0])
+    contains(["1.12.0", "1.13.0", "1.14.0"], split("+", var.n8n_chart_version)[0])
   )
   capacity_main_task_runner_cpu_millis = (var.n8n_task_runners_enabled && !local.n8n_chart_has_worker_only_runners) ? local.capacity_cpu_millicores_by_role.task_runner : 0
   capacity_main_task_runner_memory_mib = (var.n8n_task_runners_enabled && !local.n8n_chart_has_worker_only_runners) ? local.capacity_memory_mib_by_role.task_runner : 0

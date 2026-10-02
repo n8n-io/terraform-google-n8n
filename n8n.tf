@@ -391,9 +391,11 @@ resource "helm_release" "n8n" {
           key  = "accessSecret"
         }
       }
+      # No availableModes: chart 1.14.0 dropped it (n8n-io/n8n-hosting#185),
+      # and n8n 2.0 and later, the only releases this module supports, ignore
+      # N8N_AVAILABLE_BINARY_DATA_MODES.
       storage = {
         mode           = "s3"
-        availableModes = "filesystem,s3"
         forcePathStyle = true
       }
     }
@@ -558,14 +560,15 @@ resource "helm_release" "n8n" {
           # the actual logs are silently dropped. See variable description.
           { name = "N8N_LOG_OUTPUT", value = var.n8n_log_output },
           { name = "N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS", value = "true" },
-          # One effective webhook base URL (local.effective_webhook_url:
-          # explicit n8n_webhook_url, otherwise https://<n8n_fqdn>), emitted
-          # under both the legacy WEBHOOK_URL name (overriding the internally
-          # computed http://host:5678 URL so webhooks show the correct HTTPS
-          # address) and n8n's current N8N_WEBHOOK_URL name, so callers on
-          # either n8n release see the corrected value.
-          { name = "WEBHOOK_URL", value = local.effective_webhook_url },
-          { name = "N8N_WEBHOOK_URL", value = local.effective_webhook_url },
+        ],
+        # One effective webhook base URL (local.effective_webhook_url:
+        # explicit n8n_webhook_url, otherwise https://<n8n_fqdn>), overriding
+        # the internally computed http://host:5678 URL so webhooks show the
+        # correct HTTPS address. Emitted as N8N_WEBHOOK_URL, plus the legacy
+        # WEBHOOK_URL when the image may predate n8n 2.30.0
+        # (local.n8n_needs_legacy_webhook_url_env).
+        local.n8n_webhook_url_env,
+        [
           # Editor/OAuth base URL, always the canonical n8n_fqdn host (not the
           # effective webhook URL): the editor and its OAuth callback are
           # served from the ingress host, even when webhooks are split to a
@@ -767,7 +770,9 @@ resource "helm_release" "n8n" {
         # duplicate env names last-wins, so this would override anything above
         # it; var.n8n_extra_env is validated against local.n8n_managed_env_names
         # and local.n8n_managed_env_prefixes (variables.tf) so it cannot shadow a
-        # module- or chart-managed connection/identity/storage/license var.
+        # module- or chart-managed connection/identity/storage/license var, and
+        # against local.n8n_deprecated_env_names so it cannot bring back a
+        # deprecation warning.
         var.n8n_extra_env
       )
     }

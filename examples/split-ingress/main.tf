@@ -11,9 +11,10 @@
 #                                          ingress, webhook families only, no
 #                                          editor/API route.
 #
-# n8n_webhook_url is pointed at the public host so WEBHOOK_URL/
-# N8N_WEBHOOK_URL resolve externally while N8N_EDITOR_BASE_URL stays on the
-# private host (task 19's split-host contract).
+# n8n_webhook_url is pointed at the public host so N8N_WEBHOOK_URL (and the
+# legacy WEBHOOK_URL on images older than n8n 2.30.0) resolves externally
+# while N8N_EDITOR_BASE_URL stays on the private host (task 19's split-host
+# contract).
 #
 # This file plus network.tf/services.tf/tls.tf build the infrastructure the
 # split ingress needs (task 21): addresses, proxy-only subnet, scoped
