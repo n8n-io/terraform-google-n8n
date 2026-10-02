@@ -109,13 +109,14 @@ locals {
   ]
 
   # Env vars n8n has deprecated and logs a warning for on every start. The
-  # module does not set these on a current image (each has one exception,
-  # noted below), and the n8n_extra_env/n8n_worker_extra_env/pool extra_env
-  # inputs reject them so a caller cannot bring the warning back either.
+  # module does not set these on a current image (WEBHOOK_URL has one
+  # exception, noted below), and the n8n_extra_env/n8n_worker_extra_env/pool
+  # extra_env inputs reject them so a caller cannot bring the warning back
+  # either.
   n8n_deprecated_env_names = [
-    # Ignored from n8n 2.0. Still sent to charts older than 1.14.0
-    # (local.n8n_s3_storage_values), whose own default would otherwise drop
-    # S3 from the available modes on n8n 1.x.
+    # Ignored from n8n 2.0, the oldest release this module supports. Charts
+    # before 1.14.0 still render it from their own default; the module never
+    # sends s3.storage.availableModes.
     "N8N_AVAILABLE_BINARY_DATA_MODES",
     # Superseded by N8N_WEBHOOK_URL in n8n 2.30.0. Still sent when the image
     # is not known to be 2.30.0 or newer
@@ -434,24 +435,6 @@ locals {
   # counts as its own major.minor ("1.14.0-rc.1" reads as 1.14).
   n8n_chart_version_parts = split(".", split("+", var.n8n_chart_version)[0])
 
-  # s3.storage: only mode and forcePathStyle from chart 1.14.0 on. That
-  # release dropped storage.availableModes and the
-  # N8N_AVAILABLE_BINARY_DATA_MODES it rendered (n8n-io/n8n-hosting#185),
-  # which n8n 2.x ignores and warns about on every start. A chart pinned
-  # below 1.14.0 still renders the env var from its own default,
-  # "filesystem", and n8n 1.x still reads it, so those charts keep getting
-  # "filesystem,s3" or S3 would drop out of the available modes.
-  n8n_chart_drops_available_modes = (
-    tonumber(local.n8n_chart_version_parts[0]) > 1 || (
-      tonumber(local.n8n_chart_version_parts[0]) == 1 &&
-      tonumber(local.n8n_chart_version_parts[1]) >= 14
-    )
-  )
-  n8n_s3_storage_values = merge(
-    { mode = "s3", forcePathStyle = true },
-    local.n8n_chart_drops_available_modes ? {} : { availableModes = "filesystem,s3" },
-  )
-
   # Whether the running n8n may predate N8N_WEBHOOK_URL (added in 2.30.0) and
   # so still needs the legacy WEBHOOK_URL. Below 2.30.0, n8n builds webhook
   # URLs from WEBHOOK_URL or else from N8N_PROTOCOL://N8N_HOST:N8N_PORT, which
@@ -501,19 +484,6 @@ locals {
       tonumber(local.n8n_image_version_core[0]) == 2 && tonumber(local.n8n_image_version_core[1]) < 30
     )
   ) : !local.n8n_image_known_current
-
-  # A tag that names n8n 1.x on a chart that no longer renders
-  # N8N_AVAILABLE_BINARY_DATA_MODES (1.14.0 or newer). n8n 1.x defaults that
-  # variable to "filesystem" when it is unset, so S3 binary storage would
-  # silently fall back to each pod's own filesystem, breaking binary data
-  # shared across mains and workers. helm_release.n8n's precondition rejects
-  # it. Only a readable version can trip this; an unversioned or null tag
-  # does not.
-  n8n_image_is_1_x_on_chart_without_available_modes = (
-    local.n8n_image_version_core == null ? false : (
-      local.n8n_chart_drops_available_modes ? tonumber(local.n8n_image_version_core[0]) < 2 : false
-    )
-  )
 
   # The webhook env entries helm_release.n8n splices into config.extraEnv. A
   # local so tests can assert the list: the release's values are unknown at

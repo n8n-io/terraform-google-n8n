@@ -544,11 +544,10 @@ run "legacy_webhook_url_emitted_before_2_30_0" {
 run "legacy_webhook_url_emitted_for_n8n_1_x" {
   command = plan
 
-  # n8n 1.x on chart 1.14.0 or newer fails helm_release.n8n's precondition
-  # (no N8N_AVAILABLE_BINARY_DATA_MODES), so pin the last chart that renders it.
+  # n8n 1.x is unsupported, but a minor above 30 on major 1 must still not
+  # read as 2.30.0 or newer: the comparison checks the major first.
   variables {
-    n8n_chart_version = "1.13.0"
-    n8n_image_tag     = "1.123.4"
+    n8n_image_tag = "1.123.4"
   }
 
   assert {

@@ -241,10 +241,9 @@ assert_env_count "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS" "2" "true"
 
 # n8n deprecated N8N_AVAILABLE_BINARY_DATA_MODES and logs a warning whenever
 # it is set, even though n8n 2.x otherwise ignores it. Chart 1.14.0 stopped
-# rendering it (n8n-hosting#185), and the module sends
-# s3.storage.availableModes only to older charts
-# (local.n8n_s3_storage_values, asserted in tests/defaults.tftest.hcl). This
-# proves the pinned chart does not bring it back on its own. The S3 env block
+# rendering it (n8n-hosting#185), and the module never sends
+# s3.storage.availableModes (n8n.tf). This proves the pinned chart does not
+# bring it back on its own. The S3 env block
 # must have rendered first, or the absence check would pass vacuously.
 if ! grep -q -- '- name: N8N_DEFAULT_BINARY_DATA_MODE$' "$RENDERED"; then
   fail "S3 fixture did not render N8N_DEFAULT_BINARY_DATA_MODE; the N8N_AVAILABLE_BINARY_DATA_MODES absence check below would pass vacuously"

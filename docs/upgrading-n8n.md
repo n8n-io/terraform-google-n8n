@@ -29,19 +29,15 @@ Check these points before you apply:
   n8n `2.40.5` to `2.41.4`. n8n `2.41.0` through `2.41.4` list no breaking
   changes. Every n8n pod rolls once on the apply, because the image and the
   env list change.
-- **Chart 1.14.0 needs n8n 2.0 or newer for S3 binary storage.** The chart
-  no longer renders `N8N_AVAILABLE_BINARY_DATA_MODES`
-  ([n8n-hosting#185](https://github.com/n8n-io/n8n-hosting/pull/185)). n8n
-  2.x ignores it, but n8n 1.x reads it and defaults to `filesystem` only. A
-  deployment that pins `n8n_image_tag` to a 1.x release cannot use the GCS
-  bucket for binary data on chart 1.14.0, so the module fails the plan when
-  `n8n_image_tag` (or, for a custom image, `n8n_task_runner_image_tag`)
-  names a 1.x version on chart `1.14.0` or newer. Upgrade n8n to 2.x first
-  (see the
-  [n8n 2.0 migration guide](https://docs.n8n.io/2-0-breaking-changes/)), or
-  keep `n8n_chart_version = "1.13.0"` until you do. On a chart older than
-  `1.14.0`, the module still sends `availableModes = "filesystem,s3"`
-  (`local.n8n_s3_storage_values`).
+- **n8n 2.0 or newer is required.** The chart no longer renders
+  `N8N_AVAILABLE_BINARY_DATA_MODES`
+  ([n8n-hosting#185](https://github.com/n8n-io/n8n-hosting/pull/185)), and
+  the module stops sending `s3.storage.availableModes`. n8n 2.x ignores the
+  variable, but n8n 1.x reads it and defaults to `filesystem` only, so a 1.x
+  image would silently store binary data on each pod's own disk instead of
+  the GCS bucket. This module does not support n8n 1.x. If you pin
+  `n8n_image_tag` to a 1.x release, upgrade n8n to 2.x first (see the
+  [n8n 2.0 migration guide](https://docs.n8n.io/2-0-breaking-changes/)).
 - **`WEBHOOK_URL` is no longer sent to current images.** n8n `2.30.0`
   introduced `N8N_WEBHOOK_URL` and logs a deprecation warning while
   `WEBHOOK_URL` is set. The module now sends only `N8N_WEBHOOK_URL` when the

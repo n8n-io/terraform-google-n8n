@@ -19,19 +19,14 @@ this project adheres to the stability contract in
   - The chart no longer renders `N8N_AVAILABLE_BINARY_DATA_MODES`
     (n8n-hosting#185; n8n deprecated it and logs a warning whenever it is
     set) and dropped `s3.storage.availableModes` from its schema. The module
-    no longer sends `availableModes` to chart `1.14.0` or newer, so the
-    deprecated variable is not set on any pod there and its warning is
-    gone. A pinned chart older than `1.14.0` still gets `"filesystem,s3"`
-    (`local.n8n_s3_storage_values`): its own default is `"filesystem"`,
-    which n8n 1.x still reads, so leaving it out would drop S3 from the
-    available modes. **Chart `1.14.0` and later need n8n 2.0 or newer for
-    S3 binary storage**, because n8n 1.x defaults the variable to
-    `filesystem` once the chart stops rendering it. **The plan now fails**
-    (a `helm_release.n8n` precondition) when `n8n_image_tag`, or for a
-    custom image `n8n_task_runner_image_tag`, names an n8n 1.x version on
-    chart `1.14.0` or newer, instead of letting binary data silently fall
-    back to each pod's own disk. Upgrade a 1.x pin to 2.x before taking
-    this chart, or keep `n8n_chart_version = "1.13.0"`.
+    stops sending `availableModes`, so on chart `1.14.0` the deprecated
+    variable is not set on any pod and its warning is gone. **The module now
+    requires n8n 2.0 or newer.** n8n 2.x ignores the variable, but n8n 1.x
+    reads it and defaults to `filesystem` only, so a 1.x image on chart
+    `1.14.0` would silently store binary data on each pod's own disk instead
+    of GCS. Upgrade a 1.x pin to 2.x before taking this release. A chart
+    pinned below `1.14.0` still renders the variable from its own default
+    (`"filesystem"`), which n8n 2.x ignores.
   - The module no longer sends the deprecated `WEBHOOK_URL` to images that
     are provably n8n `2.30.0` or newer (the first release that reads
     `N8N_WEBHOOK_URL` and the first that warns about `WEBHOOK_URL` on every
