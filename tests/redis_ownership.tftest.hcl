@@ -63,7 +63,7 @@ run "defaults_create_managed_redis_resources" {
 
   assert {
     condition     = google_redis_instance.n8n[0].redis_configs["maxmemory-policy"] == "noeviction"
-    error_message = "redis_maxmemory_policy should default to noeviction, overriding Memorystore's own volatile-lru default to avoid silently dropping TTL-bearing Bull queue keys."
+    error_message = "redis_maxmemory_policy should default to noeviction, overriding Memorystore's own volatile-lru default, which can evict Bull's TTL-bearing per-job lock keys and fail in-flight executions as stalled."
   }
 
   assert {
@@ -160,6 +160,71 @@ run "redis_maxmemory_policy_rejects_invalid_value" {
   }
 
   expect_failures = [var.redis_maxmemory_policy]
+}
+
+# Memorystore supports the LFU policies on Redis 4.0+ only.
+run "redis_maxmemory_policy_rejects_volatile_lfu_on_redis_3_2" {
+  command = plan
+
+  variables {
+    redis_version          = "REDIS_3_2"
+    redis_maxmemory_policy = "volatile-lfu"
+  }
+
+  expect_failures = [var.redis_maxmemory_policy]
+}
+
+run "redis_maxmemory_policy_rejects_allkeys_lfu_on_redis_3_2" {
+  command = plan
+
+  variables {
+    redis_version          = "REDIS_3_2"
+    redis_maxmemory_policy = "allkeys-lfu"
+  }
+
+  expect_failures = [var.redis_maxmemory_policy]
+}
+
+run "redis_maxmemory_policy_accepts_lfu_on_redis_7_2" {
+  command = plan
+
+  variables {
+    redis_version          = "REDIS_7_2"
+    redis_maxmemory_policy = "allkeys-lfu"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].redis_configs["maxmemory-policy"] == "allkeys-lfu"
+    error_message = "An LFU policy must be accepted and propagated on Redis 4.0+."
+  }
+}
+
+run "redis_maxmemory_policy_accepts_volatile_lfu_on_redis_4_0" {
+  command = plan
+
+  variables {
+    redis_version          = "REDIS_4_0"
+    redis_maxmemory_policy = "volatile-lfu"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].redis_configs["maxmemory-policy"] == "volatile-lfu"
+    error_message = "volatile-lfu must be accepted on REDIS_4_0, the first version that supports LFU."
+  }
+}
+
+run "redis_maxmemory_policy_accepts_non_lfu_on_redis_3_2" {
+  command = plan
+
+  variables {
+    redis_version          = "REDIS_3_2"
+    redis_maxmemory_policy = "allkeys-lru"
+  }
+
+  assert {
+    condition     = google_redis_instance.n8n[0].redis_configs["maxmemory-policy"] == "allkeys-lru"
+    error_message = "A non-LFU policy must be accepted on REDIS_3_2."
+  }
 }
 
 run "standard_ha_requires_timeout_threshold_at_least_failover_window" {

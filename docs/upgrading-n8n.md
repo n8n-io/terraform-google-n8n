@@ -530,18 +530,33 @@ set the switch to true and review the desired schedule again.
 `redis_maxmemory_policy` (default `"noeviction"`) now wires
 `redis_configs["maxmemory-policy"]` into the module-managed Memorystore
 instance. Memorystore's own unconfigured default is `volatile-lru`, which
-silently evicts TTL-bearing keys, including Bull's queue keys, once the
-instance is full, dropping in-flight or queued n8n executions without an
-error. `noeviction` instead returns a write error at that point: a visible
-failure in place of silent job loss.
+evicts keys that carry a TTL once the instance is full. Bull's queued jobs
+have no TTL, but its per-job lock keys do. Evicting a lock can cause Bull
+to detect an active job as stalled. Because n8n sets `maxStalledCount: 0`,
+the first detected stall fails the job instead of retrying it.
+`noeviction` instead rejects writes once the instance is full, so the
+failure shows up as a Redis error.
 
-This is a safe in-place Memorystore configuration update (no restart, no
-data loss, no cluster/replica replacement), but it changes behavior at
-capacity: write errors surface where evictions previously happened quietly.
-Set `redis_maxmemory_policy` back to `"volatile-lru"` to keep the prior
-behavior, or review your instance's memory headroom
-(`redis_memory_size_gb`) before the next `apply` if you were relying on
-silent eviction to stay under capacity.
+This is an in-place Memorystore configuration update. No instance restart
+is required. It does change behavior at capacity: write errors appear
+where evictions happened before. Before the next `apply`:
+
+- Check the instance's current policy, for example with
+  `gcloud redis instances describe <name> --region <region>
+  --format='value(redisConfigs)'`. No `maxmemory-policy` in the output
+  means the instance uses Memorystore's default, `volatile-lru`. If someone
+  set `maxmemory-policy` outside Terraform, the next `apply` overwrites it.
+  Set `redis_maxmemory_policy` to that value to keep it.
+- Review the whole `redis_configs` change in the plan, not just
+  `maxmemory-policy`. The provider sends only the configured map and does
+  not merge in other keys set outside Terraform.
+- Set `redis_maxmemory_policy = "volatile-lru"` to keep Memorystore's
+  previous default.
+- If you relied on eviction to stay under capacity, review the memory
+  headroom (`redis_memory_size_gb`).
+
+`volatile-lfu` and `allkeys-lfu` need Redis 4.0 or later. The module
+rejects them at plan time when `redis_version = "REDIS_3_2"`.
 
 ## Sizing and observability additions
 

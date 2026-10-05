@@ -429,6 +429,21 @@ run "redis_maxmemory_policy_ignored_when_external_triggers_warning" {
   expect_failures = [check.redis_tuning_ignored_when_existing]
 }
 
+# The LFU-needs-Redis-4.0 validation is scoped to the managed instance: on the
+# external path both inputs are ignored, so the combination only warns.
+run "redis_lfu_on_redis_3_2_only_warns_when_external" {
+  command = plan
+
+  variables {
+    create_redis_instance  = false
+    redis_host             = "10.9.8.8"
+    redis_version          = "REDIS_3_2"
+    redis_maxmemory_policy = "allkeys-lfu"
+  }
+
+  expect_failures = [check.redis_tuning_ignored_when_existing]
+}
+
 run "gcs_tuning_ignored_when_existing_triggers_warning" {
   command = plan
 

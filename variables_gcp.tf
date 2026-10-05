@@ -571,7 +571,7 @@ variable "redis_transit_encryption_enabled" {
 }
 
 variable "redis_maxmemory_policy" {
-  description = "Memorystore maxmemory-policy (redis_configs[\"maxmemory-policy\"]) on the module-managed instance. Memorystore's own default is volatile-lru, which can silently evict Bull queue keys (they carry a TTL) under memory pressure, dropping in-flight/queued n8n executions. Defaults to noeviction, which instead returns an error on write once the instance is full, trading a visible failure for silent job loss. Ignored when create_redis_instance = false; configure the external service's own maxmemory-policy out of band instead."
+  description = "Memorystore maxmemory-policy (redis_configs[\"maxmemory-policy\"]) on the module-managed instance. Memorystore's own default is volatile-lru, which evicts keys that carry a TTL under memory pressure. These include Bull's per-job lock keys, so an in-flight n8n execution can lose its lock and fail as stalled. Defaults to noeviction, which instead rejects writes once the instance is full. volatile-lfu and allkeys-lfu need Redis 4.0 or later and are rejected with redis_version = \"REDIS_3_2\". Setting this overwrites any maxmemory-policy configured on the instance outside Terraform. Ignored when create_redis_instance = false; configure the external service's own maxmemory-policy out of band instead."
   type        = string
   default     = "noeviction"
   nullable    = false
@@ -579,6 +579,16 @@ variable "redis_maxmemory_policy" {
   validation {
     condition     = contains(["noeviction", "allkeys-lru", "volatile-lru", "allkeys-random", "volatile-random", "volatile-ttl", "volatile-lfu", "allkeys-lfu"], var.redis_maxmemory_policy)
     error_message = "redis_maxmemory_policy must be one of noeviction, allkeys-lru, volatile-lru, allkeys-random, volatile-random, volatile-ttl, volatile-lfu, or allkeys-lfu (the Memorystore-supported maxmemory policies)."
+  }
+
+  # Memorystore supports the LFU policies on Redis 4.0 and later only
+  # (https://cloud.google.com/memorystore/docs/redis/supported-redis-configurations).
+  # Scoped to the managed instance: with create_redis_instance = false both
+  # inputs are ignored and only the redis_tuning_ignored_when_existing check
+  # warns.
+  validation {
+    condition     = !(var.create_redis_instance && var.redis_version == "REDIS_3_2" && endswith(var.redis_maxmemory_policy, "-lfu"))
+    error_message = "redis_maxmemory_policy volatile-lfu and allkeys-lfu need Redis 4.0 or later. Set redis_version to REDIS_4_0 or newer, or choose a non-LFU policy."
   }
 }
 
