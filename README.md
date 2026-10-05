@@ -353,7 +353,7 @@ See [`docs/shared-responsibility.md`](./docs/shared-responsibility.md) for a
 single table summarizing what this module does versus what the caller owns
 across cluster security add-ons, network egress and DNS, edge protection,
 TLS, secrets and Terraform state, backup/restore, observability, upgrades,
-licence, and quotas.
+license, and quotas.
 
 ## Reference
 
