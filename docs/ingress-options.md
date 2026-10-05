@@ -221,11 +221,11 @@ This module does not create any Gateway API resource today. Adding one
 (`GatewayClass` selection, `Gateway`, `HTTPRoute` for the main/webhook
 split) would be a new feature, not a documentation gap, and is out of scope
 here. Set `create_ingress = false` and build the `Gateway`/`HTTPRoute` pair
-from the module's `n8n_main_service_name`, `n8n_webhook_service_name`,
-`n8n_service_port`, `n8n_main_route_prefixes`, and
-`n8n_webhook_route_prefixes` outputs. `examples/split-ingress` shows the
-other option: it creates its own Services and consumes only the port and
-route-prefix outputs.
+from the module's `n8n_kube_namespace`, `n8n_main_service_name`,
+`n8n_webhook_service_name`, `n8n_service_port`, `n8n_main_route_prefixes`,
+`n8n_webhook_route_prefixes`, and `n8n_ingress_hosts` outputs.
+`examples/split-ingress` shows the other option: it creates its own
+Services and consumes the namespace, port, and route-prefix outputs.
 
 ## When an internal Application Load Balancer fits better
 
