@@ -191,13 +191,12 @@ a manual restart, corrected canonical URLs, Redis prefix/persistence
 transitions, and any resource-address changes needing a manual
 `terraform state mv`.
 
-Several inputs and hardcoded values pick a resource's shape once, at create
-time; changing them later forces replacement (data loss/downtime), is
-rejected by GCP outright, or (for the GKE node pool's machine type/disk
-shape) is silently ignored, with `terraform apply` succeeding while the
-running node pool keeps its old shape. See
-[`docs/build-time-decisions.md`](./docs/build-time-decisions.md) for the full,
-verified list.
+Some inputs are hard or impossible to change after the first apply: changing
+them plans replacement of a resource (downtime and possible data loss), or
+Google Cloud has no supported in-place path. Others update in place but still
+disrupt running workloads, such as the GKE node machine type. See
+[`docs/build-time-decisions.md`](./docs/build-time-decisions.md) for both
+lists.
 
 For a full account of which AWS module (`terraform-aws-n8n`) capabilities
 through its `0.4.0` release were ported, adapted for Google, already covered,

@@ -9,13 +9,15 @@ this project adheres to the stability contract in
 
 ### Added
 
-- `docs/build-time-decisions.md`: a verified table of inputs and hardcoded
-  values that pick a resource's shape at create time (GKE region/private-node
-  CIDR/Dataplane V2, node pool machine type/disk, subnet/secondary-range
-  sizing, Cloud SQL region/edition/private-network, Memorystore tier/region/
-  connect mode/AUTH/transit encryption/CMEK, GCS location, the n8n encryption
-  key, and the FQDN), where changing them later forces replacement or is
-  rejected by GCP. Linked from README.md's day-2 operations section.
+- `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
+  change after the first apply (GKE region, private nodes and control-plane
+  CIDR, Dataplane V2, subnet and secondary ranges, the Private Services
+  Access range, Cloud SQL region and CMEK, Memorystore tier, region, transit
+  encryption and CMEK, GCS location, and the n8n encryption key), checked
+  against `hashicorp/google` `v6.50.0`. A second table lists inputs that
+  update in place but can still disrupt workloads (GKE node machine type and
+  disk, Redis AUTH, Cloud SQL edition and private network, GCS CMEK, and the
+  FQDN). Linked from README.md's day-2 operations section.
 
 ### Changed
 
