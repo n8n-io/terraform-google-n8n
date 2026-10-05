@@ -7,6 +7,18 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Added
+
+- `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
+  change after the first apply (GKE region, private nodes and control-plane
+  CIDR, Dataplane V2, subnet and secondary ranges, the Private Services
+  Access range, Cloud SQL region and CMEK, Memorystore tier, region, transit
+  encryption and CMEK, GCS location, and the n8n encryption key), checked
+  against `hashicorp/google` `v6.50.0`. A second table lists inputs that
+  update in place but can still disrupt workloads (GKE node machine type and
+  disk, Redis AUTH, Cloud SQL edition and private network, GCS CMEK, and the
+  FQDN). Linked from README.md's day-2 operations section.
+
 ### Changed
 
 - Default `n8n_chart_version` bumped to `1.14.0` (was `1.13.0`; n8n-hosting
