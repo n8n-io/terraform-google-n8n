@@ -18,6 +18,11 @@ this project adheres to the stability contract in
   update in place but can still disrupt workloads (GKE node machine type and
   disk, Redis AUTH, Cloud SQL edition and private network, GCS CMEK, and the
   FQDN). Linked from README.md's day-2 operations section.
+- `docs/shared-responsibility.md`: a single table summarizing what the
+  module does versus what the caller owns across cluster security add-ons,
+  network egress and DNS, edge protection, TLS, secrets and Terraform state,
+  backup/restore, observability, upgrades, license, and quotas, linked from
+  the README's "Out of scope" section.
 
 ### Changed
 

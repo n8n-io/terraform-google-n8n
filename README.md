@@ -349,6 +349,12 @@ ingress, and private image registries/chart mirrors (air-gapped-friendly) are
 all now supported, see
 [`docs/customer-managed-infrastructure.md`](./docs/customer-managed-infrastructure.md).
 
+See [`docs/shared-responsibility.md`](./docs/shared-responsibility.md) for a
+single table summarizing what this module does versus what the caller owns
+across cluster security add-ons, network egress and DNS, edge protection,
+TLS, secrets and Terraform state, backup/restore, observability, upgrades,
+license, and quotas.
+
 ## Reference
 
 <!-- markdownlint-disable -->
