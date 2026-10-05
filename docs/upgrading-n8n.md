@@ -558,6 +558,12 @@ where evictions happened before. Before the next `apply`:
 `volatile-lfu` and `allkeys-lfu` need Redis 4.0 or later. The module
 rejects them at plan time when `redis_version = "REDIS_3_2"`.
 
+Rolling back to a module version without `redis_maxmemory_policy` is also
+an in-place update with no instance restart. Terraform removes the
+`maxmemory-policy` key, and Memorystore immediately resets the policy to
+its default, `volatile-lru`. The previous value does not stay in place.
+This was observed on a BASIC tier instance running Redis 7.2.
+
 ## Sizing and observability additions
 
 Sections 16 and 17 add an opt-in private Redis exporter
