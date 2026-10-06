@@ -114,6 +114,32 @@ check "postgres_host_and_password_ignored_when_managed" {
   }
 }
 
+# The CA Secret is mounted only while server-certificate verification is on
+# (locals.tf, manage_postgres_ssl_ca). The managed path is already covered by
+# postgres_host_and_password_ignored_when_managed above, so this check only
+# fires on the external path.
+check "postgres_ssl_ca_ignored_without_verification" {
+  assert {
+    condition     = var.create_postgres_instance || var.db_postgresdb_ssl_ca_secret_ref == null || var.db_postgresdb_ssl_reject_unauthorized
+    error_message = "db_postgresdb_ssl_ca_secret_ref is set, but db_postgresdb_ssl_reject_unauthorized is false, so the module does not mount the CA Secret and n8n does not verify the PostgreSQL server certificate. Set db_postgresdb_ssl_reject_unauthorized = true (with db_postgresdb_ssl_enabled = true) to use the CA, or remove db_postgresdb_ssl_ca_secret_ref."
+  }
+}
+
+# Without a CA bundle, n8n passes `ssl: true` to its PostgreSQL driver, so the
+# certificate check follows Node's process-wide default, which
+# NODE_TLS_REJECT_UNAUTHORIZED=0 turns off. With a CA bundle, n8n passes an
+# explicit rejectUnauthorized and the variable has no effect on this
+# connection. See docs/postgresql-tls.md.
+check "postgres_ssl_verification_disabled_by_node_tls_env" {
+  assert {
+    condition = !(var.db_postgresdb_ssl_reject_unauthorized && var.db_postgresdb_ssl_ca_secret_ref == null) || !anytrue([
+      for e in concat(var.n8n_extra_env, var.n8n_worker_extra_env, flatten([for p in var.n8n_worker_pools : p.extra_env])) :
+      e.name == "NODE_TLS_REJECT_UNAUTHORIZED" && e.value == "0"
+    ])
+    error_message = "db_postgresdb_ssl_reject_unauthorized = true without db_postgresdb_ssl_ca_secret_ref, but n8n_extra_env, n8n_worker_extra_env, or an n8n_worker_pools entry's extra_env sets NODE_TLS_REJECT_UNAUTHORIZED=0. On the affected pods, Node then skips the PostgreSQL server-certificate check. Remove that entry, or supply the CA through db_postgresdb_ssl_ca_secret_ref so n8n passes an explicit rejectUnauthorized."
+  }
+}
+
 check "postgres_kms_ignored_when_external" {
   assert {
     condition = var.create_postgres_instance || (

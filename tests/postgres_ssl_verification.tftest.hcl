@@ -5,9 +5,13 @@
 # db_postgresdb_ssl_reject_unauthorized is validated to only ever be true on
 # the external PostgreSQL path (create_postgres_instance = false): the
 # module-managed Cloud SQL instance always connects over its private IP,
-# whose certificate never names that IP as a Subject Alternative Name, so
-# certificate verification would deterministically fail the TLS handshake
-# there. See docs/postgresql-tls.md for the full explanation.
+# and Google documents Cloud SQL hostname verification only by DNS name, so
+# n8n's hostname check is expected to fail the TLS handshake there.
+# See docs/postgresql-tls.md for the full explanation.
+#
+# The chart's rendering of the PostgreSQL CA volume, mount, and env next to
+# the Redis CA and a caller volume is covered by
+# tests/scripts/check-n8n-chart.sh, not here.
 #
 # helm_release.n8n.values is a JSON-encoded string, unknown at plan time
 # under the mock provider (AGENTS.md's known mock-provider limitations), so
@@ -296,6 +300,106 @@ run "ca_secret_ref_ignored_when_managed_triggers_warning" {
   }
 
   expect_failures = [check.postgres_host_and_password_ignored_when_managed]
+}
+
+run "ca_secret_ref_ignored_without_verification_triggers_warning" {
+  command = plan
+
+  variables {
+    create_postgres_instance        = false
+    n8n_database_host               = "pg.external.example.com"
+    n8n_database_password           = "external-db-password"
+    db_postgresdb_ssl_enabled       = true
+    db_postgresdb_ssl_ca_secret_ref = { name = "postgres-server-ca" }
+    # db_postgresdb_ssl_reject_unauthorized left at its default (false).
+  }
+
+  assert {
+    condition     = local.manage_postgres_ssl_ca == false && length([for e in local.n8n_postgres_ssl_env : e if e.name == "DB_POSTGRESDB_SSL_CA_FILE"]) == 0
+    error_message = "The CA Secret must not be mounted or referenced while db_postgresdb_ssl_reject_unauthorized = false."
+  }
+
+  expect_failures = [check.postgres_ssl_ca_ignored_without_verification]
+}
+
+# ── NODE_TLS_REJECT_UNAUTHORIZED=0 with no CA bundle ────────────────────────
+
+run "node_tls_env_without_ca_triggers_warning" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    n8n_extra_env = [
+      { name = "NODE_TLS_REJECT_UNAUTHORIZED", value = "0" },
+    ]
+  }
+
+  expect_failures = [check.postgres_ssl_verification_disabled_by_node_tls_env]
+}
+
+run "node_tls_env_in_worker_extra_env_without_ca_triggers_warning" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    n8n_worker_extra_env = [
+      { name = "NODE_TLS_REJECT_UNAUTHORIZED", value = "0" },
+    ]
+  }
+
+  expect_failures = [check.postgres_ssl_verification_disabled_by_node_tls_env]
+}
+
+run "node_tls_env_in_worker_pool_extra_env_without_ca_triggers_warning" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    # A worker-pools preview build passes helm_release.n8n's pool precondition
+    # (see worker-pools.tf, local.n8n_chart_renders_worker_pools).
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_worker_pools = [{
+      name      = "heavy"
+      extra_env = [{ name = "NODE_TLS_REJECT_UNAUTHORIZED", value = "0" }]
+    }]
+  }
+
+  expect_failures = [check.postgres_ssl_verification_disabled_by_node_tls_env]
+}
+
+# With a CA bundle, n8n passes an explicit rejectUnauthorized, so the same
+# env entry does not affect the database connection and no warning fires.
+run "node_tls_env_with_ca_does_not_warn" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_secret_ref       = { name = "postgres-server-ca" }
+    n8n_extra_env = [
+      { name = "NODE_TLS_REJECT_UNAUTHORIZED", value = "0" },
+    ]
+  }
+
+  assert {
+    condition     = local.manage_postgres_ssl_ca == true
+    error_message = "The CA Secret must be mounted when verification is on and a CA reference is supplied."
+  }
 }
 
 run "postgres_ssl_mode_encrypted_only_not_rejected_on_external_path" {

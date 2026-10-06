@@ -47,16 +47,21 @@ this project adheres to the stability contract in
   server's certificate (`DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true`) on the
   external PostgreSQL path (`create_postgres_instance = false`) instead of
   the previously hardcoded `false`, which encrypted the connection but never
-  validated it. Restricted to the external path: the module-managed Cloud
-  SQL instance always connects over its private IP, whose certificate never
-  names that IP as a Subject Alternative Name, so certificate verification
-  would deterministically fail the TLS handshake there; see
+  validated it. Restricted to the external path: the module connects to its
+  own Cloud SQL instance by private IP, and Google documents Cloud SQL
+  hostname verification only by DNS name, so n8n's hostname check is
+  expected to fail there; see
   [`docs/postgresql-tls.md`](./docs/postgresql-tls.md) for the full
   explanation and limits.
 - `db_postgresdb_ssl_ca_secret_ref` references an existing Kubernetes Secret
   holding the PEM-encoded CA bundle to trust for that verification, mounted
   read-only on every n8n role (main, worker, webhook processor) via
   `DB_POSTGRESDB_SSL_CA_FILE`. The module never reads the Secret's value.
+  While the module mounts this CA, `n8n_extra_volumes` cannot use the volume
+  name `postgres-ssl-ca`; callers who do not turn the feature on are not
+  affected. Two new `check` warnings cover a CA reference that is ignored
+  because verification is off, and `NODE_TLS_REJECT_UNAUTHORIZED=0` in an
+  extra env input turning verification off when no CA is supplied.
 - `postgres_ssl_mode` lets the module-managed Cloud SQL instance reject
   unencrypted connections outright (`ip_configuration.ssl_mode =
   ENCRYPTED_ONLY`) instead of the previously hardcoded

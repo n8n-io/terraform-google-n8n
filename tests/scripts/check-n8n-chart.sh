@@ -23,6 +23,9 @@
 #     containers that render them (main, worker; the chart does not include
 #     executions env on the webhook-processor container), for both the
 #     default all/all/false/true policy and a mixed non-default policy.
+#   - The module's PostgreSQL CA volume, mount, and DB_POSTGRESDB_SSL_* env
+#     render on every role next to the Redis CA and a caller volume, with no
+#     chart-rendered duplicate of those env names.
 #   - The self-check below proves an intentionally wrong expected value is
 #     actually caught (a real assertion failure), not a check that always
 #     passes.
@@ -976,6 +979,147 @@ else
   else
     fail "caller Secret volume defaultMode: expected 3 occurrences of 288, found ${CV_SECRET_DEFAULT_MODE_COUNT}"
   fi
+fi
+
+# ── PostgreSQL CA next to the Redis CA and a caller volume ──────────────────
+# Mirrors what helm_release.n8n (n8n.tf) renders when
+# db_postgresdb_ssl_reject_unauthorized = true and
+# db_postgresdb_ssl_ca_secret_ref is set: the module's postgres-ssl-ca volume
+# and mount (locals.tf, n8n_postgres_ssl_ca_volume/n8n_postgres_ssl_ca_mount)
+# after the Redis CA entry and before caller volumes, plus the
+# DB_POSTGRESDB_SSL_* entries from local.n8n_postgres_ssl_env in
+# config.extraEnv. The mocked terraform test suite asserts those locals; this
+# render proves the chart puts them on every role and renders no
+# DB_POSTGRESDB_SSL_* entry of its own that would duplicate them.
+sed -n '/^extraVolumes:$/q;p' "$WORKDIR/fixture-caller-volumes.yaml" >"$WORKDIR/fixture-postgres-ssl-ca.yaml"
+cat >>"$WORKDIR/fixture-postgres-ssl-ca.yaml" <<'EOF'
+extraVolumes:
+  - name: redis-ca
+    secret:
+      secretName: synthetic-redis-ca
+      items:
+        - key: ca.crt
+          path: ca.crt
+  - name: postgres-ssl-ca
+    secret:
+      secretName: synthetic-postgres-server-ca
+      items:
+        - key: ca.crt
+          path: ca.crt
+  - name: custom-nodes
+    configMap:
+      name: synthetic-caller-configmap
+extraVolumeMounts:
+  - name: redis-ca
+    mountPath: /etc/n8n-certs/redis-ca.crt
+    subPath: ca.crt
+    readOnly: true
+  - name: postgres-ssl-ca
+    mountPath: /etc/n8n-certs/postgres-ssl-ca.crt
+    subPath: ca.crt
+    readOnly: true
+  - name: custom-nodes
+    mountPath: /opt/n8n-nodes
+    readOnly: true
+config:
+  extraEnv:
+    - name: DB_POSTGRESDB_SSL_ENABLED
+      value: "true"
+    - name: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+      value: "true"
+    - name: DB_POSTGRESDB_SSL_CA_FILE
+      value: /etc/n8n-certs/postgres-ssl-ca.crt
+EOF
+sed -n '/^service:$/,$p' "$WORKDIR/fixture-caller-volumes.yaml" >>"$WORKDIR/fixture-postgres-ssl-ca.yaml"
+
+echo "==> helm template (postgres-ssl-ca fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-postgres-ssl-ca.yaml" \
+  >"$WORKDIR/rendered-postgres-ssl-ca.yaml" 2>"$WORKDIR/helm-stderr-postgres-ssl-ca.log"; then
+  cat "$WORKDIR/helm-stderr-postgres-ssl-ca.log" >&2
+  fail "helm template (postgres-ssl-ca fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the postgres-ssl-ca fixture with no credentials"
+
+  PG_RENDERED="$WORKDIR/rendered-postgres-ssl-ca.yaml"
+
+  # pg_deployment_block <deployment-name>
+  # Prints only the named Deployment's manifest, so every assertion below is
+  # per role: a role with a missing entry cannot be hidden by a duplicate on
+  # another role.
+  pg_deployment_block() {
+    awk -v name="$1" '
+      /^---$/ { if (found) exit; in_deploy = 0; next }
+      /^kind: Deployment$/ { in_deploy = 1 }
+      in_deploy && $0 == "  name: " name { found = 1 }
+      found { print }
+    ' "$PG_RENDERED"
+  }
+
+  for pg_role in n8n-main n8n-worker n8n-webhook-processor; do
+    pg_block="$(pg_deployment_block "$pg_role")"
+    if [ -z "$pg_block" ]; then
+      fail "postgres-ssl-ca fixture: Deployment/${pg_role} not found in the render"
+      continue
+    fi
+
+    # Each volume and mount name appears exactly twice per Deployment: once
+    # in volumes, once in the container's volumeMounts.
+    for pg_volume in redis-ca postgres-ssl-ca custom-nodes; do
+      pg_count="$(printf '%s\n' "$pg_block" | grep -c -- "name: ${pg_volume}$" || true)"
+      if [ "$pg_count" = "2" ]; then
+        pass "postgres-ssl-ca fixture: Deployment/${pg_role} declares and mounts ${pg_volume}"
+      else
+        fail "postgres-ssl-ca fixture: Deployment/${pg_role}: expected 2 occurrences of \"name: ${pg_volume}\", found ${pg_count}"
+      fi
+    done
+
+    # The postgres-ssl-ca volume entry must reference the caller's Secret and
+    # project the ca.crt key (toYaml sorts keys: name, secret.items,
+    # secret.secretName).
+    pg_volume_ok="$(printf '%s\n' "$pg_block" | awk '
+      /- name: postgres-ssl-ca$/ { in_vol = 1; n = 0; key = 0; secret = 0; next }
+      in_vol { n++ }
+      in_vol && /- key: ca.crt$/ { key = 1 }
+      in_vol && /secretName: synthetic-postgres-server-ca$/ { secret = 1 }
+      in_vol && (n >= 5 || /^[[:space:]]*- name: /) { if (key && secret) { print "ok"; exit }; in_vol = 0 }
+      END { if (in_vol && key && secret) print "ok" }
+    ' | head -1)"
+    if [ "$pg_volume_ok" = "ok" ]; then
+      pass "postgres-ssl-ca fixture: Deployment/${pg_role} postgres-ssl-ca volume references secret synthetic-postgres-server-ca, key ca.crt"
+    else
+      fail "postgres-ssl-ca fixture: Deployment/${pg_role} postgres-ssl-ca volume does not reference secret synthetic-postgres-server-ca with key ca.crt"
+    fi
+
+    # The mount entry must carry the documented path, subPath, and readOnly
+    # (toYaml sorts keys: mountPath, name, readOnly, subPath).
+    pg_mount_ok="$(printf '%s\n' "$pg_block" | grep -A3 -- '- mountPath: /etc/n8n-certs/postgres-ssl-ca.crt$' | tr -s ' ' | tr '\n' '|')"
+    if [ "$pg_mount_ok" = " - mountPath: /etc/n8n-certs/postgres-ssl-ca.crt| name: postgres-ssl-ca| readOnly: true| subPath: ca.crt|" ]; then
+      pass "postgres-ssl-ca fixture: Deployment/${pg_role} mounts the CA read-only at /etc/n8n-certs/postgres-ssl-ca.crt via subPath ca.crt"
+    else
+      fail "postgres-ssl-ca fixture: Deployment/${pg_role} postgres-ssl-ca mount is wrong or missing: ${pg_mount_ok:-<not found>}"
+    fi
+
+    # config.extraEnv passes through the chart's raw with/toYaml block, so
+    # quoted booleans stay quoted and the path stays a bare scalar. More than
+    # one entry would mean the chart renders its own entry for the same name.
+    for pg_env in 'DB_POSTGRESDB_SSL_ENABLED|"true"' 'DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED|"true"' 'DB_POSTGRESDB_SSL_CA_FILE|/etc/n8n-certs/postgres-ssl-ca.crt'; do
+      pg_env_name="${pg_env%%|*}"
+      pg_env_value="${pg_env#*|}"
+      pg_env_total="$(printf '%s\n' "$pg_block" | grep -c -- "- name: ${pg_env_name}$" || true)"
+      pg_env_matching="$(printf '%s\n' "$pg_block" | awk -v name="$pg_env_name" -v expected="value: ${pg_env_value}" '
+        $0 ~ "- name: " name "$" { getline v; sub(/^[[:space:]]+/, "", v); if (v == expected) count++ }
+        END { print count+0 }
+      ')"
+      if [ "$pg_env_total" = "1" ] && [ "$pg_env_matching" = "1" ]; then
+        pass "postgres-ssl-ca fixture: Deployment/${pg_role} ${pg_env_name} == ${pg_env_value}, no duplicate"
+      else
+        fail "postgres-ssl-ca fixture: Deployment/${pg_role} ${pg_env_name}: expected 1 entry with value ${pg_env_value}, found ${pg_env_total} entries, ${pg_env_matching} matching"
+      fi
+    done
+  done
 fi
 
 # ── Replica ownership with KEDA on (n8n-hosting#201, chart >= 1.13.0) ───────

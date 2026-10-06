@@ -173,10 +173,80 @@ run "extra_volumes_rejects_reserved_data_name" {
   expect_failures = [var.n8n_extra_volumes]
 }
 
-run "extra_volumes_rejects_reserved_postgres_ssl_ca_name" {
+# postgres-ssl-ca is reserved only while the module mounts its own PostgreSQL
+# CA, so a caller who used the name before that feature existed keeps
+# planning unchanged.
+run "extra_volumes_allows_postgres_ssl_ca_name_when_module_ca_unused" {
   command = plan
 
   variables {
+    n8n_extra_volumes = [{
+      name       = "postgres-ssl-ca"
+      config_map = { name = "some-configmap" }
+    }]
+  }
+
+  assert {
+    condition     = local.manage_postgres_ssl_ca == false && local.n8n_caller_extra_volumes[0].name == "postgres-ssl-ca"
+    error_message = "A caller volume named postgres-ssl-ca must be accepted while the module does not mount its own PostgreSQL CA."
+  }
+}
+
+run "extra_volumes_allows_postgres_ssl_ca_name_when_verification_on_without_ca" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    n8n_extra_volumes = [{
+      name       = "postgres-ssl-ca"
+      config_map = { name = "some-configmap" }
+    }]
+  }
+
+  assert {
+    condition     = local.manage_postgres_ssl_ca == false && local.n8n_caller_extra_volumes[0].name == "postgres-ssl-ca"
+    error_message = "postgres-ssl-ca must stay available to callers when verification is on but no CA Secret is mounted."
+  }
+}
+
+run "extra_volumes_allows_postgres_ssl_ca_name_when_ca_set_without_verification" {
+  command = plan
+
+  variables {
+    create_postgres_instance        = false
+    n8n_database_host               = "pg.external.example.com"
+    n8n_database_password           = "external-db-password"
+    db_postgresdb_ssl_enabled       = true
+    db_postgresdb_ssl_ca_secret_ref = { name = "postgres-server-ca" }
+    n8n_extra_volumes = [{
+      name       = "postgres-ssl-ca"
+      config_map = { name = "some-configmap" }
+    }]
+  }
+
+  assert {
+    condition     = local.manage_postgres_ssl_ca == false && local.n8n_caller_extra_volumes[0].name == "postgres-ssl-ca"
+    error_message = "postgres-ssl-ca must stay available to callers when a CA reference is set but verification is off."
+  }
+
+  # The ignored CA reference itself is reported by this check.
+  expect_failures = [check.postgres_ssl_ca_ignored_without_verification]
+}
+
+run "extra_volumes_rejects_postgres_ssl_ca_name_when_module_mounts_ca" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_secret_ref       = { name = "postgres-server-ca" }
     n8n_extra_volumes = [{
       name       = "postgres-ssl-ca"
       config_map = { name = "some-configmap" }
