@@ -426,9 +426,28 @@ run "gke_private_endpoint_ignored_when_existing_triggers_warning" {
     existing_gke_cluster_name              = "shared-cluster"
     existing_gke_prerequisites_attestation = true
     gke_enable_private_endpoint            = true
-    gke_control_plane_authorized_networks = [
-      { cidr_block = "10.0.0.0/24", display_name = "internal" },
-    ]
+  }
+
+  # No authorized networks: gke_enable_private_endpoint's validations apply
+  # only when create_gke = true, so an existing cluster gets the warning
+  # below instead of a validation error.
+  expect_failures = [check.gke_tuning_ignored_when_existing]
+
+  assert {
+    condition     = !strcontains(output.kubectl_config_command, "--internal-ip")
+    error_message = "kubectl_config_command must not add --internal-ip for an existing cluster; gke_enable_private_endpoint is ignored when create_gke = false."
+  }
+}
+
+run "gke_private_endpoint_with_public_nodes_ignored_when_existing" {
+  command = plan
+
+  variables {
+    create_gke                             = false
+    existing_gke_cluster_name              = "shared-cluster"
+    existing_gke_prerequisites_attestation = true
+    gke_enable_private_endpoint            = true
+    gke_enable_private_nodes               = false
   }
 
   expect_failures = [check.gke_tuning_ignored_when_existing]

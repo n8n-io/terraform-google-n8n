@@ -92,6 +92,11 @@ run "defaults_produce_valid_plan" {
     condition     = length(google_container_cluster.n8n[0].authenticator_groups_config) == 0
     error_message = "authenticator_groups_config must be omitted by default (gke_security_group defaults to null)"
   }
+
+  assert {
+    condition     = !strcontains(output.kubectl_config_command, "--internal-ip")
+    error_message = "kubectl_config_command must not add --internal-ip by default (public control-plane endpoint)."
+  }
 }
 
 run "cloudsql_private_and_hardened" {
@@ -1648,6 +1653,11 @@ run "gke_enable_private_endpoint_renders_private_endpoint" {
     condition     = google_container_cluster.n8n[0].private_cluster_config[0].enable_private_nodes == true
     error_message = "gke_enable_private_nodes must still be true alongside the private endpoint (required by the pairing validation)."
   }
+
+  assert {
+    condition     = endswith(output.kubectl_config_command, " --internal-ip")
+    error_message = "kubectl_config_command must add --internal-ip when the module-managed cluster has a private endpoint."
+  }
 }
 
 # ── GKE RBAC via Google Groups (gke_security_group) ───────────────────────────
@@ -1667,6 +1677,19 @@ run "rejects_gke_security_group_missing_prefix" {
 
   variables {
     gke_security_group = "security-groups@example.com"
+  }
+
+  expect_failures = [var.gke_security_group]
+}
+
+# An empty string would make the provider send enabled = false. The module
+# deliberately does not expose that disable path (see gke.tf), so "" must be
+# rejected rather than passed through.
+run "rejects_empty_gke_security_group" {
+  command = plan
+
+  variables {
+    gke_security_group = ""
   }
 
   expect_failures = [var.gke_security_group]

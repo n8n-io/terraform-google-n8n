@@ -119,6 +119,21 @@ this project adheres to the stability contract in
   module-managed cluster where someone enabled the add-on outside Terraform,
   the next plan disables it unless you set this input to `true`. Gated on
   `create_gke = true`.
+- Two independently opt-in GKE network/identity hardening inputs, both
+  defaulting to the module's current behavior so an existing caller sees no
+  plan diff. Both take effect only when `create_gke = true`; otherwise they
+  are ignored with a warning (a malformed `gke_security_group` still fails
+  validation).
+  - `gke_enable_private_endpoint` removes the public GKE control-plane
+    endpoint. It is validated to require `gke_enable_private_nodes = true`
+    and a non-empty `gke_control_plane_authorized_networks` restricted to
+    internal RFC 1918 CIDRs. It updates the cluster in place; see
+    [Switching an existing deployment to the private endpoint](./docs/post-deployment.md#switching-an-existing-deployment-to-the-private-endpoint).
+    In this mode the `kubectl_config_command` output adds `--internal-ip`.
+  - `gke_security_group` opts into GKE's Google Groups RBAC feature
+    (`authenticator_groups_config.security_group`), validated as
+    `gke-security-groups@<domain>`. Enabling it is one-way: setting it back
+    to `null` does not disable the feature on the cluster.
 
 ### Changed
 
@@ -198,14 +213,6 @@ this project adheres to the stability contract in
   This is an in-place configuration update with no instance restart, but it
   overwrites any `maxmemory-policy` set outside Terraform; see
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
-- Two independently opt-in GKE network/identity hardening inputs, both
-  defaulting to the module's current behavior so an existing caller sees no
-  plan diff: `gke_enable_private_endpoint` (private GKE control-plane API
-  server, validated to require `gke_enable_private_nodes = true` and a
-  non-empty `gke_control_plane_authorized_networks` restricted to internal
-  RFC 1918 CIDRs) and `gke_security_group` (opts into GKE's Google Groups
-  RBAC feature, `authenticator_groups_config.security_group`, validated as
-  `gke-security-groups@<domain>`).
 
 ## [0.1.0] - 2026-09-29
 

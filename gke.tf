@@ -13,11 +13,11 @@
 # CKV_GCP_65 (RBAC via Google Groups): authenticator_groups_config is opt-in
 # via var.gke_security_group. Default null omits the block entirely,
 # matching current behavior, so the checkov:skip below stays in place for
-# that default case: Google requires an existing Google Group (e.g.
-# gke-security-groups@<domain>) already present in the caller's own Cloud
-# Identity/Workspace directory, with the GKE service agent already a
-# member, before the group can be set here; this module cannot create or
-# join one on a generic project.
+# that default case: Google requires a group named exactly
+# gke-security-groups@<domain> in the caller's own Google Workspace or Cloud
+# Identity directory, with the caller's access groups nested in it, before
+# the group can be set here; this module cannot create or populate one on a
+# generic project.
 #
 # CKV_GCP_66 (Binary Authorization): requires a project-level admission
 # policy and, to provide real protection, an attestor pipeline that is a
@@ -108,13 +108,16 @@ resource "google_container_cluster" "n8n" {
   }
 
   # gke_enable_private_endpoint (default false, preserving the current
-  # publicly reachable control plane) drops the public IP entirely; only
+  # publicly reachable control plane) disables client access through the
+  # public endpoint; only
   # in-VPC, peered, or VPN/Interconnect-connected traffic can then reach it.
   # Google requires every master_authorized_networks_config entry to be a
   # reserved (RFC 1918) network once the public endpoint is gone (a public
   # CIDR is rejected outright) - enforced by gke_enable_private_endpoint's
   # own validation in variables_gcp.tf, which also requires
   # gke_control_plane_authorized_networks to be non-empty in that mode.
+  # enable_private_endpoint is not ForceNew in the provider, so flipping it
+  # updates the cluster in place.
   # master_global_access_config is left at the provider default (disabled):
   # the private endpoint only resolves from the same region as the cluster;
   # an apply host outside gcp_region needs a region-matched peered network,
@@ -170,7 +173,14 @@ resource "google_container_cluster" "n8n" {
 
   # RBAC via Google Groups (opt-in, CKV_GCP_65 above): omitted (empty
   # dynamic-block iterable) unless var.gke_security_group is set, matching
-  # current behavior.
+  # current behavior. The provider marks authenticator_groups_config
+  # Optional+Computed, so omitting the block means "do not manage", not
+  # "disable": a cluster that ever had a group keeps it after the input is
+  # cleared, and Terraform shows no diff. The provider only sends
+  # enabled = false for an explicit empty security_group, which this module
+  # does not expose (the disable path is unverified against a live
+  # cluster), so the module treats enabling it as one-way (same contract as
+  # database_encryption above).
   dynamic "authenticator_groups_config" {
     for_each = var.gke_security_group != null ? [var.gke_security_group] : []
     content {
