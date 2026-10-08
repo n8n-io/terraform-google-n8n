@@ -311,3 +311,182 @@ check "graceful_shutdown_fits_grace_period" {
     error_message = "n8n_graceful_shutdown_timeout is unset, so n8n uses the chart's default shutdown timeout of ${local.n8n_chart_default_graceful_shutdown_timeout}s. That plus n8n_prestop_sleep (${var.n8n_prestop_sleep}s) does not stay below n8n_termination_grace_period (${var.n8n_termination_grace_period}s), so Kubernetes can SIGKILL a pod before n8n finishes shutting down and interrupt running executions. Set n8n_graceful_shutdown_timeout to a value that fits, lower n8n_prestop_sleep, or raise n8n_termination_grace_period."
   }
 }
+
+# ── Diagnostics: PostgreSQL connection budget vs. known Cloud SQL defaults ───
+# Opt-in (postgres_connection_budget_check_enabled, default false): the
+# module's own default autoscaler ceilings already exceed db-g1-small's
+# known budget (see below), so this stays off until a caller has settled on
+# both a postgres_machine_type and replica ceilings and wants this advisory
+# guard against a later regression. Cloud SQL for PostgreSQL automatically
+# manages max_connections from the instance's current memory and
+# recalculates it whenever postgres_machine_type changes (the instance
+# restarts, and read replicas may restart too; see docs/sandbox.md and
+# https://cloud.google.com/sql/docs/postgres/instance-settings). This check
+# only evaluates the budget for the postgres_machine_type in the current
+# plan, not any prior value.
+# This check catches the arithmetic db_postgresdb_pool_size's own
+# description already asks callers to budget by hand: pool size times the
+# modeled pod ceiling (effective main, worker, webhook-processor, and any
+# n8n_worker_pools, mirroring capacity.tf's own capacity_main_max_replicas /
+# capacity_worker_max_replicas / capacity_webhook_max_replicas
+# replica-ceiling locals, reused here rather than duplicated) against
+# Google's own published default-by-memory table.
+#
+# Source (checked 2026-10-01): https://cloud.google.com/sql/docs/postgres/flags,
+# the max_connections row: "The default value depends on the amount of
+# memory of the largest instance in the chain of primaries":
+#   Memory (GB) on largest instance | Default value
+#   tiny (~0.5)                     | 25   (db-f1-micro)
+#   small (~1.7)                    | 50   (db-g1-small)
+#   3.75 to < 6                     | 100
+#   6 to < 7.5                      | 200
+#   7.5 to < 15                     | 400
+#   15 to < 30                      | 500
+#   30 to < 60                      | 600
+#   60 to < 120                     | 800
+#   >= 120                          | 1,000
+# db-f1-micro/db-g1-small (the legacy shared-core tiers, including this
+# module's own postgres_machine_type default) match the "tiny"/"small" rows
+# literally. Enterprise-edition custom tiers derive their memory from the
+# db-custom-<vcpus>-<memory_mb> naming convention, which Google documents as
+# encoding memory in MiB directly in the name (see
+# https://cloud.google.com/sql/docs/postgres/instance-settings, "Machine
+# Type", and https://cloud.google.com/compute/docs/instances/creating-instance-with-custom-machine-type
+# for the underlying Compute Engine convention Cloud SQL reuses). regex()
+# is wrapped in try() because Terraform 1.9 does not short-circuit && / ||
+# (AGENTS.md); a non-matching string must not raise an error here. With
+# exactly one capture group, regex() returns a one-element list (not a bare
+# string), hence the [0] index before tonumber(). ENTERPRISE_PLUS
+# db-perf-optimized-N-<vcpus> tiers (N2 machine series) have a fixed,
+# Google-documented vCPU-to-memory table (not a uniform per-vCPU ratio, e.g.
+# the 128-vCPU shape is 864 GB rather than 1,024 GB); see
+# https://cloud.google.com/sql/docs/postgres/machine-series-overview, "N2
+# machine types". That table is reproduced in
+# postgres_perf_optimized_n_memory_gb below. Every other recognized shape
+# (other ENTERPRISE_PLUS series such as C4/C4A, and predefined series such
+# as n2-standard-<N>) is not covered: deriving memory for those reliably
+# would need a second per-series table this change does not add, so they
+# resolve to null (silent) rather than a guessed bucket. The check is also
+# silent when create_postgres_instance = false (no module-managed instance
+# to size) or postgres_connection_budget_check_enabled = false.
+#
+# This is an optimistic threshold, so a silent check does not prove the
+# ceilings fit:
+#   - The table holds the raw max_connections default, not the connections
+#     n8n can use. PostgreSQL carves superuser_reserved_connections out of
+#     max_connections, the module's database user is not a real superuser,
+#     and every other client of the instance shares the rest. Google does
+#     not document how many slots Cloud SQL itself reserves, so nothing is
+#     subtracted here (terraform-aws-n8n subtracts measured RDS reserves;
+#     terraform-azurerm-n8n uses Microsoft's published user limits).
+#   - The model counts configured steady-state ceilings. Extra pods a
+#     rolling update adds are not counted.
+#   - With n8n_main_hpa_enabled, n8n_worker_keda_enabled, or
+#     n8n_webhook_hpa_enabled set to false, the model counts that role's
+#     fixed replica count (capacity.tf). A caller-owned autoscaler can scale
+#     past it.
+#   - The module manages database_flags without ignore_changes, so a
+#     max_connections flag set outside Terraform is removed on the next apply.
+#   - The model assumes every pod connects directly to the instance. Behind a
+#     connection pooler such as PgBouncer (which db_postgresdb_pool_size's
+#     description mentions), the pooler sets the number of server
+#     connections, so the model does not apply and the check should stay off.
+locals {
+  postgres_machine_type_custom_memory_mb = try(
+    tonumber(regex("^db-custom-[0-9]+-([0-9]+)$", var.postgres_machine_type)[0]),
+    null
+  )
+
+  # Google-documented N2 machine series table (db-perf-optimized-N-<vcpus>),
+  # https://cloud.google.com/sql/docs/postgres/machine-series-overview.
+  postgres_perf_optimized_n_memory_gb = {
+    "2"   = 16
+    "4"   = 32
+    "8"   = 64
+    "16"  = 128
+    "32"  = 256
+    "48"  = 384
+    "64"  = 512
+    "80"  = 640
+    "96"  = 768
+    "128" = 864
+  }
+
+  postgres_machine_type_perf_optimized_n_vcpus = try(
+    regex("^db-perf-optimized-N-([0-9]+)$", var.postgres_machine_type)[0],
+    null
+  )
+
+  postgres_machine_type_perf_optimized_n_memory_mb = local.postgres_machine_type_perf_optimized_n_vcpus == null ? null : (
+    lookup(local.postgres_perf_optimized_n_memory_gb, local.postgres_machine_type_perf_optimized_n_vcpus, null) == null ? null :
+    local.postgres_perf_optimized_n_memory_gb[local.postgres_machine_type_perf_optimized_n_vcpus] * 1024
+  )
+
+  postgres_machine_type_memory_mb = (
+    local.postgres_machine_type_custom_memory_mb != null ? local.postgres_machine_type_custom_memory_mb :
+    local.postgres_machine_type_perf_optimized_n_memory_mb
+  )
+
+  postgres_max_user_connections_known = (
+    var.postgres_machine_type == "db-f1-micro" ? 25 :
+    var.postgres_machine_type == "db-g1-small" ? 50 :
+    local.postgres_machine_type_memory_mb == null ? null :
+    local.postgres_machine_type_memory_mb < 6144 ? 100 :
+    local.postgres_machine_type_memory_mb < 7680 ? 200 :
+    local.postgres_machine_type_memory_mb < 15360 ? 400 :
+    local.postgres_machine_type_memory_mb < 30720 ? 500 :
+    local.postgres_machine_type_memory_mb < 61440 ? 600 :
+    local.postgres_machine_type_memory_mb < 122880 ? 800 :
+    1000
+  )
+
+  # sum()'s [0] seed keeps the no-pools default at 0 rather than erroring on
+  # an empty list (mirrors capacity.tf's capacity_pool_peak_* pattern).
+  n8n_worker_pools_max_replicas_sum = sum(concat([0], [for p in var.n8n_worker_pools : p.max_replicas]))
+
+  # While n8n_worker_keda_pause is true, KEDA holds the worker Deployment at
+  # n8n_worker_keda_paused_replica_count, which may exceed the KEDA maximum.
+  # Pause only applies while the module manages the worker ScaledObject
+  # (n8n_worker_keda_enabled = true). A null count freezes workers at their
+  # current count, which the model assumes is within the maximum. Same model
+  # as terraform-azurerm-n8n.
+  n8n_postgres_worker_modeled_max_replicas = (var.n8n_worker_keda_enabled && var.n8n_worker_keda_pause) ? max(
+    local.capacity_worker_max_replicas,
+    coalesce(var.n8n_worker_keda_paused_replica_count, 0),
+  ) : local.capacity_worker_max_replicas
+
+  n8n_postgres_peak_connections = var.db_postgresdb_pool_size * (
+    local.capacity_main_max_replicas +
+    local.n8n_postgres_worker_modeled_max_replicas +
+    local.capacity_webhook_max_replicas +
+    local.n8n_worker_pools_max_replicas_sum
+  )
+}
+
+check "postgres_pool_size_fits_known_max_connections" {
+  assert {
+    condition = (var.postgres_connection_budget_check_enabled && var.create_postgres_instance && local.postgres_max_user_connections_known != null) ? (
+      local.n8n_postgres_peak_connections <= local.postgres_max_user_connections_known
+    ) : true
+    error_message = join("", [
+      "db_postgresdb_pool_size (${var.db_postgresdb_pool_size}) times the modeled pod ceiling (main ",
+      "${local.capacity_main_max_replicas} + worker ${local.n8n_postgres_worker_modeled_max_replicas} + webhook ",
+      tostring(local.capacity_webhook_max_replicas),
+      local.n8n_worker_pools_max_replicas_sum > 0 ? " + worker pools ${local.n8n_worker_pools_max_replicas_sum}" : "",
+      ") demands up to ${local.n8n_postgres_peak_connections} connections at full scale-out, more than the ",
+      "default max_connections of ${coalesce(local.postgres_max_user_connections_known, 0)} that Cloud SQL sets for postgres_machine_type = ",
+      # jsonencode() keeps a null machine type from failing the plan: Terraform
+      # evaluates error_message even while the condition passes, and a null
+      # value in a string template is an error.
+      jsonencode(var.postgres_machine_type),
+      ". Cloud SQL derives this from the machine type's memory and recalculates it when postgres_machine_type ",
+      "changes. Reserved superuser slots and other clients also count against it, so n8n can use fewer. Fix with ",
+      "one of: (1) lower db_postgresdb_pool_size, (2) lower the main/worker/webhook-processor autoscaler maxima ",
+      "(or the fixed replica counts of any role whose autoscaler is disabled, any n8n_worker_pools max_replicas, ",
+      "or n8n_worker_keda_paused_replica_count), or (3) move to a larger ",
+      "postgres_machine_type. Confirm the live value with SHOW max_connections (see docs/sandbox.md). If n8n ",
+      "connects through a connection pooler such as PgBouncer, this model does not apply; set ",
+      "postgres_connection_budget_check_enabled = false. This diagnostic is advisory and does not fail the plan.",
+    ])
+  }
+}

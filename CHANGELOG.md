@@ -68,6 +68,37 @@ this project adheres to the stability contract in
   ENCRYPTED_ONLY`) instead of the previously hardcoded
   `ALLOW_UNENCRYPTED_AND_ENCRYPTED`. Default is unchanged, so existing
   deployments see no plan diff.
+- A new opt-in input `postgres_connection_budget_check_enabled` (default
+  `false`) gates a plan-time advisory
+  `check.postgres_pool_size_fits_known_max_connections` (`checks.tf`) that
+  warns when `db_postgresdb_pool_size` times the modeled main, worker
+  (including `n8n_worker_keda_paused_replica_count` while paused),
+  webhook-processor, and `n8n_worker_pools` replica ceilings would exceed
+  the default `max_connections` Cloud SQL sets for the selected
+  `postgres_machine_type`, derived from
+  [Google's published memory-to-`max_connections` table](https://cloud.google.com/sql/docs/postgres/flags).
+  `db-f1-micro` and `db-g1-small` match directly, `db-custom-<vcpus>-<memory_mb>`
+  shapes derive memory from the name, and `db-perf-optimized-N-<vcpus>`
+  shapes use Google's N2 memory table. It stays silent for other shapes (for
+  example `db-perf-optimized-C4-*` or `db-c4a-highmem-*`) or when
+  `create_postgres_instance = false`. Off by default because the module's
+  own default autoscaler ceilings (main 20 + worker 10 + webhook 50 = 80
+  pods) at the default `db_postgresdb_pool_size = 10` already request 800
+  connections, far over `db-g1-small`'s default `max_connections` of 50.
+  Enable it once you have settled on replica ceilings and a
+  `postgres_machine_type` to catch a later regression. It is an optimistic,
+  advisory threshold and never fails the plan: it does not subtract reserved
+  superuser slots, other clients, or extra pods during a rolling update. Fix
+  a warning with one of: lower `db_postgresdb_pool_size`; lower the replica
+  ceilings the check counts (the main/worker/webhook-processor autoscaler
+  maxima, the fixed replica count of any role whose autoscaler is disabled,
+  `n8n_worker_keda_paused_replica_count` while paused, or any
+  `n8n_worker_pools` `max_replicas`); or move to a larger
+  `postgres_machine_type`. The model assumes n8n connects directly to Cloud
+  SQL, so leave the check off behind a connection pooler such as PgBouncer. A cheaper
+  single-main sandbox profile built from existing inputs that fits under 50
+  connections, and recommends enabling this check, is documented in the new
+  [`docs/sandbox.md`](./docs/sandbox.md).
 
 ### Changed
 
