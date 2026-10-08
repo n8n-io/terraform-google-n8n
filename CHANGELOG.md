@@ -150,6 +150,10 @@ this project adheres to the stability contract in
   a write-only value into the Kubernetes Secret it would otherwise manage),
   makes the `n8n_database_password` output `null`, and is fully opt-in: the
   default (`postgres_password_write_only = false`) behavior is unchanged.
+  The first plan after upgrading shows one in-place update to
+  `google_sql_user.n8n` with no visible attribute changes, because Terraform
+  records the new `password_wo` argument as sensitive even when it is
+  `null`; the apply makes no Cloud SQL API call and the next plan is clean.
   `n8n_database_password_secret_ref` now also rejects an empty or
   whitespace-only `name` on every path; such a reference never worked,
   because the module passes the name straight to the chart.

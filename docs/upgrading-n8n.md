@@ -617,9 +617,20 @@ planned attributes. `terraform init -upgrade` can also move other providers
 in your root module, though, so review the lock file diff and the plan
 before you apply.
 
+**One-time no-op update on upgrade.** The first plan after you upgrade to
+this module version shows one in-place update to `google_sql_user.n8n` with
+no visible attribute changes, even with `postgres_password_write_only` left
+at `false`. Terraform marks the new `password_wo` argument as sensitive
+because it can carry `postgres_password_wo`, even when its value is `null`,
+and records that marking in state. The apply makes no Cloud SQL API call
+and does not change the password; the next plan shows no changes.
+Downgrading to an earlier module version shows the reverse update once.
+
 ## Opt-in: `postgres_password_write_only`
 
-New, fully opt-in (default `false`, no plan diff for existing callers).
+New, fully opt-in (default `false`). Apart from the one-time no-op update
+to `google_sql_user.n8n` described in the previous section, existing
+callers see no plan diff.
 Setting `postgres_password_write_only = true` (with
 `create_postgres_instance = true`) writes the Cloud SQL user's password
 through `google_sql_user.n8n`'s write-only `password_wo` argument instead of
@@ -667,7 +678,13 @@ On an existing deployment, one apply that sets
   provider sends this as a password change on the existing user, not a
   replacement.
 - It destroys `random_password.db_password[0]` and
-  `kubernetes_secret.n8n_db[0]`.
+  `kubernetes_secret.n8n_db[0]`. Nothing orders this before or after the
+  Helm update, and in a live test Terraform deleted the Secret about a
+  minute before the pods moved to your Secret. During that window the
+  running pods keep working, because they read the password when they
+  started, but any new pod created from the old pod template fails with
+  `CreateContainerConfigError`: for example a crash restart, a worker added
+  by KEDA, or a main or webhook-processor pod added by its autoscaler.
 - After the user update, it points the Helm release at the Secret named by
   `n8n_database_password_secret_ref` (`helm_release.n8n` depends on
   `google_sql_user.n8n`). The pod template changes, so the n8n pods roll
@@ -677,7 +694,12 @@ On an existing deployment, one apply that sets
   Cloud SQL password change is not rolled back. Neither a Helm rollback
   nor restoring an older state file restores the database password.
 
-To switch without a credential change during the switch, do it in two steps:
+To keep that window safe, switch when load is low. To stop KEDA from adding
+default workers during the switch, set `n8n_worker_keda_pause = true` in a
+separate apply first, and set it back to `false` after the switch. That
+input pauses only the default worker Deployment, not `n8n_worker_pools`.
+
+To switch without a credential change during the switch, follow these steps:
 
 1. Read the current password with
    `terraform output -raw n8n_database_password`. Create a new Secret in the
