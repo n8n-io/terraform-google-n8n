@@ -173,6 +173,185 @@ run "external_postgres_both_password_sources_fails_validation" {
   expect_failures = [var.n8n_database_password_secret_ref]
 }
 
+# ── PostgreSQL write-only password opt-in ─────────────────────────────────────
+
+run "accepts_postgres_password_write_only_with_secret_ref" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    postgres_password_wo_version = 2
+    n8n_database_password_secret_ref = {
+      name = "platform-n8n-db-password"
+      key  = "password"
+    }
+  }
+
+  assert {
+    condition     = length(random_password.db_password) == 0
+    error_message = "random_password.db_password must not be generated when postgres_password_write_only is set."
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_db) == 0
+    error_message = "kubernetes_secret.n8n_db must not exist when postgres_password_write_only is set -- the module cannot copy a write-only value into a Secret."
+  }
+
+  assert {
+    condition     = google_sql_user.n8n[0].password == null
+    error_message = "password must be null when postgres_password_write_only is set; the password flows through password_wo instead."
+  }
+
+  assert {
+    condition     = google_sql_user.n8n[0].password_wo_version == 2
+    error_message = "password_wo_version must reflect postgres_password_wo_version."
+  }
+
+  assert {
+    condition     = output.n8n_database_password == null
+    error_message = "n8n_database_password output must be null when postgres_password_write_only is set -- the value never leaves the write-only argument."
+  }
+
+  assert {
+    condition     = local.effective_db_password_secret_name == "platform-n8n-db-password"
+    error_message = "local.effective_db_password_secret_name must reflect n8n_database_password_secret_ref when postgres_password_write_only is set."
+  }
+}
+
+run "rejects_postgres_password_write_only_without_secret_ref" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+  }
+
+  expect_failures = [var.n8n_database_password_secret_ref]
+}
+
+run "rejects_postgres_password_write_only_without_password" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    n8n_database_password_secret_ref = {
+      name = "platform-n8n-db-password"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.postgres_password_wo]
+}
+
+run "rejects_postgres_password_write_only_with_external_database" {
+  command = plan
+
+  variables {
+    create_postgres_instance     = false
+    n8n_database_host            = "10.9.8.7"
+    n8n_database_password        = "external-db-password"
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+  }
+
+  expect_failures = [var.postgres_password_write_only]
+}
+
+run "rejects_postgres_password_wo_when_write_only_disabled" {
+  command = plan
+
+  variables {
+    postgres_password_wo = "an-ephemeral-value-terraform-never-persists"
+  }
+
+  expect_failures = [var.postgres_password_wo]
+}
+
+run "rejects_empty_n8n_database_password_secret_ref_name" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    n8n_database_password_secret_ref = {
+      name = "  "
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.n8n_database_password_secret_ref]
+}
+
+run "rejects_managed_secret_name_with_postgres_password_write_only" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    n8n_database_password_secret_ref = {
+      name = "n8n-enterprise-db-secret"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.n8n_database_password_secret_ref]
+}
+
+run "rejects_empty_postgres_password_wo" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "   "
+    n8n_database_password_secret_ref = {
+      name = "platform-n8n-db-password"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.postgres_password_wo]
+}
+
+# The write-only path exempts only n8n_database_password_secret_ref from the
+# ignored-input check; a direct n8n_database_password is still ignored on the
+# managed path and must still warn.
+run "warns_direct_password_with_postgres_password_write_only" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    n8n_database_password        = "ignored-direct-password"
+    n8n_database_password_secret_ref = {
+      name = "platform-n8n-db-password"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [check.postgres_host_and_password_ignored_when_managed]
+}
+
+run "rejects_nonpositive_postgres_password_wo_version" {
+  command = plan
+
+  variables {
+    postgres_password_wo_version = 0
+  }
+
+  expect_failures = [var.postgres_password_wo_version]
+}
+
+run "rejects_fractional_postgres_password_wo_version" {
+  command = plan
+
+  variables {
+    postgres_password_wo_version = 1.5
+  }
+
+  expect_failures = [var.postgres_password_wo_version]
+}
+
 # ── Opposite-path diagnostics ─────────────────────────────────────────────────
 
 run "postgres_tuning_ignored_when_external_triggers_warning" {

@@ -298,14 +298,17 @@ file. Use `command = plan` unless you specifically need apply semantics.
   `match[0].config` before indexing into it, since this rule uses
   `match.expr` instead of `match.config` (see the `for`/`anytrue` guidance
   above). Guard with `try(...)`, not `length(...) > 0 && ...[0]`: Terraform
-  does not short-circuit `&&`, so the CI-pinned 1.9.x still evaluates the
+  does not short-circuit `&&`, so the CI-pinned 1.11.x still evaluates the
   empty-list index and fails the run.
 
-- **CI pins Terraform 1.9.x (`TF_VERSION` in
+- **CI pins Terraform 1.11.x (`TF_VERSION` in
   `.github/workflows/terraform-tests.yml`); validate every expression against
-  that version's stricter evaluation, not just a newer local CLI.** Two
-  behaviors bite in particular, because Terraform never short-circuits `&&`
-  and `||`: (1) `contains(list, var.x)` errors when `var.x` is null, so a
+  that version's stricter evaluation, not just a newer local CLI.** Terraform
+  added short-circuit evaluation for `&&`/`||` in 1.12.0, and `validation`/
+  `precondition` blocks specifically needed 1.13 before it took effect there;
+  the 1.11.x floor this repo pins predates both, so every expression here
+  must still assume no short-circuiting. Three behaviors bite in particular:
+  (1) `contains(list, var.x)` errors when `var.x` is null, so a
   nullable variable's validation must use `var.x == null ? true :
   contains(...)` rather than `var.x == null || contains(...)`; (2) indexing
   a possibly-empty list on one side of `&&` errors even when the other side

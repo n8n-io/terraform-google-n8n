@@ -9,7 +9,7 @@
 # custom n8n_chart_repository is not checked, because its version numbering
 # cannot be verified against upstream (same reasoning as
 # local.n8n_chart_has_worker_only_runners in capacity.tf). Nested ternaries,
-# because Terraform 1.9 does not short-circuit && / || (AGENTS.md).
+# because Terraform does not short-circuit && / || below 1.12 (AGENTS.md).
 locals {
   n8n_chart_version_core = split(".", split("-", split("+", var.n8n_chart_version)[0])[0])
 

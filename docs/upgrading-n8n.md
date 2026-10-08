@@ -586,3 +586,175 @@ module changed the routes you already own. `n8n_additional_domains` and
 Ingress; a caller-owned Ingress can still read the same effective hostname
 list from the `n8n_ingress_hosts` output if useful, but nothing requires it
 to.
+
+## Terraform CLI floor raised to >= 1.11
+
+**Breaking, every caller of the root module:** `required_version` is now
+`>= 1.11` (was `>= 1.9`), and the `google`/`google-beta` provider floors
+are now `~> 6.23` (was `~> 6.0` in 0.1.0). The new opt-in
+`postgres_password_write_only` (see `cloudsql.tf` and the "Cloud SQL
+PostgreSQL" section of `variables.tf`) needs them: an `ephemeral = true`
+variable (`postgres_password_wo`) needs Terraform 1.10's ephemeral-value
+support, feeding it into `google_sql_user.n8n`'s `password_wo` argument
+needs 1.11's write-only-argument support for managed resources, and
+`google_sql_user.password_wo`/`password_wo_version` need `google` provider
+`>= 6.23.0` (this also covers the GKE Secret Manager add-on's need for
+6.1, see `CHANGELOG.md`). `google-beta` uses no write-only argument; it
+moves only because the module keeps it in lockstep with `google`
+(`docs/versioning.md`). Terraform parses these floors from this module's
+HCL unconditionally, so they apply to every caller regardless of whether
+`postgres_password_write_only` is set. The `modules/controllers` submodule
+does not use either feature and keeps its own floors.
+
+Upgrade the Terraform CLI and run `terraform init -upgrade` so the
+`google`/`google-beta` providers resolve within the new range before
+running `terraform plan` against this module version. An older CLI fails
+at parse time on the unsupported `ephemeral = true` argument, before any
+resource is evaluated. If your root module pins either Google provider
+below 6.23, widen that constraint first. No state migration is required for
+this change by itself: the floor bump alone does not change any resource's
+planned attributes. `terraform init -upgrade` can also move other providers
+in your root module, though, so review the lock file diff and the plan
+before you apply.
+
+**One-time no-op update on upgrade.** The first plan after you upgrade to
+this module version shows one in-place update to `google_sql_user.n8n` with
+no visible attribute changes, even with `postgres_password_write_only` left
+at `false`. Terraform marks the new `password_wo` argument as sensitive
+because it can carry `postgres_password_wo`, even when its value is `null`,
+and records that marking in state. The apply makes no Cloud SQL API call
+and does not change the password; the next plan shows no changes.
+Downgrading to an earlier module version shows the reverse update once.
+
+## Opt-in: `postgres_password_write_only`
+
+New, fully opt-in (default `false`). Apart from the one-time no-op update
+to `google_sql_user.n8n` described in the previous section, existing
+callers see no plan diff.
+Setting `postgres_password_write_only = true` (with
+`create_postgres_instance = true`) writes the Cloud SQL user's password
+through `google_sql_user.n8n`'s write-only `password_wo` argument instead of
+generating one with `random_password.db_password` and storing it in plain
+text in Terraform state. Feed the actual value through
+`postgres_password_wo` and increment `postgres_password_wo_version`
+whenever you rotate it; Terraform only re-applies a write-only value when
+its version number changes. Empty or whitespace-only values are rejected.
+
+`postgres_password_wo` is an `ephemeral` module variable, so this module
+never writes the value to a plan or state file. That holds end to end only
+if your root module passes an ephemeral value too, such as an ephemeral
+input variable or an ephemeral resource that reads a Secret Manager secret
+version. An ordinary root input variable is saved in your plan file, and an
+ordinary data source stores the secret in your state. Ephemeral values are
+not saved in a plan file either, so when you apply a saved plan, supply the
+same value again.
+
+Because the value never touches state, the module also cannot copy it into
+the Kubernetes Secret it would otherwise manage (`kubernetes_secret.n8n_db`,
+in `n8n.tf`): the `kubernetes` provider's write-only `data_wo` support
+exists only on `kubernetes_secret_v1`, and this module still uses the
+unversioned `kubernetes_secret` type for its other managed Secrets (see
+`CHANGELOG.md`, Known limitations, on why). Enabling
+`postgres_password_write_only` therefore also requires
+`n8n_database_password_secret_ref`, under a name other than
+`n8n-enterprise-db-secret`. That name belongs to `kubernetes_secret.n8n_db`,
+which this mode deletes, so a validation rejects it. Populate that Secret
+yourself, outside Terraform, with the same password you passed to `postgres_password_wo`,
+for example synced from Google Secret Manager with External Secrets
+Operator. The GKE Secret Manager add-on (`gke_secret_manager_addon_enabled`)
+does not work for this: it mounts secrets as files and does not sync them
+into a Kubernetes Secret. The module never reads that
+Secret's value, so nothing checks the two stay in sync; a mismatch surfaces
+as a PostgreSQL authentication failure on the next pod restart, not a
+Terraform error. The `n8n_database_password` output is `null` on this path
+for the same reason.
+
+### Switching an existing deployment to the write-only password
+
+On an existing deployment, one apply that sets
+`postgres_password_write_only = true` does three things:
+
+- It updates `google_sql_user.n8n` from `password` to `password_wo`. The
+  provider sends this as a password change on the existing user, not a
+  replacement.
+- It destroys `random_password.db_password[0]` and
+  `kubernetes_secret.n8n_db[0]`. Nothing orders this before or after the
+  Helm update, and in a live test Terraform deleted the Secret about a
+  minute before the pods moved to your Secret. During that window the
+  running pods keep working, because they read the password when they
+  started, but any new pod created from the old pod template fails with
+  `CreateContainerConfigError`: for example a crash restart, a worker added
+  by KEDA, or a main or webhook-processor pod added by its autoscaler.
+- After the user update, it points the Helm release at the Secret named by
+  `n8n_database_password_secret_ref` (`helm_release.n8n` depends on
+  `google_sql_user.n8n`). The pod template changes, so the n8n pods roll
+  during the same apply. The release uses `wait` and `atomic`, so if the
+  new pods cannot start (for example, the Secret does not exist yet) Helm
+  rolls the release back to the deleted `n8n-enterprise-db-secret`, but the
+  Cloud SQL password change is not rolled back. Neither a Helm rollback
+  nor restoring an older state file restores the database password.
+
+To keep that window safe, switch when load is low. To stop KEDA from adding
+default workers during the switch, set `n8n_worker_keda_pause = true` in a
+separate apply first, and set it back to `false` after the switch. That
+input pauses only the default worker Deployment, not `n8n_worker_pools`,
+and needs `n8n_chart_version` 1.13.0 or newer (the default is 1.14.0).
+Older charts ignore the pause, and chart 1.12.0 overwrites the held worker
+count on every Helm upgrade, including the switch itself
+(`check.worker_keda_pause_requires_a_supported_chart` warns). On an older
+chart, rely on switching when load is low.
+
+To switch without a credential change during the switch, follow these steps:
+
+1. Read the current password with
+   `terraform output -raw n8n_database_password`. Create a new Secret in the
+   n8n namespace with that value, under the name and key you will pass in
+   `n8n_database_password_secret_ref`. Do not reuse
+   `n8n-enterprise-db-secret`.
+2. Set `postgres_password_write_only = true`,
+   `n8n_database_password_secret_ref`, and `postgres_password_wo` to that
+   same current password, then apply. The pods roll onto your Secret, and
+   the database password does not change.
+3. Rotate. Earlier state snapshots and saved plan files still hold the old
+   `random_password` result, so the password is not out of state until you
+   change it. Follow the rotation steps below.
+
+### Rotating the write-only password
+
+1. Set `postgres_password_wo` to the new password and increment
+   `postgres_password_wo_version`, then apply. Terraform sends the new
+   value only when the version changes.
+2. Update the Secret named by `n8n_database_password_secret_ref` to the
+   same value.
+3. Restart the `n8n-main`, `n8n-worker`, and `n8n-webhook-processor`
+   deployments (and any `n8n_worker_pools` deployments) so they read the
+   new value.
+
+PostgreSQL keeps sessions that are already open after a password change,
+but new connections fail between step 1 and step 3. Do this in a
+maintenance window, or keep the steps close together.
+
+### Switching back to the generated password
+
+Set `postgres_password_write_only = false` and remove
+`postgres_password_wo` and `n8n_database_password_secret_ref` (on the
+module-managed path, a leftover `n8n_database_password_secret_ref` is
+ignored with a warning). The next apply generates a new
+`random_password.db_password`, sends it as the user's password, creates
+`kubernetes_secret.n8n_db` with it, and points the Helm release back at
+that Secret, so the pods roll onto the new password in the same apply.
+This is a rotation, and the new password is stored in state again.
+`helm_release.n8n` depends on `google_sql_user.n8n`, so the pods roll only
+after the database accepts the new password, but sessions that n8n opens
+with the old password after that point fail until the rollout finishes.
+Do this in a maintenance window.
+
+Keep the Secret you managed until the rollout has finished and n8n is
+healthy. If the apply fails after the user update (for example, the Helm
+release times out and rolls back to your Secret), the database already has
+the new generated password. The module has already written it to
+`n8n-enterprise-db-secret` (the Helm release references that Secret, so
+Terraform creates it first). Either fix the cause and apply again, or copy
+the value from `n8n-enterprise-db-secret` into your Secret and restart the
+n8n deployments. Delete
+your Secret only after a successful apply.

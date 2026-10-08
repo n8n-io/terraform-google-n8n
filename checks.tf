@@ -120,10 +120,10 @@ check "postgres_host_and_password_ignored_when_managed" {
     condition = !var.create_postgres_instance || (
       var.n8n_database_host == null &&
       var.n8n_database_password == null &&
-      var.n8n_database_password_secret_ref == null &&
+      (var.postgres_password_write_only ? true : var.n8n_database_password_secret_ref == null) &&
       var.db_postgresdb_ssl_ca_pem == null
     )
-    error_message = "create_postgres_instance is true, but n8n_database_host, n8n_database_password, n8n_database_password_secret_ref, or db_postgresdb_ssl_ca_pem is set. These are ignored for the module-managed instance; the module generates its own password and reports the instance's private IP via the postgres_host output, and db_postgresdb_ssl_reject_unauthorized (the only thing that uses the CA) is itself rejected on the managed path."
+    error_message = "create_postgres_instance is true, but n8n_database_host, n8n_database_password, n8n_database_password_secret_ref, or db_postgresdb_ssl_ca_pem is set. These are ignored for the module-managed instance; the module supplies its own password (generated, or via postgres_password_wo when postgres_password_write_only = true) and reports the instance's private IP via the postgres_host output, and db_postgresdb_ssl_reject_unauthorized (the only thing that uses the CA) is itself rejected on the managed path. n8n_database_password_secret_ref is the exception when postgres_password_write_only = true, which requires it."
   }
 }
 

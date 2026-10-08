@@ -1211,7 +1211,7 @@ variable "n8n_database_password" {
 # (here) rather than being duplicated on both: a validation block on each
 # variable referencing the other would form a validation-graph cycle.
 variable "n8n_database_password_secret_ref" {
-  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the external database password, instead of passing the value directly through n8n_database_password. key defaults to \"password\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's database.passwordSecret. Exactly one of n8n_database_password or n8n_database_password_secret_ref is required when create_postgres_instance = false. Ignored otherwise."
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the database password, instead of passing the value directly through n8n_database_password. key defaults to \"password\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's database.passwordSecret. Exactly one of n8n_database_password or n8n_database_password_secret_ref is required when create_postgres_instance = false. Also required when postgres_password_write_only = true, and then must not name n8n-enterprise-db-secret, the Secret the module manages (and deletes) on the generated-password path. Ignored otherwise."
   type = object({
     name = string
     key  = optional(string, "password")
@@ -1223,6 +1223,82 @@ variable "n8n_database_password_secret_ref" {
       (var.n8n_database_password != null) != (var.n8n_database_password_secret_ref != null)
     )
     error_message = "Exactly one of n8n_database_password or n8n_database_password_secret_ref is required when create_postgres_instance = false."
+  }
+
+  validation {
+    condition     = (var.create_postgres_instance && var.postgres_password_write_only) ? var.n8n_database_password_secret_ref != null : true
+    error_message = "n8n_database_password_secret_ref is required when postgres_password_write_only = true: the module cannot copy a write-only value into a Kubernetes Secret it manages, so you must supply your own Secret already populated with the same password."
+  }
+
+  # The name is passed straight to the chart's database.passwordSecret, so an
+  # empty name would leave n8n without a usable reference.
+  validation {
+    condition     = var.n8n_database_password_secret_ref == null ? true : length(trimspace(var.n8n_database_password_secret_ref.name)) > 0
+    error_message = "n8n_database_password_secret_ref.name must not be empty or whitespace only. Set it to the name of the Kubernetes Secret that holds the database password."
+  }
+
+  # n8n-enterprise-db-secret is kubernetes_secret.n8n_db's name (n8n.tf).
+  # Switching an existing deployment to write-only mode destroys that
+  # resource, so a reference to it would point n8n at a Secret that is
+  # deleted in the same apply.
+  validation {
+    condition = (var.create_postgres_instance && var.postgres_password_write_only) ? (
+      var.n8n_database_password_secret_ref == null ? true : var.n8n_database_password_secret_ref.name != "n8n-enterprise-db-secret"
+    ) : true
+    error_message = "n8n_database_password_secret_ref.name must not be \"n8n-enterprise-db-secret\" when postgres_password_write_only = true: that is the Secret the module manages on the generated-password path, and switching to write-only mode deletes it. Create your own Secret under a different name."
+  }
+}
+
+variable "postgres_password_write_only" {
+  description = "When true, the module writes the Cloud SQL PostgreSQL user's password through google_sql_user's write-only password_wo argument (sourced from postgres_password_wo) instead of generating one with random_password.db_password and storing it in plain text in Terraform state. Requires postgres_password_wo to be set and n8n_database_password_secret_ref to reference a Kubernetes Secret you populate yourself under a name other than n8n-enterprise-db-secret (for example, synced from Google Secret Manager with External Secrets Operator); the module cannot copy a write-only value into kubernetes_secret.n8n_db, so it creates no managed Secret and the n8n_database_password output is null on this path. Has no effect (must stay false) when create_postgres_instance = false; the module never manages a password for an external PostgreSQL endpoint."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.postgres_password_write_only ? var.create_postgres_instance : true
+    error_message = "postgres_password_write_only has no effect when create_postgres_instance = false; the module never manages a password for an external PostgreSQL endpoint."
+  }
+}
+
+variable "postgres_password_wo" {
+  description = "Cloud SQL PostgreSQL user password, accepted as a write-only value so Terraform never persists it in plan or state files. Required when postgres_password_write_only = true; must stay null otherwise, because the module generates its own password in that mode. Must not be empty or whitespace only: the google provider sends an empty write-only password as a passwordless user on create and drops it on update, which would turn a rotation into a silent no-op. Feed this from your own ephemeral source (for example an ephemeral resource reading a Google Secret Manager secret version, or an ephemeral input variable) so the value never touches state on the caller's side either: a non-ephemeral root input variable is still saved in the caller's plan file. Keep the Kubernetes Secret referenced by n8n_database_password_secret_ref in sync with the same value: Terraform never copies one into the other."
+  type        = string
+  ephemeral   = true
+  sensitive   = true
+  default     = null
+
+  validation {
+    condition     = var.postgres_password_write_only ? var.postgres_password_wo != null : true
+    error_message = "postgres_password_wo is required when postgres_password_write_only = true."
+  }
+
+  validation {
+    condition     = var.postgres_password_write_only ? true : var.postgres_password_wo == null
+    error_message = "postgres_password_wo has no effect when postgres_password_write_only = false; the module generates and manages its own password in that mode."
+  }
+
+  # The message does not echo the value: it is ephemeral and sensitive.
+  validation {
+    condition     = var.postgres_password_wo == null ? true : length(trimspace(var.postgres_password_wo)) > 0
+    error_message = "postgres_password_wo must not be empty or whitespace only. Pass the actual password; the google provider would otherwise create a user with no password, or skip the update on rotation."
+  }
+}
+
+variable "postgres_password_wo_version" {
+  description = "Version marker for postgres_password_wo, forwarded to google_sql_user's password_wo_version. Increment this value whenever you rotate postgres_password_wo; Terraform only re-applies a write-only value when its version number changes. Changing it updates only the Cloud SQL user: it does not restart the n8n pods, which read the password from the Secret named by n8n_database_password_secret_ref when they start. After a rotation, update that Secret and restart the n8n deployments (see docs/upgrading-n8n.md, \"Rotating the write-only password\"). Ignored when postgres_password_write_only = false."
+  type        = number
+  default     = 1
+  nullable    = false
+
+  validation {
+    condition     = var.postgres_password_wo_version >= 1
+    error_message = "postgres_password_wo_version must be a positive integer (start at 1, increment on each rotation)."
+  }
+
+  validation {
+    condition     = floor(var.postgres_password_wo_version) == var.postgres_password_wo_version
+    error_message = "postgres_password_wo_version must be a positive integer (start at 1, increment on each rotation); fractional values are not allowed."
   }
 }
 
