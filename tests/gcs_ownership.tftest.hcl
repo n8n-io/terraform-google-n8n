@@ -202,6 +202,10 @@ run "module_created_gcs_key_wires_key_ring_and_iam" {
   variables {
     create_kms_key_ring = true
     create_gcs_kms_key  = true
+    common_labels = {
+      cost_center = "platform"
+      managed_by  = "caller"
+    }
   }
 
   assert {
@@ -242,9 +246,15 @@ run "module_created_gcs_key_wires_key_ring_and_iam" {
   assert {
     condition = (
       try(google_kms_crypto_key.gcs[0].labels["managed_by"], null) == "terraform" &&
-      try(google_kms_crypto_key.gcs[0].labels["app"], null) == "n8n"
+      try(google_kms_crypto_key.gcs[0].labels["app"], null) == "n8n" &&
+      try(google_kms_crypto_key.gcs[0].labels["cluster"], null) == "test-n8n"
     )
-    error_message = "A module-created GCS CryptoKey must carry the module's standard labels (local.gcp_labels)."
+    error_message = "A module-created GCS CryptoKey must carry the module's built-in labels, and they must win over a colliding common_labels key."
+  }
+
+  assert {
+    condition     = try(google_kms_crypto_key.gcs[0].labels["cost_center"], null) == "platform"
+    error_message = "A module-created GCS CryptoKey must carry common_labels entries."
   }
 }
 
