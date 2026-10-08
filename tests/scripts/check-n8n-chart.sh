@@ -1110,6 +1110,141 @@ if [ "$PG_RENDER_OK" = "1" ]; then
   done
 fi
 
+# ── Offline license activation (N8N_LICENSE_CERT, same design as
+# terraform-aws-n8n#171 and terraform-azurerm-n8n#51) ──────────────────────
+# The license block omits existingSecret, matching local.n8n_license_values
+# (locals.tf) on the n8n_license_cert_secret_ref path. The chart then falls
+# back to its own default (empty existingSecret.name), so its n8n.licenseEnv
+# helper (_environment-helpers.tpl) emits no N8N_LICENSE_ACTIVATION_KEY at
+# all. config.extraEnv instead carries the N8N_LICENSE_CERT secretKeyRef entry the
+# module renders from local.n8n_license_cert_env (n8n.tf), proving the chart's
+# config.extraEnv (no item-shape restriction in values.schema.json, unlike
+# executions.extraEnv) actually accepts and renders a valueFrom.secretKeyRef
+# entry, on every pod role.
+cat >"$WORKDIR/fixture-license-cert.yaml" <<'EOF'
+multiMain:
+  enabled: true
+  replicas: 2
+queueMode:
+  enabled: true
+  workerReplicaCount: 3
+  workerConcurrency: 5
+webhookProcessor:
+  enabled: true
+  replicaCount: 1
+  disableProductionWebhooksOnMainProcess: true
+database:
+  type: postgresdb
+  useExternal: true
+  host: synthetic-postgres.internal
+  port: 5432
+  database: n8n
+  schema: public
+  user: n8n
+  passwordSecret:
+    name: synthetic-db-secret
+    key: password
+redis:
+  enabled: true
+  useExternal: true
+  host: synthetic-redis.internal
+  port: 6379
+  tls: false
+  username: ""
+  prefix: ""
+config:
+  extraEnv:
+    - name: N8N_LICENSE_CERT
+      valueFrom:
+        secretKeyRef:
+          name: test-license-cert
+          key: cert
+service:
+  type: ClusterIP
+  port: 5678
+secretRefs:
+  existingSecret: synthetic-core-secret
+license:
+  enabled: true
+  activationKey: ""
+s3:
+  enabled: true
+  bucket:
+    name: synthetic-bucket
+    region: auto
+    host: storage.googleapis.com
+  auth:
+    autoDetect: false
+    accessKeyId: synthetic-access-id
+    secretAccessKeySecret:
+      name: synthetic-s3-secret
+      key: accessSecret
+  storage:
+    mode: s3
+    forcePathStyle: true
+EOF
+
+echo "==> helm template (license-cert fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-license-cert.yaml" \
+  >"$WORKDIR/rendered-license-cert.yaml" 2>"$WORKDIR/helm-stderr-license-cert.log"; then
+  cat "$WORKDIR/helm-stderr-license-cert.log" >&2
+  fail "helm template (license-cert fixture) exited non-zero; see stderr above."
+else
+  pass "helm template rendered the license-cert fixture with no credentials (Helm's JSON-schema validation runs, not skipped)"
+
+  LC_RENDERED="$WORKDIR/rendered-license-cert.yaml"
+
+  # assert_license_cert_env <deployment-name>
+  # Confirms exactly one N8N_LICENSE_CERT entry inside the named Deployment's
+  # own manifest block (not just somewhere in the combined output), sourced
+  # from a secretKeyRef matching n8n_license_cert_secret_ref's
+  # name/key (test-license-cert/cert), carrying no literal value, and that
+  # the same block renders no N8N_LICENSE_ACTIVATION_KEY.
+  assert_license_cert_env() {
+    local name="$1" block
+    block="$(awk -v name="$name" '
+      /^kind: Deployment$/ { in_dep = 1; found_name = 0; buf = ""; next }
+      in_dep && $0 == "  name: " name { found_name = 1 }
+      in_dep && found_name { buf = buf $0 "\n" }
+      /^---$/ { if (found_name) { print buf; exit }; in_dep = 0; found_name = 0; buf = "" }
+    ' "$LC_RENDERED")"
+
+    local count
+    count="$(echo "$block" | grep -c -- '- name: N8N_LICENSE_CERT$' || true)"
+    if [ "$count" != "1" ]; then
+      fail "Deployment/${name}: expected exactly 1 N8N_LICENSE_CERT env entry, found ${count}"
+      return
+    fi
+
+    local entry
+    entry="$(echo "$block" | grep -A4 -- '- name: N8N_LICENSE_CERT$')"
+    if echo "$entry" | grep -q 'secretKeyRef:' \
+      && echo "$entry" | grep -q 'name: test-license-cert' \
+      && echo "$entry" | grep -q 'key: cert'; then
+      pass "Deployment/${name} renders N8N_LICENSE_CERT via secretKeyRef (test-license-cert/cert)"
+    else
+      fail "Deployment/${name}: N8N_LICENSE_CERT entry is missing the expected secretKeyRef shape: ${entry}"
+    fi
+
+    if echo "$entry" | grep -q '^[[:space:]]*value:'; then
+      fail "Deployment/${name}: N8N_LICENSE_CERT must not carry a literal value"
+    fi
+
+    if echo "$block" | grep -q -- '- name: N8N_LICENSE_ACTIVATION_KEY$'; then
+      fail "Deployment/${name}: must not render N8N_LICENSE_ACTIVATION_KEY on the offline-certificate path"
+    else
+      pass "Deployment/${name} renders no N8N_LICENSE_ACTIVATION_KEY on the offline-certificate path"
+    fi
+  }
+
+  assert_license_cert_env "n8n-main"
+  assert_license_cert_env "n8n-worker"
+  assert_license_cert_env "n8n-webhook-processor"
+fi
+
 # ── Replica ownership with KEDA on (n8n-hosting#201, chart >= 1.13.0) ───────
 # The default fixture above never sets `keda`, so its replica assertions only
 # prove the no-autoscaler branch. The module runs with keda.enabled=true and

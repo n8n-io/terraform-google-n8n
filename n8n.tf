@@ -69,7 +69,10 @@ resource "kubernetes_secret" "n8n" {
 # Wraps a direct license value (n8n_license_key) so the chart never renders
 # the literal activation key into Helm values/pod specs. Skipped when the
 # caller supplies an existing Secret instead (n8n_license_key_secret_ref,
-# used as-is); see locals.tf's manage_license_secret / effective_license_secret_*.
+# used as-is), or an offline license certificate instead
+# (n8n_license_cert_secret_ref, rendered through config.extraEnv - see
+# local.n8n_license_cert_env); see locals.tf's manage_license_secret /
+# effective_license_secret_*.
 resource "kubernetes_secret" "n8n_license" {
   count = local.manage_license_secret ? 1 : 0
 
@@ -225,20 +228,16 @@ resource "helm_release" "n8n" {
   cleanup_on_fail = true
 
   values = [yamlencode(merge({
-    # Ownership-neutral (D7): the license is always delivered through
-    # existingSecret, never activationKey, so no literal activation key ever
-    # renders into Helm values or pod specs. A direct n8n_license_key wraps
-    # into the module-managed kubernetes_secret.n8n_license; a caller-supplied
+    # Ownership-neutral (D7): a direct n8n_license_key wraps into the
+    # module-managed kubernetes_secret.n8n_license; a caller-supplied
     # n8n_license_key_secret_ref is referenced as-is and creates no managed
-    # Secret (mutually exclusive, enforced by variables.tf's validation).
-    license = {
-      enabled       = true
-      activationKey = ""
-      existingSecret = {
-        name = local.effective_license_secret_name
-        key  = local.effective_license_secret_key
-      }
-    }
+    # Secret (mutually exclusive, enforced by variables.tf's validation). On
+    # the offline-certificate path (n8n_license_cert_secret_ref),
+    # local.n8n_license_values omits existingSecret and
+    # local.n8n_license_cert_env below renders N8N_LICENSE_CERT through
+    # config.extraEnv instead. See local.n8n_license_values (locals.tf) for
+    # why license.enabled stays true on every path.
+    license = local.n8n_license_values
 
     # Fixed replica counts fall back to n8n_*_fixed_replicas when the caller
     # owns that pod's scaling (n8n_main_hpa_enabled / n8n_webhook_hpa_enabled /
@@ -594,6 +593,9 @@ resource "helm_release" "n8n" {
         # One-replica election staging. At higher counts the chart supplies
         # the flag through its main-only ConfigMap reference instead.
         local.n8n_main_election_staging_env,
+        # Offline license activation (N8N_LICENSE_CERT). Empty unless
+        # n8n_license_cert_secret_ref is set; see local.n8n_license_cert_env.
+        local.n8n_license_cert_env,
         # Redis command-channel prefix, synchronized with the Bull queue-key
         # prefix (redis.prefix above) and the KEDA/exporter queue key names
         # (local.effective_redis_queue_keys) so all three consumers agree on

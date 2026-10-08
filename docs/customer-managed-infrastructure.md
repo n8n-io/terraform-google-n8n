@@ -50,8 +50,8 @@ because the module still does not touch resources it does not own.
 | Cloud KMS (Cloud SQL / Redis / GCS) | `create_postgres_kms_key` / `create_redis_kms_key` / `create_gcs_kms_key` | `existing_postgres_kms_key_id` / `existing_redis_kms_key_id` / `existing_gcs_kms_key_id` | Nothing; the module grants no IAM on a supplied existing key, grant the relevant service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` out of band |
 | KMS key ring | `create_kms_key_ring` | `existing_kms_key_ring_id` (only if any `create_*_kms_key` is true) | Nothing |
 | Namespace | `create_namespace` | `n8n_kube_namespace` names the existing namespace | Every namespaced resource (Secrets, ServiceAccount, Helm release) still targets it |
-| Core Secret | (independent input) `existing_n8n_core_secret_name` | `n8n_license_key_secret_ref` (the chart's core-Secret contract forbids a plain `n8n_license_key` alongside it) | Nothing for the core Secret/encryption key; other Secrets (DB, Redis, GCS HMAC) are independent |
-| License Secret | (independent input) `n8n_license_key_secret_ref` | n/a (mutually exclusive with `n8n_license_key`) | Nothing |
+| Core Secret | (independent input) `existing_n8n_core_secret_name` | `n8n_license_key_secret_ref` or `n8n_license_cert_secret_ref` (the chart's core-Secret contract forbids a plain `n8n_license_key` alongside it) | Nothing for the core Secret/encryption key; other Secrets (DB, Redis, GCS HMAC) are independent |
+| License Secret | (independent input) `n8n_license_key_secret_ref` or `n8n_license_cert_secret_ref` | n/a (mutually exclusive with each other and with `n8n_license_key`) | Nothing |
 | Ingress | `create_ingress` | none required; use the stable service/route outputs (below) to build your own | The n8n Helm release still creates the `n8n_main_service_name`/`n8n_webhook_service_name` Services |
 | Main/webhook HPA, worker KEDA | `n8n_main_hpa_enabled`, `n8n_webhook_hpa_enabled`, `n8n_worker_keda_enabled` | none required; `*_fixed_replicas` sets the replica count while disabled | Nothing; own a replacement `HorizontalPodAutoscaler`/`ScaledObject` under a different name to avoid a collision |
 
@@ -206,17 +206,24 @@ Typed existing-Secret references cover every credential family:
 - `existing_n8n_core_secret_name`: the chart's core-Secret contract
   (`N8N_ENCRYPTION_KEY`, `N8N_HOST`, `N8N_PORT`, `N8N_PROTOCOL`). When set,
   the module creates no core Secret and generates no encryption key, and
-  `n8n_license_key_secret_ref` becomes required (the chart's core-Secret
-  contract requires the license from a separate Secret, not
-  `n8n_license_key`).
-- `n8n_license_key_secret_ref`: the n8n Enterprise license, independent of
-  the core-Secret decision.
+  `n8n_license_key_secret_ref` or `n8n_license_cert_secret_ref` becomes
+  required (the chart's core-Secret contract requires the license from a
+  separate Secret, not `n8n_license_key`).
+- `n8n_license_key_secret_ref` or `n8n_license_cert_secret_ref`: the n8n
+  Enterprise license (key or offline certificate), independent of the
+  core-Secret decision. The two are mutually exclusive with each other and
+  with `n8n_license_key`. `n8n_license_cert_secret_ref` renders through the
+  shared `config.extraEnv` list as an `N8N_LICENSE_CERT` `secretKeyRef`
+  entry, not into the chart's `license.existingSecret` block - see [Offline
+  license activation](../README.md#offline-license-activation) in the root
+  README.
 - `n8n_database_password_secret_ref`, `redis_password_secret_ref`: as
   described above.
 - `gcs_hmac_secret_name`: the GCS HMAC secret, in BYO HMAC mode.
 
 The module never reads the contents of any referenced Secret; it only passes
-the reference through to the n8n Helm chart.
+the reference through to the n8n Helm chart (or, for
+`n8n_license_cert_secret_ref`, into `config.extraEnv`).
 
 Workload Identity binds the n8n Kubernetes ServiceAccount to a Google service
 account regardless of GKE ownership, normalized to the effective (managed or
