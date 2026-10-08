@@ -268,6 +268,21 @@ run "rejects_postgres_password_wo_when_write_only_disabled" {
   expect_failures = [var.postgres_password_wo]
 }
 
+run "rejects_empty_n8n_database_password_secret_ref_name" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    n8n_database_password_secret_ref = {
+      name = "  "
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.n8n_database_password_secret_ref]
+}
+
 run "rejects_managed_secret_name_with_postgres_password_write_only" {
   command = plan
 

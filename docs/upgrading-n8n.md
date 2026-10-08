@@ -613,7 +613,9 @@ at parse time on the unsupported `ephemeral = true` argument, before any
 resource is evaluated. If your root module pins either Google provider
 below 6.23, widen that constraint first. No state migration is required for
 this change by itself: the floor bump alone does not change any resource's
-planned attributes.
+planned attributes. `terraform init -upgrade` can also move other providers
+in your root module, though, so review the lock file diff and the plan
+before you apply.
 
 ## Opt-in: `postgres_password_write_only`
 

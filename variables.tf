@@ -1230,6 +1230,13 @@ variable "n8n_database_password_secret_ref" {
     error_message = "n8n_database_password_secret_ref is required when postgres_password_write_only = true: the module cannot copy a write-only value into a Kubernetes Secret it manages, so you must supply your own Secret already populated with the same password."
   }
 
+  # The name is passed straight to the chart's database.passwordSecret, so an
+  # empty name would leave n8n without a usable reference.
+  validation {
+    condition     = var.n8n_database_password_secret_ref == null ? true : length(trimspace(var.n8n_database_password_secret_ref.name)) > 0
+    error_message = "n8n_database_password_secret_ref.name must not be empty or whitespace only. Set it to the name of the Kubernetes Secret that holds the database password."
+  }
+
   # n8n-enterprise-db-secret is kubernetes_secret.n8n_db's name (n8n.tf).
   # Switching an existing deployment to write-only mode destroys that
   # resource, so a reference to it would point n8n at a Secret that is
@@ -1279,7 +1286,7 @@ variable "postgres_password_wo" {
 }
 
 variable "postgres_password_wo_version" {
-  description = "Version marker for postgres_password_wo, forwarded to google_sql_user's password_wo_version. Increment this value whenever you rotate postgres_password_wo -- Terraform only re-applies a write-only value when its version number changes. Ignored when postgres_password_write_only = false."
+  description = "Version marker for postgres_password_wo, forwarded to google_sql_user's password_wo_version. Increment this value whenever you rotate postgres_password_wo; Terraform only re-applies a write-only value when its version number changes. Changing it updates only the Cloud SQL user: it does not restart the n8n pods, which read the password from the Secret named by n8n_database_password_secret_ref when they start. After a rotation, update that Secret and restart the n8n deployments (see docs/upgrading-n8n.md, \"Rotating the write-only password\"). Ignored when postgres_password_write_only = false."
   type        = number
   default     = 1
   nullable    = false

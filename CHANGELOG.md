@@ -150,6 +150,9 @@ this project adheres to the stability contract in
   a write-only value into the Kubernetes Secret it would otherwise manage),
   makes the `n8n_database_password` output `null`, and is fully opt-in: the
   default (`postgres_password_write_only = false`) behavior is unchanged.
+  `n8n_database_password_secret_ref` now also rejects an empty or
+  whitespace-only `name` on every path; such a reference never worked,
+  because the module passes the name straight to the chart.
   See [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md) for the full
   contract, including rotation (Ports
   [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
