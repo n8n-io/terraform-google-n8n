@@ -21,7 +21,8 @@ locals {
   create_postgres_kms_key = var.create_postgres_instance && var.create_postgres_kms_key
   create_redis_kms_key    = var.create_redis_instance && var.create_redis_kms_key
   create_gcs_kms_key      = var.create_gcs_bucket && var.create_gcs_kms_key
-  create_any_kms_key      = local.create_postgres_kms_key || local.create_redis_kms_key || local.create_gcs_kms_key
+  create_gke_kms_key      = var.create_gke && var.create_gke_kms_key
+  create_any_kms_key      = local.create_postgres_kms_key || local.create_redis_kms_key || local.create_gcs_kms_key || local.create_gke_kms_key
 
   # CKV_GCP_43 (Checkov): rotate every module-created CMEK key within 90 days.
   # Google recommends this as a default hygiene practice; rotation only
@@ -173,4 +174,55 @@ resource "google_kms_crypto_key_iam_member" "gcs" {
 
 locals {
   effective_gcs_kms_key_id = var.create_gcs_bucket ? (local.create_gcs_kms_key ? google_kms_crypto_key.gcs[0].id : var.existing_gcs_kms_key_id) : null
+}
+
+# ── GKE customer-managed encryption (Cloud KMS) ───────────────────────────────
+# Same create-or-reference contract as Cloud SQL, Memorystore, and GCS above
+# (D4): create_gke_kms_key creates a key in the shared ring and configures the
+# module-managed cluster's application-layer secrets encryption
+# (database_encryption in gke.tf) to use it; existing_gke_kms_key_id
+# references an already-existing key instead. Leaving both unset keeps GKE's
+# default Google-managed etcd encryption. Only takes effect for a
+# module-managed cluster (create_gke = true); the key must be regional and
+# share gcp_region with the cluster, same as Cloud SQL/Memorystore above.
+
+# GKE's own service agent (container-engine-robot) must exist before it can
+# be granted key IAM; same lazy-materialization rationale as Cloud SQL/
+# Memorystore/GCS above.
+resource "google_project_service_identity" "gke" {
+  provider = google-beta
+  count    = local.create_gke_kms_key ? 1 : 0
+
+  project = var.project_id
+  service = "container.googleapis.com"
+}
+
+resource "google_kms_crypto_key" "gke" {
+  count = local.create_gke_kms_key ? 1 : 0
+
+  name            = "${local.name_prefix}-gke-key"
+  key_ring        = local.effective_kms_key_ring_id
+  purpose         = "ENCRYPT_DECRYPT"
+  rotation_period = local.kms_rotation_period
+  labels          = local.gcp_labels
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+# GKE's per-project service agent must be able to use a module-created key;
+# an existing key's IAM is the caller's responsibility (D4).
+resource "google_kms_crypto_key_iam_member" "gke" {
+  count = local.create_gke_kms_key ? 1 : 0
+
+  crypto_key_id = google_kms_crypto_key.gke[0].id
+  role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
+  member        = "serviceAccount:service-${data.google_project.n8n.number}@container-engine-robot.iam.gserviceaccount.com"
+
+  depends_on = [google_project_service_identity.gke]
+}
+
+locals {
+  effective_gke_kms_key_id = var.create_gke ? (local.create_gke_kms_key ? google_kms_crypto_key.gke[0].id : var.existing_gke_kms_key_id) : null
 }

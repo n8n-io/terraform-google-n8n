@@ -99,9 +99,43 @@ this project adheres to the stability contract in
   single-main sandbox profile built from existing inputs that fits under 50
   connections, and recommends enabling this check, is documented in the new
   [`docs/sandbox.md`](./docs/sandbox.md).
+- Optional GKE application-layer secrets encryption (etcd) with a Cloud KMS
+  key (`create_gke_kms_key`, `existing_gke_kms_key_id`), following the same
+  create-or-reference contract and shared key ring as Cloud SQL, Memorystore,
+  and GCS (`create_kms_key_ring`/`existing_kms_key_ring_id`). The module
+  grants the GKE service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter`
+  on a module-created key only. Gated on `create_gke = true`. Enabling it on
+  an existing cluster restarts the control plane while GKE re-encrypts every
+  Secret. Clearing both inputs later does not decrypt the cluster; see
+  [Turning GKE secrets encryption off](./docs/destroy-cleanup.md#turning-gke-secrets-encryption-off).
+  The new `gke_kms_key_id` output reports the key the module configures.
+- Optional GKE Secret Manager CSI driver add-on
+  (`gke_secret_manager_addon_enabled`), letting pods mount Google Secret
+  Manager secrets as files through a caller-owned `SecretProviderClass`. The
+  add-on does not sync secrets into Kubernetes Secrets, so it does not
+  populate the Secrets the `*_secret_ref` inputs read. The module grants no
+  Secret Manager IAM for it. Setting the input back to `false` disables the
+  add-on. The module now always sets the add-on state, so on a
+  module-managed cluster where someone enabled the add-on outside Terraform,
+  the next plan disables it unless you set this input to `true`. Gated on
+  `create_gke = true`.
 
 ### Changed
 
+- **Provider floor raised:** `hashicorp/google` and `hashicorp/google-beta`
+  now require `~> 6.1` (was `~> 6.0`), because
+  `google_container_cluster.secret_manager_config` does not exist in 6.0.x
+  and Terraform rejects the block at validate time even when the add-on is
+  off. The examples that call the root module now declare `~> 6.1` too;
+  `modules/controllers/examples/direct-use` stays on `~> 6.0` because the
+  controllers submodule does not need 6.1. This is a minor-version change
+  under the module's stability contract.
+  Upgrade note: if your dependency lock file selects a 6.0.x release, run
+  `terraform init -upgrade` before planning. If your root module pins either
+  provider to 6.0.x, widen the constraint first. The floor change itself
+  changes no resources, but `terraform init -upgrade` can also move other
+  providers in your root module, so review the lock file diff and the plan
+  before you apply.
 - Default `n8n_chart_version` bumped to `1.14.0` (was `1.13.0`; n8n-hosting
   v1.14.0, 2026-09-30, which bundles n8n `2.41.4` as its `appVersion`, so a
   caller with `n8n_image_tag = null` moves from n8n `2.40.5` to `2.41.4`; n8n

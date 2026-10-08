@@ -47,7 +47,7 @@ because the module still does not touch resources it does not own.
 | Redis | `create_redis_instance` | `redis_host` (`redis_port`/`redis_tls_enabled`/`redis_username`/a password source as needed) | n8n's `redis.*` chart values, KEDA's `TriggerAuthentication` when any password source is present |
 | GCS bucket | `create_gcs_bucket` | `existing_gcs_bucket_name` | Bucket-scoped IAM for the effective HMAC identity (module-managed or BYO) |
 | GCS HMAC identity | (independent input) `gcs_hmac_service_account_email` | `gcs_hmac_access_id` plus `gcs_hmac_secret_name` or `gcs_hmac_secret` | The bucket IAM binding for that identity |
-| Cloud KMS (Cloud SQL / Redis / GCS) | `create_postgres_kms_key` / `create_redis_kms_key` / `create_gcs_kms_key` | `existing_postgres_kms_key_id` / `existing_redis_kms_key_id` / `existing_gcs_kms_key_id` | Nothing; the module grants no IAM on a supplied existing key, grant the relevant service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` out of band |
+| Cloud KMS (Cloud SQL / Redis / GCS / GKE) | `create_postgres_kms_key` / `create_redis_kms_key` / `create_gcs_kms_key` / `create_gke_kms_key` | `existing_postgres_kms_key_id` / `existing_redis_kms_key_id` / `existing_gcs_kms_key_id` / `existing_gke_kms_key_id` | Nothing; the module grants no IAM on a supplied existing key, grant the relevant service agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` out of band |
 | KMS key ring | `create_kms_key_ring` | `existing_kms_key_ring_id` (only if any `create_*_kms_key` is true) | Nothing |
 | Namespace | `create_namespace` | `n8n_kube_namespace` names the existing namespace | Every namespaced resource (Secrets, ServiceAccount, Helm release) still targets it |
 | Core Secret | (independent input) `existing_n8n_core_secret_name` | `n8n_license_key_secret_ref` (the chart's core-Secret contract forbids a plain `n8n_license_key` alongside it) | Nothing for the core Secret/encryption key; other Secrets (DB, Redis, GCS HMAC) are independent |
@@ -180,19 +180,33 @@ mutated.
 A single optional key ring (`create_kms_key_ring`/`existing_kms_key_ring_id`)
 hosts every module-created CMEK key. Its creation is required only when at
 least one service's `create_*_kms_key` switch is `true`. Each service
-(`postgres`, `redis`, `gcs`) has its own independent create-or-reference pair;
-mixing, for example a module-created Cloud SQL key with an existing GCS key,
-is supported. The module grants the appropriate Google Cloud service agent
-`roles/cloudkms.cryptoKeyEncrypterDecrypter` only on a key it creates itself;
-grant that role yourself on a supplied existing key.
+(`postgres`, `redis`, `gcs`, `gke`) has its own independent create-or-reference
+pair; mixing, for example a module-created Cloud SQL key with an existing GCS
+key, is supported. The module grants the appropriate Google Cloud service
+agent `roles/cloudkms.cryptoKeyEncrypterDecrypter` only on a key it creates
+itself; grant that role yourself on a supplied existing key.
 
-The ring location must satisfy every service sharing it. Cloud SQL and
-Memorystore require `gcp_region`. Cloud Storage requires the bucket-compatible
-KMS location, with the `EU` bucket multi-region mapping to the KMS `europe`
-multi-region. A GCS-only module-created ring selects that location
-automatically. If regional Cloud SQL or Redis shares the ring with GCS,
-`gcs_location` must equal `gcp_region`; otherwise Terraform rejects the plan
-because one key ring cannot occupy both locations.
+`create_gke_kms_key`/`existing_gke_kms_key_id` configure the module-managed
+GKE cluster's application-layer secrets encryption (etcd) via
+`database_encryption`, granting the GKE service agent
+(`service-<project_number>@container-engine-robot.iam.gserviceaccount.com`)
+on a module-created key. Only takes effect for a module-managed cluster
+(`create_gke = true`); ignored (with a warning) for an existing cluster.
+Leaving both unset means the module does not manage this encryption: a new
+cluster uses Google-managed encryption, but clearing the inputs on an
+encrypted cluster does not decrypt it. Enabling encryption on an existing
+cluster restarts the control plane while GKE re-encrypts every Secret. See
+[Turning GKE secrets encryption off](./destroy-cleanup.md#turning-gke-secrets-encryption-off)
+for the off procedure and for key-version guidance after rotation. The
+effective key is exposed as the `gke_kms_key_id` output.
+
+The ring location must satisfy every service sharing it. Cloud SQL,
+Memorystore, and GKE require `gcp_region`. Cloud Storage requires the
+bucket-compatible KMS location, with the `EU` bucket multi-region mapping to
+the KMS `europe` multi-region. A GCS-only module-created ring selects that
+location automatically. If regional Cloud SQL, Redis, or GKE shares the ring
+with GCS, `gcs_location` must equal `gcp_region`; otherwise Terraform rejects
+the plan because one key ring cannot occupy both locations.
 
 ### Namespace, Secrets, and Workload Identity
 
@@ -235,6 +249,30 @@ never project-wide. Configuring n8n's Google Secret Manager vault-provider
 connection itself (Settings > External Secrets in the n8n UI) remains an
 in-product operator action this module does not automate; it only grants the
 IAM that connection needs at runtime.
+
+`gke_secret_manager_addon_enabled` is an independent, cluster-level opt-in
+(default `false`, gated on `create_gke = true`) that enables the
+GKE-managed Secret Manager CSI driver add-on (`secret_manager_config`) on
+the module-managed cluster. This lets a pod mount Secret Manager secrets as
+files through a `SecretProviderClass` and a CSI volume (driver
+`secrets-store-gke.csi.k8s.io`), both of which you own. Setting the input
+back to `false` disables the add-on. Google requires GKE
+1.27.14-gke.1042001 or later and Linux nodes for the add-on, and Workload
+Identity Federation for GKE, which the module-managed cluster already has.
+
+The add-on does not sync secrets into Kubernetes Secrets, so it does not
+populate the Secrets that the `*_secret_ref` inputs read. Google provides that
+as a separate
+[secret synchronization](https://docs.cloud.google.com/secret-manager/docs/sync-k8-secrets)
+feature, which this module does not configure.
+
+The module grants no Secret Manager IAM for this add-on. Google's
+[add-on documentation](https://docs.cloud.google.com/secret-manager/docs/secret-manager-managed-csi-component)
+grants `roles/secretmanager.secretAccessor` on each secret directly to the
+pod's Kubernetes ServiceAccount, through its Workload Identity principal.
+`n8n_secret_manager_enabled` above grants n8n's Google service account
+instead, for n8n's own External Secrets feature. It has not been verified as
+a substitute for the add-on's grant.
 
 ### Application artifact and runtime portability
 
@@ -371,12 +409,13 @@ orphaned `ScaledObject` finalizers behind, blocking namespace deletion, see
 ## Cloud KMS permissions
 
 A module-created CMEK key automatically grants the relevant Google Cloud
-service agent (Cloud SQL, Memorystore, or Cloud Storage)
+service agent (Cloud SQL, Memorystore, Cloud Storage, or GKE)
 `roles/cloudkms.cryptoKeyEncrypterDecrypter` on that key. A supplied existing
 key (`existing_postgres_kms_key_id`, `existing_redis_kms_key_id`,
-`existing_gcs_kms_key_id`) gets no IAM from the module; grant the same role
-to the corresponding service agent out of band, or the managed resource fails
-to create with a permission-denied error referencing the key.
+`existing_gcs_kms_key_id`, `existing_gke_kms_key_id`) gets no IAM from the
+module; grant the same role to the corresponding service agent out of band,
+or the managed resource fails to create with a permission-denied error
+referencing the key.
 
 ## Ingress route ownership
 

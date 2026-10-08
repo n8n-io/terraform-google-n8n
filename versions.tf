@@ -10,14 +10,18 @@ terraform {
 
   required_providers {
     # GCP substrate: GKE, Cloud SQL, Memorystore, GCS, networking, IAM, DNS.
+    # >= 6.1: google_container_cluster.secret_manager_config (gke.tf) does not
+    # exist in 6.0.x, and Terraform rejects an unknown block at validate time
+    # even when it renders with the add-on disabled.
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.0"
+      version = "~> 6.1"
     }
     # Materializes Google-managed service agents before CMEK IAM grants.
+    # Kept in lockstep with google (docs/versioning.md).
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 6.0"
+      version = "~> 6.1"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"

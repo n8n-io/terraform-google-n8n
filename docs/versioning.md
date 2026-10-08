@@ -24,8 +24,8 @@ upgrade guidance when a bump changes behavior.
 
 | Provider | Current constraint | Tier to bump |
 | --- | --- | --- |
-| `hashicorp/google` | `~> 6.0` | Verification-required (major); patch-safe within `6.x` |
-| `hashicorp/google-beta` | `~> 6.0` | Same as `google`; kept in lockstep |
+| `hashicorp/google` | `~> 6.1` | Verification-required (major); patch-safe within `6.x`. Floor is 6.1 because `google_container_cluster.secret_manager_config` does not exist in 6.0.x |
+| `hashicorp/google-beta` | `~> 6.1` | Same as `google`; kept in lockstep |
 | `hashicorp/kubernetes` | `~> 3.0` | Verification-required (major); patch-safe within `3.x` |
 | `hashicorp/helm` | `~> 3.0` | Verification-required (major); patch-safe within `3.x` |
 | `gavinbunney/kubectl` | `~> 1.14` | Minor-required: this provider applies the raw Ingress-support CRs (`BackendConfig`/`FrontendConfig`/`ManagedCertificate`); verify `kubectl_manifest` behavior is unchanged before bumping |

@@ -58,24 +58,57 @@ The module's dependency graph then destroys resources in the correct order:
 
 Most destroys complete in 10 to 20 minutes without intervention.
 
-### Module-created CMEK keys (`create_postgres_kms_key`, `create_redis_kms_key`, `create_gcs_kms_key`)
+### Module-created CMEK keys (`create_postgres_kms_key`, `create_redis_kms_key`, `create_gcs_kms_key`, `create_gke_kms_key`)
 
 Module-created Cloud KMS CryptoKeys carry `lifecycle { prevent_destroy = true }`: losing a CMEK key makes the data it protects unrecoverable, so Terraform refuses any plan that would destroy one. This blocks two situations:
 
 1. **Flipping a `create_*_kms_key` switch from `true` back to `false`.** The plan wants to destroy the key and fails. Back out deliberately: first migrate the protected service off the key (for Cloud SQL and Memorystore that means recreating the instance, since neither supports changing CMEK in place), then remove the key from state instead of destroying it:
 
    ```bash
-   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]'   # or .redis[0] / .gcs[0]
+   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]'   # or .redis[0] / .gcs[0] / .gke[0]
    ```
+
+   For GKE, "migrate off the key" means turning application-layer secrets encryption off first, see [Turning GKE secrets encryption off](#turning-gke-secrets-encryption-off) below.
 
    The key stays in Cloud KMS (a destroyed CryptoKey cannot be re-created under the same name anyway; KMS key material is only ever scheduled for destruction). Schedule its versions for destruction out of band with `gcloud kms keys versions destroy` once nothing encrypted with it must remain readable.
 
-2. **A full `terraform destroy` of a deployment that used a module-created key.** Remove the key (and, if module-created, the key ring) from state first, then destroy the rest:
+2. **A full `terraform destroy` of a deployment that used a module-created key.** Remove every module-created key (and, if module-created, the key ring) from state first, then destroy the rest. Each enabled `create_*_kms_key` switch has its own address: `google_kms_crypto_key.postgres[0]`, `.redis[0]`, `.gcs[0]`, or `.gke[0]`. List only the ones your deployment created; `terraform state list | grep google_kms` shows them. For example, with module-created Cloud SQL and GKE keys:
 
    ```bash
-   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]' 'module.n8n.google_kms_key_ring.n8n[0]'
+   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]' 'module.n8n.google_kms_crypto_key.gke[0]' 'module.n8n.google_kms_key_ring.n8n[0]'
    terraform destroy ...
    ```
+
+   Destroying the cluster removes everything encrypted with the GKE key, so the GKE key does not need the decryption steps below first.
+
+### Turning GKE secrets encryption off
+
+`create_gke_kms_key` and `existing_gke_kms_key_id` turn GKE application-layer secrets encryption on. Clearing them does not turn it off. The provider treats the cluster's `database_encryption` setting as computed, so when neither input is set the module stops managing encryption, and the plan shows no change to the cluster. The cluster keeps using the key.
+
+GKE can decrypt a cluster, but the module does not do it for you, because it cannot tell a cluster it encrypted from one encrypted out of band. To turn encryption off:
+
+1. Keep the key, all of its key versions, and the GKE service agent's `roles/cloudkms.cryptoKeyEncrypterDecrypter` grant in place. GKE needs them to decrypt.
+2. Decrypt the cluster. Like enabling encryption on an existing cluster, this restarts the control plane while GKE rewrites every Secret, so expect a long-running operation. Google warns that disabling encryption too soon after enabling it can interrupt the initial encryption and leave the control plane unresponsive: wait until the cluster has been stable for more than four hours after enabling before you disable it.
+
+   ```bash
+   gcloud container clusters update <cluster> --location <gcp_region> \
+     --disable-database-encryption --project <project_id>
+   ```
+
+3. Wait for the operation to finish, then confirm the result:
+
+   ```bash
+   gcloud container clusters describe <cluster> --location <gcp_region> \
+     --format='value(databaseEncryption.state)' --project <project_id>
+   ```
+
+   The output must be `DECRYPTED`. Do not run `terraform apply` with the GKE key input still set in the meantime: Terraform would plan to encrypt the cluster again.
+4. Clear the input in Terraform:
+   - For `existing_gke_kms_key_id`, set it to `null` and apply. The plan shows no change to the cluster.
+   - For `create_gke_kms_key`, set it to `false` and remove the key from state first (case 1 above), because `prevent_destroy` rejects a plan that destroys it. Back up the state and record the key ID before `terraform state rm`. To bring the key back under the module later, set `create_gke_kms_key = true` again and import the retained key at its original address (`module.n8n.google_kms_crypto_key.gke[0]`). The same apply removes the module-managed IAM grant, which is safe only after step 3.
+5. Retire the key out of band once nothing encrypted with it must stay readable.
+
+While encryption is on, remember that a module-created key rotates every 90 days, and each Secret stays wrapped by the key version that was current when it was last written. Never disable or destroy an older key version the cluster may still use. To move every Secret to the newest version, follow Google's [re-encrypt your Secrets](https://cloud.google.com/kubernetes-engine/docs/how-to/encrypting-secrets#reencrypt-secrets) procedure.
 
 ## Troubleshooting
 
