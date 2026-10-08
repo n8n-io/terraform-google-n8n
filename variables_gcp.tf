@@ -1081,7 +1081,7 @@ variable "gke_deletion_protection" {
 }
 
 variable "gke_enable_private_nodes" {
-  description = "Give nodes private IPs only (egress via Cloud NAT). Control-plane endpoint stays public unless locked down via gke_control_plane_authorized_networks."
+  description = "Give nodes private IPs only (egress via Cloud NAT). The control-plane endpoint stays public unless you restrict it with gke_control_plane_authorized_networks, or remove it with gke_enable_private_endpoint (which requires this to be true)."
   type        = bool
   default     = true
 }
@@ -1099,6 +1099,42 @@ variable "gke_control_plane_authorized_networks" {
     display_name = string
   }))
   default = []
+}
+
+variable "gke_enable_private_endpoint" {
+  description = "When true, the GKE control plane no longer accepts client traffic on its public endpoint (private_cluster_config.enable_private_endpoint) - only in-VPC, peered, or VPN/Interconnect-connected traffic can reach it. Default false preserves the current publicly reachable control plane. Requires gke_enable_private_nodes = true (GKE rejects a private endpoint on a cluster with public nodes) and a non-empty gke_control_plane_authorized_networks containing only internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) - Google rejects a public CIDR as an authorized network once the public endpoint is gone. Any caller applying this module (including CI/CD) needs that private connectivity once enabled: a bastion host inside the VPC, a VPN/Interconnect-connected network, or a Cloud Build private pool with verified routing to the control plane (VPC peering alone is not transitive). The control plane's private endpoint is reachable only from the same region as the cluster (GKE's master_global_access_config default); an apply host outside gcp_region needs a region-matched peered network. The setting updates the cluster in place (no replacement), but switching an existing public deployment to private cuts off any apply host outside the VPC; see docs/post-deployment.md before you change it. Ignored when create_gke = false."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  # Both rules apply only to a module-managed cluster (create_gke = true). On
+  # an existing cluster this input is ignored and
+  # check.gke_tuning_ignored_when_existing warns instead, matching how the
+  # other managed-GKE tuning inputs behave.
+  validation {
+    condition     = !var.create_gke || !var.gke_enable_private_endpoint || var.gke_enable_private_nodes
+    error_message = "gke_enable_private_endpoint = true requires gke_enable_private_nodes = true; GKE does not support a private control-plane endpoint on a cluster with public nodes."
+  }
+
+  # Deliberate module policy, stricter than GKE itself: GKE lets hosts in the
+  # node subnet's primary range and the Pod range reach a private endpoint
+  # with no authorized-network entries, and may accept internal ranges other
+  # than RFC 1918. This module requires at least one RFC 1918 entry so the
+  # apply host's own network is always named explicitly and the
+  # master_authorized_networks_config block is always rendered in this mode.
+  validation {
+    condition = !var.create_gke || !var.gke_enable_private_endpoint ? true : (
+      length(var.gke_control_plane_authorized_networks) > 0 &&
+      alltrue([
+        for n in var.gke_control_plane_authorized_networks :
+        can(cidrhost(n.cidr_block, 0)) && can(regex(
+          "^(10\\..+/([89]|1[0-9]|2[0-9]|3[0-2])|172\\.(1[6-9]|2[0-9]|3[0-1])\\..+/(1[2-9]|2[0-9]|3[0-2])|192\\.168\\..+/(1[6-9]|2[0-9]|3[0-2]))$",
+          n.cidr_block
+        ))
+      ])
+    )
+    error_message = "gke_enable_private_endpoint = true requires a non-empty gke_control_plane_authorized_networks whose entries are all valid, internal (RFC 1918) CIDRs (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16). Google rejects a public CIDR as an authorized network on a private endpoint (\"is not a reserved network, which is required for private endpoints\"), and the control plane has no public endpoint to fall back to."
+  }
 }
 
 variable "gke_node_type" {
@@ -1152,6 +1188,17 @@ variable "gke_node_disk_type" {
   description = "Node boot disk type (pd-standard, pd-balanced, pd-ssd)."
   type        = string
   default     = "pd-balanced"
+}
+
+variable "gke_security_group" {
+  description = "Google Group used for GKE's RBAC-via-Google-Groups feature (authenticator_groups_config.security_group), e.g. \"gke-security-groups@example.com\". The group must already exist in the caller's own Google Workspace or Cloud Identity directory, with the \"View members\" permission granted to group members, and the caller's access groups nested inside it (each nested group also needs \"View members\" for group members) (Google's documented prerequisites; individual users must not be direct members). This module cannot create or populate the group. Group membership then flows into Kubernetes RBAC bindings the caller still writes (ClusterRoleBinding/RoleBinding), the same way kubectl/IAM identities do today. Null (the default) omits the authenticator_groups_config block, so a new cluster keeps RBAC-via-Groups disabled, matching current behavior. Treat enabling it as one-way: authenticator_groups_config is Optional+Computed in the google provider, so setting this back to null after it was set does not disable the feature. Terraform shows no diff and the cluster keeps the group. This module does not expose a disable operation. Ignored, with a warning, when create_gke = false; a malformed value still fails validation."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.gke_security_group == null ? true : can(regex("^gke-security-groups@[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+$", var.gke_security_group))
+    error_message = "gke_security_group must be null or exactly \"gke-security-groups@<domain>\" (e.g. \"gke-security-groups@example.com\") - GKE requires that literal group name per its RBAC-via-Google-Groups documentation."
+  }
 }
 
 # ── GKE customer-managed encryption (Cloud KMS) ─────────────────────────────

@@ -79,9 +79,11 @@ check "gke_tuning_ignored_when_existing" {
       var.gke_node_max_per_zone == 4 &&
       var.gke_node_disk_size_gb == 100 &&
       var.gke_node_disk_type == "pd-balanced" &&
-      var.gke_secret_manager_addon_enabled == false
+      var.gke_secret_manager_addon_enabled == false &&
+      var.gke_enable_private_endpoint == false &&
+      var.gke_security_group == null
     )
-    error_message = "create_gke is false, but one or more managed-GKE tuning variables (gke_release_channel, gke_min_master_version, gke_deletion_protection, gke_enable_private_nodes, gke_node_type, gke_node_min_per_zone, gke_node_max_per_zone, gke_node_disk_size_gb, gke_node_disk_type, gke_secret_manager_addon_enabled) differ from their defaults. These are ignored when deploying onto an existing cluster; configure the existing cluster's node pools, and its Secret Manager CSI driver add-on, out of band instead."
+    error_message = "create_gke is false, but one or more managed-GKE tuning variables (gke_release_channel, gke_min_master_version, gke_deletion_protection, gke_enable_private_nodes, gke_node_type, gke_node_min_per_zone, gke_node_max_per_zone, gke_node_disk_size_gb, gke_node_disk_type, gke_secret_manager_addon_enabled, gke_enable_private_endpoint, gke_security_group) differ from their defaults. These are ignored when deploying onto an existing cluster; configure the existing cluster's node pools, Secret Manager CSI driver add-on, control-plane endpoint, and RBAC-via-Groups out of band instead."
   }
 }
 

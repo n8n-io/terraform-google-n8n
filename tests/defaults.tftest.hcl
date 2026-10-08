@@ -82,6 +82,21 @@ run "defaults_produce_valid_plan" {
     condition     = google_container_node_pool.n8n[0].autoscaling[0].max_node_count == 4
     error_message = "gke_node_max_per_zone should default to 4, the smallest ceiling whose estimated capacity covers the default replica maxima"
   }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].private_cluster_config[0].enable_private_endpoint == false
+    error_message = "gke_enable_private_endpoint should default to false, preserving the current publicly reachable control plane"
+  }
+
+  assert {
+    condition     = length(google_container_cluster.n8n[0].authenticator_groups_config) == 0
+    error_message = "authenticator_groups_config must be omitted by default (gke_security_group defaults to null)"
+  }
+
+  assert {
+    condition     = !strcontains(output.kubectl_config_command, "--internal-ip")
+    error_message = "kubectl_config_command must not add --internal-ip by default (public control-plane endpoint)."
+  }
 }
 
 run "cloudsql_private_and_hardened" {
@@ -1522,6 +1537,179 @@ run "gke_node_disk_size_accepts_google_minimum" {
   assert {
     condition     = google_container_node_pool.n8n[0].node_config[0].disk_size_gb == 10
     error_message = "gke_node_disk_size_gb=10 (Google's documented minimum) must be accepted and wired through unchanged."
+  }
+}
+
+# ── GKE private control-plane endpoint (gke_enable_private_endpoint) ─────────
+
+run "rejects_private_endpoint_without_private_nodes" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_enable_private_nodes    = false
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0/24", display_name = "internal" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_without_authorized_networks" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_with_public_authorized_network" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "203.0.113.0/24", display_name = "public-cidr" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_with_cidr_just_below_172_block" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "172.15.0.0/16", display_name = "just-below-172-rfc1918" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_with_undersized_10_block_mask" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0/7", display_name = "wider-than-10-block" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "rejects_private_endpoint_with_malformed_cidr" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0", display_name = "missing-prefix-length" },
+    ]
+  }
+
+  expect_failures = [var.gke_enable_private_endpoint]
+}
+
+run "accepts_private_endpoint_with_172_16_12_block" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "172.16.0.0/12", display_name = "full-172-rfc1918-block" },
+    ]
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].private_cluster_config[0].enable_private_endpoint == true
+    error_message = "172.16.0.0/12 is the full RFC 1918 172 block and must be accepted as an authorized network."
+  }
+}
+
+run "gke_enable_private_endpoint_renders_private_endpoint" {
+  command = plan
+
+  variables {
+    gke_enable_private_endpoint = true
+    gke_control_plane_authorized_networks = [
+      { cidr_block = "10.0.0.0/24", display_name = "internal" },
+    ]
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].private_cluster_config[0].enable_private_endpoint == true
+    error_message = "private_cluster_config.enable_private_endpoint must render true when gke_enable_private_endpoint is true."
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].private_cluster_config[0].enable_private_nodes == true
+    error_message = "gke_enable_private_nodes must still be true alongside the private endpoint (required by the pairing validation)."
+  }
+
+  assert {
+    condition     = endswith(output.kubectl_config_command, " --internal-ip")
+    error_message = "kubectl_config_command must add --internal-ip when the module-managed cluster has a private endpoint."
+  }
+}
+
+# ── GKE RBAC via Google Groups (gke_security_group) ───────────────────────────
+
+run "rejects_malformed_gke_security_group" {
+  command = plan
+
+  variables {
+    gke_security_group = "not-a-security-group"
+  }
+
+  expect_failures = [var.gke_security_group]
+}
+
+run "rejects_gke_security_group_missing_prefix" {
+  command = plan
+
+  variables {
+    gke_security_group = "security-groups@example.com"
+  }
+
+  expect_failures = [var.gke_security_group]
+}
+
+# An empty string would make the provider send enabled = false. The module
+# deliberately does not expose that disable path (see gke.tf), so "" must be
+# rejected rather than passed through.
+run "rejects_empty_gke_security_group" {
+  command = plan
+
+  variables {
+    gke_security_group = ""
+  }
+
+  expect_failures = [var.gke_security_group]
+}
+
+run "gke_security_group_renders_authenticator_groups_config" {
+  command = plan
+
+  variables {
+    gke_security_group = "gke-security-groups@example.com"
+  }
+
+  assert {
+    condition     = length(google_container_cluster.n8n[0].authenticator_groups_config) == 1
+    error_message = "authenticator_groups_config must render when gke_security_group is set."
+  }
+
+  assert {
+    condition     = google_container_cluster.n8n[0].authenticator_groups_config[0].security_group == "gke-security-groups@example.com"
+    error_message = "authenticator_groups_config.security_group must render the supplied value."
   }
 }
 

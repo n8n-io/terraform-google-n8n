@@ -105,6 +105,51 @@ Workload Identity binds a Kubernetes ServiceAccount (KSA) to a Google service ac
 
 See [destroy-cleanup.md](./destroy-cleanup.md).
 
+## `gke_enable_private_endpoint = true`: provider/kubectl unreachable
+
+**Symptom**
+
+After enabling `gke_enable_private_endpoint`, `terraform apply` (or a
+standalone `kubectl`/`helm`) hangs or times out connecting to the cluster,
+even though the plan itself succeeded and the GKE cluster shows healthy in
+the Cloud Console.
+
+**Cause**
+
+The GKE control plane no longer accepts client traffic on its public
+endpoint in this mode (`private_cluster_config.enable_private_endpoint`).
+Only a host with network connectivity to the VPC the cluster's subnet lives
+in, directly, peered, or via Cloud VPN/Interconnect, can reach it, and only
+from the same region as `gcp_region` unless the cluster's
+`master_global_access_config` is enabled out of band (this module leaves it
+at the provider default, disabled). A laptop or CI runner on the public
+internet or in a different region's network cannot reach it at all.
+
+**Fix**
+
+1. Confirm `terraform output -raw gke_cluster_endpoint` is an internal
+   (RFC 1918) address, not a public IP.
+2. Check whether the apply host's source CIDR is one of the entries in
+   `gke_control_plane_authorized_networks` (`gcloud container clusters
+   describe <cluster> --region <gcp_region>
+   --format='value(masterAuthorizedNetworksConfig)'`). Whether GKE also
+   filters private-endpoint traffic by this list depends on the cluster's
+   `privateEndpointEnforcementEnabled` setting, which this module does not
+   set, so list the apply host's network to be safe.
+3. Run `terraform apply`/`kubectl`/`helm` from a host with that connectivity:
+   a bastion VM inside the VPC, a host on a peered/VPN-connected network, or
+   a Cloud Build private pool with verified routing to the control plane
+   (VPC peering alone is not transitive).
+4. If the apply host is in a different region than `gcp_region`, either move
+   it into the same region or fork `gke.tf` to add a
+   `master_global_access_config { enabled = true }` block.
+5. If the failure happened during the apply that first enabled the private
+   endpoint, the providers were still using the old public address. Re-run
+   the apply from a host with private connectivity. See
+   [Switching an existing deployment to the private endpoint](./post-deployment.md#switching-an-existing-deployment-to-the-private-endpoint).
+6. For `kubectl`, re-run the `kubectl_config_command` output, which adds
+   `--internal-ip` in this mode.
+
 ## Existing GKE cluster: provider fails before the first plan
 
 **Symptom**

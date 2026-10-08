@@ -71,3 +71,65 @@ to their defaults while disabled to avoid ignored-input warnings.
 (`create_redis_instance = false`); the module warns instead of failing if any
 are left set. The two schedule inputs are also ignored, with a warning, when
 `redis_persistence_enabled = false` on a module-managed instance.
+
+## Private control-plane endpoint reachability
+
+If `gke_enable_private_endpoint = true`, the GKE control plane no longer
+accepts client traffic on its public endpoint. `kubectl` and the
+`kubernetes`/`helm` providers can only reach it from inside the VPC
+(directly, peered, or via VPN/Cloud Interconnect), and only from the same
+region as `gcp_region` unless the cluster's `master_global_access_config` is
+enabled out of band. Confirm reachability from your apply host before
+troubleshooting an unrelated failure:
+
+```bash
+terraform output -raw gke_cluster_endpoint   # must resolve to an internal (RFC 1918) IP
+kubectl cluster-info                          # hangs/times out from outside the VPC; succeeds from a bastion/VPN-connected host
+```
+
+See [`docs/troubleshooting.md`](./troubleshooting.md) if the cluster is
+unreachable after enabling this.
+
+### Switching an existing deployment to the private endpoint
+
+`enable_private_endpoint` updates the cluster in place; it does not replace
+it. But the `kubernetes`, `helm`, and `kubectl` providers in the same root
+module are configured from `gke_cluster_endpoint`, which still holds the
+public address when the cutover run starts. Depending on how you run the
+apply, they can keep using that address for the rest of the run, so a
+Kubernetes or Helm change that runs after the cluster update can fail to
+connect. Keep the cutover to the cluster update alone. To switch:
+
+1. Set up the private connectivity first, in the same region as
+   `gcp_region`: a bastion VM in the VPC, a VPN or Interconnect-connected
+   network, or a Cloud Build private pool with verified routing to the
+   control plane (VPC peering alone is not transitive).
+2. From your current admin host, add that network's internal CIDR to
+   `gke_control_plane_authorized_networks` and apply. Keep your current
+   public admin CIDRs in the list for now, and also add the public egress
+   address of the private host (for example its Cloud NAT address): the
+   cutover plan still talks to the public endpoint.
+3. From the private host, confirm it reaches the private endpoint before you
+   cut over:
+
+   ```bash
+   gcloud container clusters get-credentials <cluster> --region <gcp_region> --project <project> --internal-ip
+   kubectl get namespaces
+   ```
+
+4. From the private host, in one change, set
+   `gke_enable_private_endpoint = true` and remove every public CIDR from
+   `gke_control_plane_authorized_networks` (validation accepts only RFC 1918
+   entries in this mode). The google provider sends both settings in one
+   control-plane update request. Save the plan with `terraform plan -out=private.tfplan`,
+   check that it shows only an in-place update to
+   `google_container_cluster.n8n`, then run `terraform apply private.tfplan`.
+5. Re-run the `kubectl_config_command` output. In this mode it passes
+   `--internal-ip`, so `kubectl` uses the private endpoint. The next plan
+   configures the providers with the private address.
+
+To go back, set `gke_enable_private_endpoint = false` and add your public
+admin CIDRs back to `gke_control_plane_authorized_networks` in the same
+change, then apply from the private host. Turning the flag off alone restores
+the public endpoint in place but still rejects every public source address
+that is not in the list.

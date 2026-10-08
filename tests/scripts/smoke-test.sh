@@ -213,6 +213,7 @@ require_cmd curl
 
 if ! kubectl cluster-info &>/dev/null; then
   echo -e "${RED}ERROR: kubectl cannot reach the cluster. Check your kubeconfig / credentials.${RESET}" >&2
+  echo "If the cluster uses gke_enable_private_endpoint = true, run this script from a host with private connectivity to the VPC (bastion, VPN, or peered network) in the cluster's region. See $(cd "$SCRIPT_DIR/../.." && pwd)/docs/troubleshooting.md." >&2
   exit 1
 fi
 pass "kubectl cluster connectivity"
