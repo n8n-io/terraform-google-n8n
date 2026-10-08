@@ -123,6 +123,10 @@ default limit. Silence does not prove they fit:
   `n8n_worker_keda_enabled`, or `n8n_webhook_hpa_enabled` set to `false`), it
   counts that role's fixed replica count. An autoscaler you manage yourself
   can scale past it.
+- It assumes every n8n pod connects directly to Cloud SQL. If n8n connects
+  through a connection pooler such as PgBouncer, the pooler sets the number
+  of server connections, so the model does not apply. Leave the check off in
+  that setup.
 - The module has no input for the `max_connections` database flag, and it
   manages `database_flags` itself, so a flag set outside Terraform is removed
   on the next apply.

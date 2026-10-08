@@ -387,6 +387,10 @@ check "graceful_shutdown_fits_grace_period" {
 #     past it.
 #   - The module manages database_flags without ignore_changes, so a
 #     max_connections flag set outside Terraform is removed on the next apply.
+#   - The model assumes every pod connects directly to the instance. Behind a
+#     connection pooler such as PgBouncer (which db_postgresdb_pool_size's
+#     description mentions), the pooler sets the number of server
+#     connections, so the model does not apply and the check should stay off.
 locals {
   postgres_machine_type_custom_memory_mb = try(
     tonumber(regex("^db-custom-[0-9]+-([0-9]+)$", var.postgres_machine_type)[0]),
@@ -480,8 +484,9 @@ check "postgres_pool_size_fits_known_max_connections" {
       "one of: (1) lower db_postgresdb_pool_size, (2) lower the main/worker/webhook-processor autoscaler maxima ",
       "(or the fixed replica counts of any role whose autoscaler is disabled, any n8n_worker_pools max_replicas, ",
       "or n8n_worker_keda_paused_replica_count), or (3) move to a larger ",
-      "postgres_machine_type. Confirm the live value with SHOW max_connections (see docs/sandbox.md). This ",
-      "diagnostic is advisory and does not fail the plan.",
+      "postgres_machine_type. Confirm the live value with SHOW max_connections (see docs/sandbox.md). If n8n ",
+      "connects through a connection pooler such as PgBouncer, this model does not apply; set ",
+      "postgres_connection_budget_check_enabled = false. This diagnostic is advisory and does not fail the plan.",
     ])
   }
 }

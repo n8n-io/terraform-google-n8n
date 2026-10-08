@@ -89,9 +89,13 @@ this project adheres to the stability contract in
   `postgres_machine_type` to catch a later regression. It is an optimistic,
   advisory threshold and never fails the plan: it does not subtract reserved
   superuser slots, other clients, or extra pods during a rolling update. Fix
-  a warning with one of: lower `db_postgresdb_pool_size`; lower the
-  main/worker/webhook-processor autoscaler maxima (or any `n8n_worker_pools`
-  `max_replicas`); or move to a larger `postgres_machine_type`. A cheaper
+  a warning with one of: lower `db_postgresdb_pool_size`; lower the replica
+  ceilings the check counts (the main/worker/webhook-processor autoscaler
+  maxima, the fixed replica count of any role whose autoscaler is disabled,
+  `n8n_worker_keda_paused_replica_count` while paused, or any
+  `n8n_worker_pools` `max_replicas`); or move to a larger
+  `postgres_machine_type`. The model assumes n8n connects directly to Cloud
+  SQL, so leave the check off behind a connection pooler such as PgBouncer. A cheaper
   single-main sandbox profile built from existing inputs that fits under 50
   connections, and recommends enabling this check, is documented in the new
   [`docs/sandbox.md`](./docs/sandbox.md).
