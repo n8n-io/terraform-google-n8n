@@ -58,8 +58,8 @@ this project adheres to the stability contract in
   passes it, whitespace-trimmed, to the n8n chart's `database.ssl.ca`, which
   the chart renders as `DB_POSTGRESDB_SSL_CA` for the main, worker, and
   webhook-processor pods. Because the CA is part of the Helm release, a CA
-  change rolls the pods and a failed upgrade's atomic rollback restores the
-  previous CA (the design of terraform-azurerm-n8n and
+  change rolls the pods; if a failed upgrade's atomic rollback succeeds, the
+  previous CA is restored (the design of terraform-azurerm-n8n and
   terraform-aws-n8n#178). Two new `check` warnings cover a CA that is
   ignored because verification is off, and `NODE_TLS_REJECT_UNAUTHORIZED=0`
   in an extra env input turning verification off when no CA is supplied.
