@@ -575,3 +575,100 @@ run "postgres_connection_budget_check_counts_worker_pools" {
 
   expect_failures = [check.postgres_pool_size_fits_known_max_connections]
 }
+
+# A null postgres_machine_type is accepted on the external-database path
+# (the variable is nullable and unused there). The check's error_message is
+# evaluated even while its condition passes, so it must not put a raw null
+# into a string template, or the whole plan fails. Both toggle states are
+# covered; only the existing opposite-path tuning check fires.
+run "postgres_connection_budget_check_tolerates_a_null_machine_type_when_disabled" {
+  command = plan
+
+  variables {
+    create_postgres_instance = false
+    postgres_machine_type    = null
+    n8n_database_host        = "10.9.8.7"
+    n8n_database_password    = "external-db-password"
+    gke_node_max_per_zone    = 4
+  }
+
+  assert {
+    condition     = local.postgres_max_user_connections_known == null
+    error_message = "A null postgres_machine_type must resolve to a null known-connections lookup."
+  }
+
+  expect_failures = [check.postgres_tuning_ignored_when_external]
+}
+
+run "postgres_connection_budget_check_tolerates_a_null_machine_type_when_enabled" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    create_postgres_instance                 = false
+    postgres_machine_type                    = null
+    n8n_database_host                        = "10.9.8.7"
+    n8n_database_password                    = "external-db-password"
+    gke_node_max_per_zone                    = 4
+  }
+
+  assert {
+    condition     = local.postgres_max_user_connections_known == null
+    error_message = "A null postgres_machine_type must resolve to a null known-connections lookup."
+  }
+
+  expect_failures = [check.postgres_tuning_ignored_when_external]
+}
+
+# While paused, KEDA holds the workers at n8n_worker_keda_paused_replica_count,
+# which can exceed n8n_worker_keda_max_replicas. 1 main + 4 paused workers + 1
+# webhook at pool size 10 is 60 connections, over db-g1-small's 50. Without
+# the paused count the model would see 30 and stay silent.
+run "postgres_connection_budget_check_counts_paused_workers_above_the_maximum" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    db_postgresdb_pool_size                  = 10
+    n8n_main_hpa_min_replicas                = 1
+    n8n_main_hpa_max_replicas                = 1
+    n8n_worker_keda_min_replicas             = 1
+    n8n_worker_keda_max_replicas             = 1
+    n8n_webhook_hpa_min_replicas             = 1
+    n8n_webhook_hpa_max_replicas             = 1
+    n8n_worker_keda_pause                    = true
+    n8n_worker_keda_paused_replica_count     = 4
+  }
+
+  assert {
+    condition     = local.n8n_postgres_worker_modeled_max_replicas == 4 && local.n8n_postgres_peak_connections == 60
+    error_message = "A paused worker count (4) above the KEDA maximum (1) must be modeled, for 10 x (1 + 4 + 1) = 60 connections."
+  }
+
+  expect_failures = [check.postgres_pool_size_fits_known_max_connections]
+}
+
+# Pause only applies to the module-managed worker ScaledObject. With
+# n8n_worker_keda_enabled = false the module runs n8n_worker_fixed_replicas,
+# so the paused count is not counted.
+run "postgres_connection_budget_check_ignores_paused_count_without_module_keda" {
+  command = plan
+
+  variables {
+    postgres_connection_budget_check_enabled = true
+    db_postgresdb_pool_size                  = 10
+    n8n_main_hpa_min_replicas                = 1
+    n8n_main_hpa_max_replicas                = 1
+    n8n_webhook_hpa_min_replicas             = 1
+    n8n_webhook_hpa_max_replicas             = 1
+    n8n_worker_keda_enabled                  = false
+    n8n_worker_fixed_replicas                = 1
+    n8n_worker_keda_pause                    = true
+    n8n_worker_keda_paused_replica_count     = 4
+  }
+
+  assert {
+    condition     = local.n8n_postgres_worker_modeled_max_replicas == 1 && local.n8n_postgres_peak_connections == 30
+    error_message = "Without module-managed KEDA, the worker model must use n8n_worker_fixed_replicas (1), for 10 x (1 + 1 + 1) = 30 connections."
+  }
+}

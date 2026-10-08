@@ -319,8 +319,8 @@ check "graceful_shutdown_fits_grace_period" {
 # both a postgres_machine_type and replica ceilings and wants this advisory
 # guard against a later regression. Cloud SQL for PostgreSQL automatically
 # manages max_connections from the instance's current memory and
-# recalculates it whenever postgres_machine_type changes (the instance, and
-# any read replicas, briefly restart; see docs/sandbox.md and
+# recalculates it whenever postgres_machine_type changes (the instance
+# restarts, and read replicas may restart too; see docs/sandbox.md and
 # https://cloud.google.com/sql/docs/postgres/instance-settings). This check
 # only evaluates the budget for the postgres_machine_type in the current
 # plan, not any prior value.
@@ -369,6 +369,24 @@ check "graceful_shutdown_fits_grace_period" {
 # resolve to null (silent) rather than a guessed bucket. The check is also
 # silent when create_postgres_instance = false (no module-managed instance
 # to size) or postgres_connection_budget_check_enabled = false.
+#
+# This is an optimistic threshold, so a silent check does not prove the
+# ceilings fit:
+#   - The table holds the raw max_connections default, not the connections
+#     n8n can use. PostgreSQL carves superuser_reserved_connections out of
+#     max_connections, the module's database user is not a real superuser,
+#     and every other client of the instance shares the rest. Google does
+#     not document how many slots Cloud SQL itself reserves, so nothing is
+#     subtracted here (terraform-aws-n8n subtracts measured RDS reserves;
+#     terraform-azurerm-n8n uses Microsoft's published user limits).
+#   - The model counts configured steady-state ceilings. Extra pods a
+#     rolling update adds are not counted.
+#   - With n8n_main_hpa_enabled, n8n_worker_keda_enabled, or
+#     n8n_webhook_hpa_enabled set to false, the model counts that role's
+#     fixed replica count (capacity.tf). A caller-owned autoscaler can scale
+#     past it.
+#   - The module manages database_flags without ignore_changes, so a
+#     max_connections flag set outside Terraform is removed on the next apply.
 locals {
   postgres_machine_type_custom_memory_mb = try(
     tonumber(regex("^db-custom-[0-9]+-([0-9]+)$", var.postgres_machine_type)[0]),
@@ -422,9 +440,20 @@ locals {
   # an empty list (mirrors capacity.tf's capacity_pool_peak_* pattern).
   n8n_worker_pools_max_replicas_sum = sum(concat([0], [for p in var.n8n_worker_pools : p.max_replicas]))
 
+  # While n8n_worker_keda_pause is true, KEDA holds the worker Deployment at
+  # n8n_worker_keda_paused_replica_count, which may exceed the KEDA maximum.
+  # Pause only applies while the module manages the worker ScaledObject
+  # (n8n_worker_keda_enabled = true). A null count freezes workers at their
+  # current count, which the model assumes is within the maximum. Same model
+  # as terraform-azurerm-n8n.
+  n8n_postgres_worker_modeled_max_replicas = (var.n8n_worker_keda_enabled && var.n8n_worker_keda_pause) ? max(
+    local.capacity_worker_max_replicas,
+    coalesce(var.n8n_worker_keda_paused_replica_count, 0),
+  ) : local.capacity_worker_max_replicas
+
   n8n_postgres_peak_connections = var.db_postgresdb_pool_size * (
     local.capacity_main_max_replicas +
-    local.capacity_worker_max_replicas +
+    local.n8n_postgres_worker_modeled_max_replicas +
     local.capacity_webhook_max_replicas +
     local.n8n_worker_pools_max_replicas_sum
   )
@@ -437,17 +466,22 @@ check "postgres_pool_size_fits_known_max_connections" {
     ) : true
     error_message = join("", [
       "db_postgresdb_pool_size (${var.db_postgresdb_pool_size}) times the modeled pod ceiling (main ",
-      "${local.capacity_main_max_replicas} + worker ${local.capacity_worker_max_replicas} + webhook ",
+      "${local.capacity_main_max_replicas} + worker ${local.n8n_postgres_worker_modeled_max_replicas} + webhook ",
       tostring(local.capacity_webhook_max_replicas),
       local.n8n_worker_pools_max_replicas_sum > 0 ? " + worker pools ${local.n8n_worker_pools_max_replicas_sum}" : "",
-      ") demands up to ${local.n8n_postgres_peak_connections} connections at full scale-out, over the ",
-      "${coalesce(local.postgres_max_user_connections_known, 0)}-connection budget Cloud SQL allocates by default for postgres_machine_type = ",
-      "\"${var.postgres_machine_type}\" (Cloud SQL derives this from the machine type's current memory and ",
-      "recalculates it on a later postgres_machine_type change too; see docs/sandbox.md). Fix with one of: (1) lower ",
-      "db_postgresdb_pool_size, (2) lower the main/worker/webhook-processor autoscaler maxima (or any ",
-      "n8n_worker_pools max_replicas), or (3) move to a larger postgres_machine_type whose budget covers the ",
-      "demand above. A database_flags max_connections override set out of band also works but this module ",
-      "exposes no input for it. This diagnostic is advisory and does not fail the plan.",
+      ") demands up to ${local.n8n_postgres_peak_connections} connections at full scale-out, more than the ",
+      "default max_connections of ${coalesce(local.postgres_max_user_connections_known, 0)} that Cloud SQL sets for postgres_machine_type = ",
+      # jsonencode() keeps a null machine type from failing the plan: Terraform
+      # evaluates error_message even while the condition passes, and a null
+      # value in a string template is an error.
+      jsonencode(var.postgres_machine_type),
+      ". Cloud SQL derives this from the machine type's memory and recalculates it when postgres_machine_type ",
+      "changes. Reserved superuser slots and other clients also count against it, so n8n can use fewer. Fix with ",
+      "one of: (1) lower db_postgresdb_pool_size, (2) lower the main/worker/webhook-processor autoscaler maxima ",
+      "(or the fixed replica counts of any role whose autoscaler is disabled, any n8n_worker_pools max_replicas, ",
+      "or n8n_worker_keda_paused_replica_count), or (3) move to a larger ",
+      "postgres_machine_type. Confirm the live value with SHOW max_connections (see docs/sandbox.md). This ",
+      "diagnostic is advisory and does not fail the plan.",
     ])
   }
 }
