@@ -72,12 +72,14 @@ Module-created Cloud KMS CryptoKeys carry `lifecycle { prevent_destroy = true }`
 
    The key stays in Cloud KMS (a destroyed CryptoKey cannot be re-created under the same name anyway; KMS key material is only ever scheduled for destruction). Schedule its versions for destruction out of band with `gcloud kms keys versions destroy` once nothing encrypted with it must remain readable.
 
-2. **A full `terraform destroy` of a deployment that used a module-created key.** Remove the key (and, if module-created, the key ring) from state first, then destroy the rest:
+2. **A full `terraform destroy` of a deployment that used a module-created key.** Remove every module-created key (and, if module-created, the key ring) from state first, then destroy the rest. Each enabled `create_*_kms_key` switch has its own address: `google_kms_crypto_key.postgres[0]`, `.redis[0]`, `.gcs[0]`, or `.gke[0]`. List only the ones your deployment created; `terraform state list | grep google_kms` shows them. For example, with module-created Cloud SQL and GKE keys:
 
    ```bash
-   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]' 'module.n8n.google_kms_key_ring.n8n[0]'
+   terraform state rm 'module.n8n.google_kms_crypto_key.postgres[0]' 'module.n8n.google_kms_crypto_key.gke[0]' 'module.n8n.google_kms_key_ring.n8n[0]'
    terraform destroy ...
    ```
+
+   Destroying the cluster removes everything encrypted with the GKE key, so the GKE key does not need the decryption steps below first.
 
 ### Turning GKE secrets encryption off
 
