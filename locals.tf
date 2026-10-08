@@ -29,7 +29,7 @@ locals {
   # chart-rendered identity/topology/storage/license vars not covered by a
   # prefix below. Keep in sync with the extraEnv block in n8n.tf and the chart
   # values the module sets (database/redis/s3/multiMain/license/secretRefs).
-  n8n_managed_env_names = [
+  n8n_managed_env_names = concat([
     # Set by the module in config.extraEnv or the n8n secret.
     "N8N_ENCRYPTION_KEY",
     "N8N_LOG_LEVEL",
@@ -94,10 +94,6 @@ locals {
     "OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS",
     "N8N_DEFAULT_BINARY_DATA_MODE",
     "N8N_LICENSE_ACTIVATION_KEY",
-    # Offline license activation (N8N_LICENSE_CERT), emitted via config.extraEnv
-    # only when n8n_license_cert_secret_ref is set (local.n8n_license_cert_env,
-    # n8n.tf).
-    "N8N_LICENSE_CERT",
     "N8N_HOST",
     "N8N_PORT",
     "N8N_PROTOCOL",
@@ -110,7 +106,15 @@ locals {
     "N8N_WORKER_POOLS_ENABLED",
     "N8N_WORKER_POOL_NAME",
     "TZ",
-  ]
+    ],
+    # N8N_LICENSE_CERT is reserved only while n8n_license_cert_secret_ref is
+    # set, because only then does the module render it (local.n8n_license_cert_env).
+    # Before that input existed, n8n_extra_env, n8n_worker_extra_env, and pool
+    # extra_env accepted N8N_LICENSE_CERT. Reserving it unconditionally would
+    # reject that existing usage at plan time on upgrade, for a collision that
+    # cannot occur when the input is null. Same approach as terraform-aws-n8n.
+    local.n8n_license_uses_cert ? ["N8N_LICENSE_CERT"] : [],
+  )
 
   # Env vars n8n has deprecated and logs a warning for on every start. The
   # module does not set these on a current image (WEBHOOK_URL has one
@@ -293,18 +297,41 @@ locals {
   # n8n_license_key_secret_ref is used as-is and creates no managed Secret.
   # n8n_license_cert_secret_ref (offline activation) creates no managed Secret
   # either, and is rendered through config.extraEnv instead of
-  # license.existingSecret, so the effective_license_secret_* locals resolve to
-  # the empty string on that path (n8n.tf's license.existingSecret.name then
-  # reads as falsy, so the chart's n8n.licenseEnv helper emits no
-  # N8N_LICENSE_ACTIVATION_KEY at all; see local.n8n_license_cert_env for the
-  # N8N_LICENSE_CERT entry it emits instead). All three sources remain
-  # mutually exclusive (variables.tf's validation), so exactly one of these
-  # branches is ever active.
+  # license.existingSecret, so the effective_license_secret_* locals are null
+  # on that path and local.n8n_license_values omits existingSecret entirely
+  # (see local.n8n_license_cert_env for the N8N_LICENSE_CERT entry it emits
+  # instead). All three sources remain mutually exclusive (variables.tf's
+  # validation), so exactly one of these branches is ever active.
   manage_license_secret = var.n8n_license_key != null
   n8n_license_uses_cert = var.n8n_license_cert_secret_ref != null
 
-  effective_license_secret_name = local.manage_license_secret ? kubernetes_secret.n8n_license[0].metadata[0].name : (local.n8n_license_uses_cert ? "" : var.n8n_license_key_secret_ref.name)
-  effective_license_secret_key  = local.manage_license_secret ? "license-key" : (local.n8n_license_uses_cert ? "license-key" : var.n8n_license_key_secret_ref.key)
+  effective_license_secret_name = local.manage_license_secret ? kubernetes_secret.n8n_license[0].metadata[0].name : (local.n8n_license_uses_cert ? null : var.n8n_license_key_secret_ref.name)
+  effective_license_secret_key  = local.manage_license_secret ? "license-key" : (local.n8n_license_uses_cert ? null : var.n8n_license_key_secret_ref.key)
+
+  # The chart's license values (helm_release.n8n, n8n.tf). Kept as a named
+  # local so its shape is assertable under the mock provider, where
+  # helm_release.values is unknown at plan time. The license is always
+  # delivered by Secret reference, never activationKey, so no literal
+  # activation key renders into Helm values or pod specs. On the
+  # offline-certificate path existingSecret is omitted, the same as
+  # terraform-aws-n8n and terraform-azurerm-n8n: the chart then falls back to
+  # its own default (empty name) and its license helper emits no
+  # N8N_LICENSE_ACTIVATION_KEY. license.enabled stays true on every path,
+  # because the chart also gates N8N_MULTI_MAIN_SETUP_ENABLED on
+  # license.enabled alone, not on which credential backs it; turning it off
+  # would silently break multi-main leader election.
+  n8n_license_values = merge(
+    {
+      enabled       = true
+      activationKey = ""
+    },
+    local.n8n_license_uses_cert ? {} : {
+      existingSecret = {
+        name = local.effective_license_secret_name
+        key  = local.effective_license_secret_key
+      }
+    },
+  )
 
   # Offline license activation (N8N_LICENSE_CERT): rendered through the shared
   # config.extraEnv list (n8n.tf) rather than the chart's license.existingSecret

@@ -76,13 +76,19 @@ this project adheres to the stability contract in
   three must be set. The certificate renders through the shared
   `config.extraEnv` list as a `secretKeyRef`, not through the chart's
   `license.existingSecret` block, which only ever maps to
-  `N8N_LICENSE_ACTIVATION_KEY`. `license.enabled` stays `true` on this path
-  because the chart also gates `N8N_MULTI_MAIN_SETUP_ENABLED` on
-  `license.enabled`, not on which credential backs it. `name` and `key` are
-  validated as a Kubernetes Secret name (DNS-1123 subdomain) and data key
-  respectively, not just checked for non-blank. See ["Offline license
-  activation"](./README.md#offline-license-activation) (ports
-  [terraform-azurerm-n8n#51](https://github.com/n8n-io/terraform-azurerm-n8n/pull/51)).
+  `N8N_LICENSE_ACTIVATION_KEY`; `existingSecret` is omitted on this path.
+  `license.enabled` stays `true` on this path because the chart also gates
+  `N8N_MULTI_MAIN_SETUP_ENABLED` on `license.enabled`, not on which
+  credential backs it. `name` and `key` are validated as a Kubernetes Secret
+  name (DNS-1123 subdomain) and data key respectively, not just checked for
+  non-blank. While the input is set, `n8n_extra_env`,
+  `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` reject
+  `N8N_LICENSE_CERT`; while it is null they accept it as before, so no
+  existing configuration is rejected. See ["Offline license
+  activation"](./README.md#offline-license-activation). Same design as
+  [terraform-aws-n8n#171](https://github.com/n8n-io/terraform-aws-n8n/pull/171)
+  and
+  [terraform-azurerm-n8n#51](https://github.com/n8n-io/terraform-azurerm-n8n/pull/51).
 
 ### Changed
 

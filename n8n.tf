@@ -228,30 +228,16 @@ resource "helm_release" "n8n" {
   cleanup_on_fail = true
 
   values = [yamlencode(merge({
-    # Ownership-neutral (D7): the license is always delivered through
-    # existingSecret, never activationKey, so no literal activation key ever
-    # renders into Helm values or pod specs. A direct n8n_license_key wraps
-    # into the module-managed kubernetes_secret.n8n_license; a caller-supplied
+    # Ownership-neutral (D7): a direct n8n_license_key wraps into the
+    # module-managed kubernetes_secret.n8n_license; a caller-supplied
     # n8n_license_key_secret_ref is referenced as-is and creates no managed
-    # Secret (mutually exclusive, enforced by variables.tf's validation).
-    # On the offline-certificate path (n8n_license_cert_secret_ref),
-    # effective_license_secret_name/key resolve to the empty string / the
-    # unused "license-key" placeholder (locals.tf), so existingSecret.name
-    # reads as falsy and the chart's license helper emits no
-    # N8N_LICENSE_ACTIVATION_KEY at all; local.n8n_license_cert_env below
-    # renders N8N_LICENSE_CERT through config.extraEnv instead. license.enabled
-    # stays true on every path: the chart also gates
-    # N8N_MULTI_MAIN_SETUP_ENABLED on license.enabled alone, not on which
-    # credential backs it, so turning it off would silently break multi-main
-    # leader election.
-    license = {
-      enabled       = true
-      activationKey = ""
-      existingSecret = {
-        name = local.effective_license_secret_name
-        key  = local.effective_license_secret_key
-      }
-    }
+    # Secret (mutually exclusive, enforced by variables.tf's validation). On
+    # the offline-certificate path (n8n_license_cert_secret_ref),
+    # local.n8n_license_values omits existingSecret and
+    # local.n8n_license_cert_env below renders N8N_LICENSE_CERT through
+    # config.extraEnv instead. See local.n8n_license_values (locals.tf) for
+    # why license.enabled stays true on every path.
+    license = local.n8n_license_values
 
     # Fixed replica counts fall back to n8n_*_fixed_replicas when the caller
     # owns that pod's scaling (n8n_main_hpa_enabled / n8n_webhook_hpa_enabled /

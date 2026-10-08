@@ -122,7 +122,7 @@ variable "n8n_license_key_secret_ref" {
 # N8N_MULTI_MAIN_SETUP_ENABLED on license.enabled, not on which credential
 # backs it; turning it off would silently break multi-main leader election.
 variable "n8n_license_cert_secret_ref" {
-  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding a base64-encoded n8n Enterprise offline license certificate (N8N_LICENSE_CERT), for air-gapped or egress-restricted clusters that cannot reach n8n's license server to activate n8n_license_key. key defaults to \"cert\" when omitted. The module never reads the referenced Secret's value; it only renders the name and key into the shared config.extraEnv list as a secretKeyRef, never into the chart's license.existingSecret block. Mutually exclusive with n8n_license_key and n8n_license_key_secret_ref - exactly one of the three is required."
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding a base64-encoded n8n Enterprise offline license certificate (N8N_LICENSE_CERT), for air-gapped or egress-restricted clusters that cannot reach n8n's license server to activate n8n_license_key. key defaults to \"cert\" when omitted. The module never reads the referenced Secret's value; it only renders the name and key into the shared config.extraEnv list as a secretKeyRef, never into the chart's license.existingSecret block. Mutually exclusive with n8n_license_key and n8n_license_key_secret_ref - exactly one of the three is required. While this is set, n8n_extra_env, n8n_worker_extra_env, and n8n_worker_pools extra_env reject N8N_LICENSE_CERT; while it is null, they accept it as before."
   type = object({
     name = string
     key  = optional(string, "cert")
@@ -130,19 +130,21 @@ variable "n8n_license_cert_secret_ref" {
   default = null
 
   validation {
-    condition = var.n8n_license_cert_secret_ref == null ? true : (
-      can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$", var.n8n_license_cert_secret_ref.name)) &&
+    condition = var.n8n_license_cert_secret_ref == null ? true : (var.n8n_license_cert_secret_ref.name == null ? false : (
+      can(regex("^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$", var.n8n_license_cert_secret_ref.name)) &&
       length(var.n8n_license_cert_secret_ref.name) <= 253
-    )
-    error_message = "n8n_license_cert_secret_ref.name must be a DNS-1123 subdomain, which is what Kubernetes requires of a Secret name: lowercase alphanumerics, hyphens and dots, starting and ending with an alphanumeric, 253 characters or fewer."
+    ))
+    error_message = "n8n_license_cert_secret_ref.name must be a DNS-1123 subdomain, which is what Kubernetes requires of a Secret name: lowercase alphanumerics, hyphens and dots, 253 characters or fewer, where each dot-separated part starts and ends with an alphanumeric (so no \"..\" or \".-\"), e.g. \"n8n-license-cert\"."
   }
 
   validation {
     condition = var.n8n_license_cert_secret_ref == null ? true : (
       can(regex("^[-._a-zA-Z0-9]+$", var.n8n_license_cert_secret_ref.key)) &&
-      length(var.n8n_license_cert_secret_ref.key) <= 253
+      length(var.n8n_license_cert_secret_ref.key) <= 253 &&
+      !startswith(var.n8n_license_cert_secret_ref.key, "..") &&
+      var.n8n_license_cert_secret_ref.key != "."
     )
-    error_message = "n8n_license_cert_secret_ref.key must be a valid Kubernetes Secret data key: alphanumeric characters, '-', '_', or '.', 253 characters or fewer."
+    error_message = "n8n_license_cert_secret_ref.key must be a valid Kubernetes Secret data key: alphanumeric characters, '-', '_', or '.', 253 characters or fewer, not \".\" and not starting with \"..\" (Kubernetes rejects both)."
   }
 }
 

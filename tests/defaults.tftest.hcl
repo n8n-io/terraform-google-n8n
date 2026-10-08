@@ -977,16 +977,81 @@ run "extra_env_rejects_license_name" {
   expect_failures = [var.n8n_extra_env]
 }
 
-run "extra_env_rejects_license_cert_name" {
+# N8N_LICENSE_CERT is reserved only while n8n_license_cert_secret_ref is set
+# (locals.tf's n8n_managed_env_names). With the input null, all three env
+# passthroughs still accept it, as they did before the input existed.
+run "extra_env_accepts_license_cert_name_without_cert_secret_ref" {
   command = plan
 
   variables {
+    n8n_chart_version = "1.11.0-preview.workerpools.1"
+    n8n_extra_env = [
+      { name = "N8N_LICENSE_CERT", value = "caller-managed-cert" },
+    ]
+    n8n_worker_extra_env = [
+      { name = "N8N_LICENSE_CERT", value = "caller-managed-cert" },
+    ]
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "N8N_LICENSE_CERT", value = "caller-managed-cert" },
+        ]
+      },
+    ]
+  }
+
+  assert {
+    condition     = !contains(local.n8n_managed_env_names, "N8N_LICENSE_CERT")
+    error_message = "N8N_LICENSE_CERT must not be reserved while n8n_license_cert_secret_ref is null."
+  }
+}
+
+run "extra_env_rejects_license_cert_name_with_cert_secret_ref" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
     n8n_extra_env = [
       { name = "N8N_LICENSE_CERT", value = "stolen-cert" },
     ]
   }
 
   expect_failures = [var.n8n_extra_env]
+}
+
+run "worker_extra_env_rejects_license_cert_name_with_cert_secret_ref" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+    n8n_worker_extra_env = [
+      { name = "N8N_LICENSE_CERT", value = "stolen-cert" },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_extra_env]
+}
+
+run "worker_pools_reject_license_cert_name_with_cert_secret_ref" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+    n8n_worker_pools = [
+      {
+        name = "heavy"
+        extra_env = [
+          { name = "N8N_LICENSE_CERT", value = "stolen-cert" },
+        ]
+      },
+    ]
+  }
+
+  expect_failures = [var.n8n_worker_pools]
 }
 
 # A genuinely non-managed var that happens to be timezone-related stays allowed:

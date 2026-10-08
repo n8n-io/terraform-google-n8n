@@ -360,11 +360,13 @@ in a caller-managed Kubernetes Secret.
 1. Set `n8n_license_cert_secret_ref` (and `n8n_license_key = null`), ideally
    with egress to n8n's license server blocked, and `terraform apply`.
    Confirm `kubernetes_secret.n8n_license` is not created, and that
-   `helm get values n8n -n <namespace>` shows `license.enabled: true` with
-   an inert `existingSecret` block (empty `name`) and an empty
-   `activationKey` - that is the expected shape on this path, not a sign of
-   a leaked key - and that `kubectl -n <namespace> exec deploy/n8n-main -- printenv`
-   shows no `N8N_LICENSE_ACTIVATION_KEY`.
+   `helm get values n8n -n <namespace>` shows `license.enabled: true`, an
+   empty `activationKey`, and no `existingSecret` block. Then list the env
+   var names without printing any values:
+   `kubectl -n <namespace> get deploy n8n-main -o jsonpath='{.spec.template.spec.containers[0].env[*].name}'`.
+   The list must include `N8N_LICENSE_CERT` and must not include
+   `N8N_LICENSE_ACTIVATION_KEY`. Avoid a plain `printenv` in the pod,
+   because it prints the certificate and every other credential.
 2. Confirm activation from **Settings → License** or
    `kubectl -n <namespace> exec deploy/n8n-main -- n8n license:info`, with no
    outbound call to n8n's license server.
@@ -374,7 +376,8 @@ in a caller-managed Kubernetes Secret.
 4. Roll the main deployment and confirm replacement pods stay licensed with
    no re-activation round trip.
 5. Rotate the certificate (update the caller-managed Secret's payload) and
-   restart `n8n-main`/`n8n-worker`/`n8n-webhook-processor`; confirm the new
+   restart `n8n-main`/`n8n-worker`/`n8n-webhook-processor` and any
+   `n8n-worker-<pool>` deployments; confirm the new
    certificate takes effect, since the module never reads the Secret's value
    and cannot detect a payload change itself.
 
