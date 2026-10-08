@@ -1110,14 +1110,13 @@ if [ "$PG_RENDER_OK" = "1" ]; then
   done
 fi
 
-# ── Offline license activation (N8N_LICENSE_CERT, issue parity with
-# terraform-azurerm-n8n#51) ─────────────────────────────────────────────────
-# license.existingSecret.name is "" here, same as every other fixture in this
-# script: the module's effective_license_secret_name local (locals.tf)
-# resolves to the empty string on the n8n_license_cert_secret_ref path, which
-# makes the chart's n8n.licenseEnv helper (_environment-helpers.tpl) treat
-# existingSecret.name as falsy and emit no N8N_LICENSE_ACTIVATION_KEY at all.
-# config.extraEnv instead carries the N8N_LICENSE_CERT secretKeyRef entry the
+# ── Offline license activation (N8N_LICENSE_CERT, same design as
+# terraform-aws-n8n#171 and terraform-azurerm-n8n#51) ──────────────────────
+# The license block omits existingSecret, matching local.n8n_license_values
+# (locals.tf) on the n8n_license_cert_secret_ref path. The chart then falls
+# back to its own default (empty existingSecret.name), so its n8n.licenseEnv
+# helper (_environment-helpers.tpl) emits no N8N_LICENSE_ACTIVATION_KEY at
+# all. config.extraEnv instead carries the N8N_LICENSE_CERT secretKeyRef entry the
 # module renders from local.n8n_license_cert_env (n8n.tf), proving the chart's
 # config.extraEnv (no item-shape restriction in values.schema.json, unlike
 # executions.extraEnv) actually accepts and renders a valueFrom.secretKeyRef
@@ -1168,9 +1167,6 @@ secretRefs:
 license:
   enabled: true
   activationKey: ""
-  existingSecret:
-    name: ""
-    key: license-key
 s3:
   enabled: true
   bucket:
@@ -1185,7 +1181,6 @@ s3:
       key: accessSecret
   storage:
     mode: s3
-    availableModes: "filesystem,s3"
     forcePathStyle: true
 EOF
 
