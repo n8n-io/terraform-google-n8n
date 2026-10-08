@@ -268,6 +268,55 @@ run "rejects_postgres_password_wo_when_write_only_disabled" {
   expect_failures = [var.postgres_password_wo]
 }
 
+run "rejects_managed_secret_name_with_postgres_password_write_only" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    n8n_database_password_secret_ref = {
+      name = "n8n-enterprise-db-secret"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.n8n_database_password_secret_ref]
+}
+
+run "rejects_empty_postgres_password_wo" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "   "
+    n8n_database_password_secret_ref = {
+      name = "platform-n8n-db-password"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [var.postgres_password_wo]
+}
+
+# The write-only path exempts only n8n_database_password_secret_ref from the
+# ignored-input check; a direct n8n_database_password is still ignored on the
+# managed path and must still warn.
+run "warns_direct_password_with_postgres_password_write_only" {
+  command = plan
+
+  variables {
+    postgres_password_write_only = true
+    postgres_password_wo         = "an-ephemeral-value-terraform-never-persists"
+    n8n_database_password        = "ignored-direct-password"
+    n8n_database_password_secret_ref = {
+      name = "platform-n8n-db-password"
+      key  = "password"
+    }
+  }
+
+  expect_failures = [check.postgres_host_and_password_ignored_when_managed]
+}
+
 run "rejects_nonpositive_postgres_password_wo_version" {
   command = plan
 

@@ -140,9 +140,14 @@ this project adheres to the stability contract in
   through `google_sql_user.n8n`'s write-only `password_wo` argument instead
   of a `random_password` resource whose result Terraform stores in plain
   text in state. `postgres_password_wo` is an `ephemeral` module variable,
-  so the value you pass never lands in a plan or state file. This mode
-  requires `n8n_database_password_secret_ref` (the module cannot copy a
-  write-only value into the Kubernetes Secret it would otherwise manage),
+  so this module never writes the value to a plan or state file. That holds
+  end to end only if your root module passes an ephemeral value too (an
+  ephemeral input variable or an ephemeral resource); an ordinary root
+  variable is saved in your plan file, and an ordinary data source stores
+  the secret in your state. Empty or whitespace-only values are rejected.
+  This mode requires `n8n_database_password_secret_ref`, under a name other
+  than the module-managed `n8n-enterprise-db-secret` (the module cannot copy
+  a write-only value into the Kubernetes Secret it would otherwise manage),
   makes the `n8n_database_password` output `null`, and is fully opt-in: the
   default (`postgres_password_write_only = false`) behavior is unchanged.
   See [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md) for the full
@@ -152,12 +157,16 @@ this project adheres to the stability contract in
 ### Changed
 
 - **Provider floor raised:** `hashicorp/google` and `hashicorp/google-beta`
-  now require `~> 6.1` (was `~> 6.0`), because
+  now require `~> 6.23` (was `~> 6.0`). Two features need it:
   `google_container_cluster.secret_manager_config` does not exist in 6.0.x
-  and Terraform rejects the block at validate time even when the add-on is
-  off. The examples that call the root module now declare `~> 6.1` too;
+  (Terraform rejects the block at validate time even when the add-on is
+  off), and `google_sql_user`'s `password_wo`/`password_wo_version`
+  (`postgres_password_write_only`) do not exist before 6.23.0.
+  `google-beta` uses neither; it moves because the module keeps it in
+  lockstep with `google` (`docs/versioning.md`). The examples that call the
+  root module now declare `~> 6.23` too;
   `modules/controllers/examples/direct-use` stays on `~> 6.0` because the
-  controllers submodule does not need 6.1. This is a minor-version change
+  controllers submodule needs neither feature. This is a minor-version change
   under the module's stability contract.
   Upgrade note: if your dependency lock file selects a 6.0.x release, run
   `terraform init -upgrade` before planning. If your root module pins either
@@ -227,18 +236,16 @@ this project adheres to the stability contract in
   This is an in-place configuration update with no instance restart, but it
   overwrites any `maxmemory-policy` set outside Terraform; see
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
-- **Breaking:** `required_version` is now `>= 1.11` (was `>= 1.9`) and the
-  `google`/`google-beta` provider requirements are now `~> 6.23` (was
-  `~> 6.1`). Terraform 1.11 and `google` 6.23 are needed to parse and use
-  `postgres_password_write_only`'s `ephemeral` variable and write-only
-  `password_wo` argument (see "Added" above). `google-beta` has no write-only
-  argument in use; it moves only because the module keeps it in lockstep
-  with `google` (`docs/versioning.md`). Both floors apply module-wide
-  regardless of whether you set that variable, because Terraform parses
-  `ephemeral` and write-only syntax from this module's HCL unconditionally.
-  Upgrade the Terraform CLI and run `terraform init -upgrade` so the
-  `google`/`google-beta` providers resolve within the new range before
-  applying; see [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#terraform-cli-floor-raised-to--111)
+- **Breaking:** `required_version` is now `>= 1.11` (was `>= 1.9`).
+  `postgres_password_write_only`'s `ephemeral` variable needs Terraform 1.10,
+  and passing it to the write-only `password_wo` argument needs 1.11 (see
+  "Added" above). The floor applies module-wide regardless of whether you
+  set that variable, because Terraform parses `ephemeral` and write-only
+  syntax from this module's HCL unconditionally. The `modules/controllers`
+  submodule keeps `>= 1.9`. Upgrade the Terraform CLI, and run
+  `terraform init -upgrade` for the provider floor above, before applying;
+  see
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#terraform-cli-floor-raised-to--111)
   (Ports
   [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
 

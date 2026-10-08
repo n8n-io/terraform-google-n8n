@@ -909,6 +909,11 @@ resource "helm_release" "n8n" {
     kubernetes_namespace.n8n,
     module.controllers,
     google_sql_database_instance.n8n,
+    # Roll the pods only after the Cloud SQL user exists and any password
+    # change (generated or write-only, including switching between the two)
+    # has been applied, so new pods do not start with a password the
+    # database does not accept yet.
+    google_sql_user.n8n,
     google_redis_instance.n8n,
     kubernetes_secret.n8n_redis,
     kubernetes_secret.n8n_redis_username,
