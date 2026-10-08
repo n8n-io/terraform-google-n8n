@@ -1,5 +1,5 @@
 # Plan-time tests for PostgreSQL server-certificate verification
-# (db_postgresdb_ssl_reject_unauthorized / db_postgresdb_ssl_ca_secret_ref)
+# (db_postgresdb_ssl_reject_unauthorized / db_postgresdb_ssl_ca_pem)
 # and Cloud SQL server-side TLS enforcement (postgres_ssl_mode).
 #
 # db_postgresdb_ssl_reject_unauthorized is validated to only ever be true on
@@ -9,15 +9,15 @@
 # n8n's hostname check is expected to fail the TLS handshake there.
 # See docs/postgresql-tls.md for the full explanation.
 #
-# The chart's rendering of the PostgreSQL CA volume, mount, and env next to
-# the Redis CA and a caller volume is covered by
-# tests/scripts/check-n8n-chart.sh, not here.
+# How the pinned chart renders database.ssl (DB_POSTGRESDB_SSL_CA in its
+# ConfigMap, consumed by every role, with a checksum/config annotation that
+# changes with the CA) is covered by tests/scripts/check-n8n-chart.sh, not
+# here.
 #
-# helm_release.n8n.values is a JSON-encoded string, unknown at plan time
-# under the mock provider (AGENTS.md's known mock-provider limitations), so
-# the rendered extraEnv/extraVolumes/extraVolumeMounts shape is asserted
-# against local.n8n_postgres_ssl_env/n8n_postgres_ssl_ca_volume/
-# n8n_postgres_ssl_ca_mount directly (permitted per AGENTS.md: "A terraform
+# helm_release.n8n.values is unknown at plan time under the mock provider
+# (AGENTS.md's known mock-provider limitations), so the database.ssl and
+# extraEnv fragments are asserted against local.n8n_database_ssl_values and
+# local.n8n_postgres_ssl_env directly (permitted per AGENTS.md: "A terraform
 # test assert condition can reference module local.* values directly").
 
 mock_provider "google" {}
@@ -52,8 +52,8 @@ run "defaults_render_unverified_ssl_disabled_env" {
   }
 
   assert {
-    condition     = local.manage_postgres_ssl_ca == false
-    error_message = "manage_postgres_ssl_ca must default to false."
+    condition     = local.postgres_ssl_ca_active == false && length(keys(local.n8n_database_ssl_values)) == 0
+    error_message = "No database.ssl chart value may render by default, so existing callers see no Helm values diff."
   }
 }
 
@@ -127,17 +127,17 @@ run "reject_unauthorized_allowed_on_external_path_without_ca" {
   }
 
   assert {
-    condition     = local.manage_postgres_ssl_ca == false
-    error_message = "manage_postgres_ssl_ca must stay false when no CA secret ref is supplied; verification falls back to the pod image's bundled trust store."
+    condition     = local.postgres_ssl_ca_active == false && length(keys(local.n8n_database_ssl_values)) == 0
+    error_message = "No database.ssl chart value may render when no CA is supplied; verification falls back to the pod image's bundled trust store."
   }
 
   assert {
-    condition     = length([for e in local.n8n_postgres_ssl_env : e if e.name == "DB_POSTGRESDB_SSL_CA_FILE"]) == 0
-    error_message = "DB_POSTGRESDB_SSL_CA_FILE must not render when no CA secret ref is supplied."
+    condition     = length(local.n8n_postgres_ssl_env) == 2
+    error_message = "Verification without a CA must render only DB_POSTGRESDB_SSL_ENABLED and DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED."
   }
 }
 
-run "reject_unauthorized_with_ca_secret_ref_renders_volume_mount_and_env" {
+run "reject_unauthorized_with_ca_pem_renders_chart_database_ssl" {
   command = plan
 
   variables {
@@ -146,33 +146,34 @@ run "reject_unauthorized_with_ca_secret_ref_renders_volume_mount_and_env" {
     n8n_database_password                 = "external-db-password"
     db_postgresdb_ssl_enabled             = true
     db_postgresdb_ssl_reject_unauthorized = true
-    db_postgresdb_ssl_ca_secret_ref = {
-      name = "postgres-server-ca"
-    }
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
   }
 
   assert {
-    condition     = local.manage_postgres_ssl_ca == true
-    error_message = "manage_postgres_ssl_ca must be true once both reject_unauthorized and the CA secret ref are set."
+    condition     = local.postgres_ssl_ca_active == true
+    error_message = "postgres_ssl_ca_active must be true once both reject_unauthorized and the CA are set."
   }
 
   assert {
-    condition     = local.n8n_postgres_ssl_ca_volume.secret.secretName == "postgres-server-ca" && local.n8n_postgres_ssl_ca_volume.secret.items[0].key == "ca.crt"
-    error_message = "n8n_postgres_ssl_ca_volume must reference the caller's Secret name, defaulting key to \"ca.crt\"."
+    condition     = local.n8n_database_ssl_values.ssl.ca == "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
+    error_message = "database.ssl.ca must carry the caller's PEM bundle."
+  }
+
+  # The chart renders DB_POSTGRESDB_SSL_CA only when database.ssl.enabled is
+  # true, and renders its own DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED only when
+  # database.ssl.rejectUnauthorized is false.
+  assert {
+    condition     = local.n8n_database_ssl_values.ssl.enabled == true && local.n8n_database_ssl_values.ssl.rejectUnauthorized == true
+    error_message = "database.ssl must set enabled = true and rejectUnauthorized = true so the chart renders the CA and no duplicate DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED."
   }
 
   assert {
-    condition     = local.n8n_postgres_ssl_ca_mount.mountPath == "/etc/n8n-certs/postgres-ssl-ca.crt" && local.n8n_postgres_ssl_ca_mount.readOnly == true
-    error_message = "n8n_postgres_ssl_ca_mount must mount the CA read-only at the documented path."
-  }
-
-  assert {
-    condition     = one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_CA_FILE"]) == "/etc/n8n-certs/postgres-ssl-ca.crt"
-    error_message = "DB_POSTGRESDB_SSL_CA_FILE must point at the mounted CA file path."
+    condition     = length(local.n8n_postgres_ssl_env) == 2 && one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"]) == "true"
+    error_message = "The module's extraEnv must keep exactly DB_POSTGRESDB_SSL_ENABLED and DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED; the CA travels through the chart, not extraEnv."
   }
 }
 
-run "ca_secret_ref_accepts_custom_key" {
+run "ca_pem_is_whitespace_trimmed" {
   command = plan
 
   variables {
@@ -181,19 +182,16 @@ run "ca_secret_ref_accepts_custom_key" {
     n8n_database_password                 = "external-db-password"
     db_postgresdb_ssl_enabled             = true
     db_postgresdb_ssl_reject_unauthorized = true
-    db_postgresdb_ssl_ca_secret_ref = {
-      name = "postgres-server-ca"
-      key  = "tls.crt"
-    }
+    db_postgresdb_ssl_ca_pem              = "\n  -----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----\n\n"
   }
 
   assert {
-    condition     = local.n8n_postgres_ssl_ca_volume.secret.items[0].key == "tls.crt"
-    error_message = "A custom key on db_postgresdb_ssl_ca_secret_ref must override the \"ca.crt\" default."
+    condition     = local.n8n_database_ssl_values.ssl.ca == "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
+    error_message = "database.ssl.ca must be whitespace-trimmed, so a trailing newline in the caller's file does not roll the pods."
   }
 }
 
-run "ca_secret_ref_rejects_blank_name" {
+run "ca_pem_accepts_multi_certificate_bundle" {
   command = plan
 
   variables {
@@ -202,15 +200,16 @@ run "ca_secret_ref_rejects_blank_name" {
     n8n_database_password                 = "external-db-password"
     db_postgresdb_ssl_enabled             = true
     db_postgresdb_ssl_reject_unauthorized = true
-    db_postgresdb_ssl_ca_secret_ref = {
-      name = "   "
-    }
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nQg==\n-----END CERTIFICATE-----\n"
   }
 
-  expect_failures = [var.db_postgresdb_ssl_ca_secret_ref]
+  assert {
+    condition     = local.postgres_ssl_ca_active == true
+    error_message = "A bundle with more than one certificate must pass validation."
+  }
 }
 
-run "ca_secret_ref_rejects_blank_key" {
+run "ca_pem_rejects_non_pem_value" {
   command = plan
 
   variables {
@@ -219,13 +218,25 @@ run "ca_secret_ref_rejects_blank_key" {
     n8n_database_password                 = "external-db-password"
     db_postgresdb_ssl_enabled             = true
     db_postgresdb_ssl_reject_unauthorized = true
-    db_postgresdb_ssl_ca_secret_ref = {
-      name = "postgres-server-ca"
-      key  = ""
-    }
+    db_postgresdb_ssl_ca_pem              = "not a certificate"
   }
 
-  expect_failures = [var.db_postgresdb_ssl_ca_secret_ref]
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
+}
+
+run "ca_pem_rejects_blank_value" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "   "
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
 }
 
 # ── Cloud SQL server-side ssl_mode (postgres_ssl_mode) ──────────────────────
@@ -290,33 +301,38 @@ run "postgres_ssl_mode_ignored_when_external_triggers_warning" {
   expect_failures = [check.postgres_tuning_ignored_when_external]
 }
 
-run "ca_secret_ref_ignored_when_managed_triggers_warning" {
+run "ca_pem_ignored_when_managed_triggers_warning" {
   command = plan
 
   variables {
-    db_postgresdb_ssl_ca_secret_ref = {
-      name = "should-be-ignored"
-    }
+    db_postgresdb_ssl_ca_pem = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
+  }
+
+  assert {
+    condition     = local.postgres_ssl_ca_active == false && length(keys(local.n8n_database_ssl_values)) == 0
+    error_message = "The CA must not reach the chart on the managed path."
   }
 
   expect_failures = [check.postgres_host_and_password_ignored_when_managed]
 }
 
-run "ca_secret_ref_ignored_without_verification_triggers_warning" {
+run "ca_pem_ignored_without_verification_triggers_warning" {
   command = plan
 
   variables {
-    create_postgres_instance        = false
-    n8n_database_host               = "pg.external.example.com"
-    n8n_database_password           = "external-db-password"
-    db_postgresdb_ssl_enabled       = true
-    db_postgresdb_ssl_ca_secret_ref = { name = "postgres-server-ca" }
+    create_postgres_instance  = false
+    n8n_database_host         = "pg.external.example.com"
+    n8n_database_password     = "external-db-password"
+    db_postgresdb_ssl_enabled = true
+    db_postgresdb_ssl_ca_pem  = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
     # db_postgresdb_ssl_reject_unauthorized left at its default (false).
   }
 
+  # Nothing verifies the certificate against the CA in this case, so passing
+  # it to the chart would only add a Helm values diff and a pod rollout.
   assert {
-    condition     = local.manage_postgres_ssl_ca == false && length([for e in local.n8n_postgres_ssl_env : e if e.name == "DB_POSTGRESDB_SSL_CA_FILE"]) == 0
-    error_message = "The CA Secret must not be mounted or referenced while db_postgresdb_ssl_reject_unauthorized = false."
+    condition     = local.postgres_ssl_ca_active == false && length(keys(local.n8n_database_ssl_values)) == 0
+    error_message = "The CA must not reach the chart while db_postgresdb_ssl_reject_unauthorized = false."
   }
 
   expect_failures = [check.postgres_ssl_ca_ignored_without_verification]
@@ -390,15 +406,15 @@ run "node_tls_env_with_ca_does_not_warn" {
     n8n_database_password                 = "external-db-password"
     db_postgresdb_ssl_enabled             = true
     db_postgresdb_ssl_reject_unauthorized = true
-    db_postgresdb_ssl_ca_secret_ref       = { name = "postgres-server-ca" }
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
     n8n_extra_env = [
       { name = "NODE_TLS_REJECT_UNAUTHORIZED", value = "0" },
     ]
   }
 
   assert {
-    condition     = local.manage_postgres_ssl_ca == true
-    error_message = "The CA Secret must be mounted when verification is on and a CA reference is supplied."
+    condition     = local.postgres_ssl_ca_active == true
+    error_message = "The CA must reach the chart when verification is on and a CA is supplied."
   }
 }
 

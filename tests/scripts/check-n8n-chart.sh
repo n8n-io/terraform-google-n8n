@@ -23,9 +23,10 @@
 #     containers that render them (main, worker; the chart does not include
 #     executions env on the webhook-processor container), for both the
 #     default all/all/false/true policy and a mixed non-default policy.
-#   - The module's PostgreSQL CA volume, mount, and DB_POSTGRESDB_SSL_* env
-#     render on every role next to the Redis CA and a caller volume, with no
-#     chart-rendered duplicate of those env names.
+#   - database.ssl with a PostgreSQL CA renders DB_POSTGRESDB_SSL_CA into the
+#     chart ConfigMap and onto every role, with no duplicate of the module's
+#     own DB_POSTGRESDB_SSL_* env entries, and a changed CA changes each
+#     role's checksum/config annotation (so a CA change rolls the pods).
 #   - The self-check below proves an intentionally wrong expected value is
 #     actually caught (a real assertion failure), not a check that always
 #     passes.
@@ -981,144 +982,131 @@ else
   fi
 fi
 
-# ── PostgreSQL CA next to the Redis CA and a caller volume ──────────────────
+# ── PostgreSQL CA through the chart's database.ssl.ca ──────────────────────
 # Mirrors what helm_release.n8n (n8n.tf) renders when
-# db_postgresdb_ssl_reject_unauthorized = true and
-# db_postgresdb_ssl_ca_secret_ref is set: the module's postgres-ssl-ca volume
-# and mount (locals.tf, n8n_postgres_ssl_ca_volume/n8n_postgres_ssl_ca_mount)
-# after the Redis CA entry and before caller volumes, plus the
+# db_postgresdb_ssl_reject_unauthorized = true and db_postgresdb_ssl_ca_pem is
+# set: local.n8n_database_ssl_values merged into `database`, plus the
 # DB_POSTGRESDB_SSL_* entries from local.n8n_postgres_ssl_env in
 # config.extraEnv. The mocked terraform test suite asserts those locals; this
-# render proves the chart puts them on every role and renders no
-# DB_POSTGRESDB_SSL_* entry of its own that would duplicate them.
-sed -n '/^extraVolumes:$/q;p' "$WORKDIR/fixture-caller-volumes.yaml" >"$WORKDIR/fixture-postgres-ssl-ca.yaml"
-cat >>"$WORKDIR/fixture-postgres-ssl-ca.yaml" <<'EOF'
-extraVolumes:
-  - name: redis-ca
-    secret:
-      secretName: synthetic-redis-ca
-      items:
-        - key: ca.crt
-          path: ca.crt
-  - name: postgres-ssl-ca
-    secret:
-      secretName: synthetic-postgres-server-ca
-      items:
-        - key: ca.crt
-          path: ca.crt
-  - name: custom-nodes
-    configMap:
-      name: synthetic-caller-configmap
-extraVolumeMounts:
-  - name: redis-ca
-    mountPath: /etc/n8n-certs/redis-ca.crt
-    subPath: ca.crt
-    readOnly: true
-  - name: postgres-ssl-ca
-    mountPath: /etc/n8n-certs/postgres-ssl-ca.crt
-    subPath: ca.crt
-    readOnly: true
-  - name: custom-nodes
-    mountPath: /opt/n8n-nodes
-    readOnly: true
-config:
-  extraEnv:
-    - name: DB_POSTGRESDB_SSL_ENABLED
-      value: "true"
-    - name: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
-      value: "true"
-    - name: DB_POSTGRESDB_SSL_CA_FILE
-      value: /etc/n8n-certs/postgres-ssl-ca.crt
-EOF
-sed -n '/^service:$/,$p' "$WORKDIR/fixture-caller-volumes.yaml" >>"$WORKDIR/fixture-postgres-ssl-ca.yaml"
+# render proves the chart:
+#   - puts the CA in its ConfigMap as DB_POSTGRESDB_SSL_CA and renders no
+#     DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED of its own,
+#   - sources DB_POSTGRESDB_SSL_CA on every role, next to exactly one of each
+#     module-owned DB_POSTGRESDB_SSL_* entry,
+#   - changes each role's checksum/config annotation when the CA changes,
+#     which is what rolls the pods and lets an atomic rollback restore the CA.
+pg_ca_fixture() {
+  printf '%s\n' \
+    'database:' \
+    '  ssl:' \
+    '    enabled: true' \
+    '    rejectUnauthorized: true' \
+    "    ca: \"-----BEGIN CERTIFICATE-----\\n$1\\n-----END CERTIFICATE-----\"" \
+    'config:' \
+    '  extraEnv:' \
+    '    - name: DB_POSTGRESDB_SSL_ENABLED' \
+    '      value: "true"' \
+    '    - name: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED' \
+    '      value: "true"'
+}
+pg_ca_fixture "U1lOVEhFVElDLUNBLUE=" >"$WORKDIR/fixture-postgres-ca-a.yaml"
+pg_ca_fixture "U1lOVEhFVElDLUNBLUI=" >"$WORKDIR/fixture-postgres-ca-b.yaml"
 
-echo "==> helm template (postgres-ssl-ca fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
-if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
-  --version "${CHART_VERSION}" \
-  --namespace n8n-chart-check \
-  -f "$WORKDIR/fixture-postgres-ssl-ca.yaml" \
-  >"$WORKDIR/rendered-postgres-ssl-ca.yaml" 2>"$WORKDIR/helm-stderr-postgres-ssl-ca.log"; then
-  cat "$WORKDIR/helm-stderr-postgres-ssl-ca.log" >&2
-  fail "helm template (postgres-ssl-ca fixture) exited non-zero; see stderr above."
-else
-  pass "helm template rendered the postgres-ssl-ca fixture with no credentials"
+PG_RENDER_OK=1
+for pg_variant in a b; do
+  echo "==> helm template (postgres-ca-${pg_variant} fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+  if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+    --version "${CHART_VERSION}" \
+    --namespace n8n \
+    -f "$WORKDIR/fixture-values.yaml" \
+    -f "$WORKDIR/fixture-postgres-ca-${pg_variant}.yaml" \
+    >"$WORKDIR/rendered-postgres-ca-${pg_variant}.yaml" 2>"$WORKDIR/helm-stderr-postgres-ca-${pg_variant}.log"; then
+    fail "helm template (postgres-ca-${pg_variant} fixture) failed: $(cat "$WORKDIR/helm-stderr-postgres-ca-${pg_variant}.log")"
+    PG_RENDER_OK=0
+  fi
+done
 
-  PG_RENDERED="$WORKDIR/rendered-postgres-ssl-ca.yaml"
+if [ "$PG_RENDER_OK" = "1" ]; then
+  pass "helm template rendered both postgres-ca fixtures with no credentials"
 
-  # pg_deployment_block <deployment-name>
-  # Prints only the named Deployment's manifest, so every assertion below is
-  # per role: a role with a missing entry cannot be hidden by a duplicate on
-  # another role.
-  pg_deployment_block() {
-    awk -v name="$1" '
-      /^---$/ { if (found) exit; in_deploy = 0; next }
-      /^kind: Deployment$/ { in_deploy = 1 }
-      in_deploy && $0 == "  name: " name { found = 1 }
+  # pg_manifest <rendered-file> <kind> <name>
+  # Prints only the named manifest, so every assertion below is per object: a
+  # role with a missing entry cannot be hidden by a duplicate on another role.
+  pg_manifest() {
+    awk -v kind="kind: $2" -v name="  name: $3" '
+      /^---$/ { if (found) exit; in_kind = 0; next }
+      $0 == kind { in_kind = 1 }
+      in_kind && $0 == name { found = 1 }
       found { print }
-    ' "$PG_RENDERED"
+    ' "$1"
   }
 
+  PG_CM="$(pg_manifest "$WORKDIR/rendered-postgres-ca-a.yaml" ConfigMap n8n)"
+  if [ "$(printf '%s\n' "$PG_CM" | grep -cxF '  DB_POSTGRESDB_SSL_CA: "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"' || true)" = "1" ]; then
+    pass "postgres-ca: ConfigMap/n8n renders DB_POSTGRESDB_SSL_CA with the supplied PEM"
+  else
+    fail "postgres-ca: ConfigMap/n8n does not render DB_POSTGRESDB_SSL_CA with the supplied PEM exactly once"
+  fi
+  if printf '%s\n' "$PG_CM" | grep -q '^  DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED:'; then
+    fail "postgres-ca: ConfigMap/n8n renders its own DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED, duplicating the module's extraEnv entry"
+  else
+    pass "postgres-ca: ConfigMap/n8n renders no DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED of its own"
+  fi
+
   for pg_role in n8n-main n8n-worker n8n-webhook-processor; do
-    pg_block="$(pg_deployment_block "$pg_role")"
+    pg_block="$(pg_manifest "$WORKDIR/rendered-postgres-ca-a.yaml" Deployment "$pg_role")"
     if [ -z "$pg_block" ]; then
-      fail "postgres-ssl-ca fixture: Deployment/${pg_role} not found in the render"
+      fail "postgres-ca: Deployment/${pg_role} not found in the render"
       continue
     fi
 
-    # Each volume and mount name appears exactly twice per Deployment: once
-    # in volumes, once in the container's volumeMounts.
-    for pg_volume in redis-ca postgres-ssl-ca custom-nodes; do
-      pg_count="$(printf '%s\n' "$pg_block" | grep -c -- "name: ${pg_volume}$" || true)"
-      if [ "$pg_count" = "2" ]; then
-        pass "postgres-ssl-ca fixture: Deployment/${pg_role} declares and mounts ${pg_volume}"
-      else
-        fail "postgres-ssl-ca fixture: Deployment/${pg_role}: expected 2 occurrences of \"name: ${pg_volume}\", found ${pg_count}"
-      fi
-    done
-
-    # The postgres-ssl-ca volume entry must reference the caller's Secret and
-    # project the ca.crt key (toYaml sorts keys: name, secret.items,
-    # secret.secretName).
-    pg_volume_ok="$(printf '%s\n' "$pg_block" | awk '
-      /- name: postgres-ssl-ca$/ { in_vol = 1; n = 0; key = 0; secret = 0; next }
-      in_vol { n++ }
-      in_vol && /- key: ca.crt$/ { key = 1 }
-      in_vol && /secretName: synthetic-postgres-server-ca$/ { secret = 1 }
-      in_vol && (n >= 5 || /^[[:space:]]*- name: /) { if (key && secret) { print "ok"; exit }; in_vol = 0 }
-      END { if (in_vol && key && secret) print "ok" }
-    ' | head -1)"
-    if [ "$pg_volume_ok" = "ok" ]; then
-      pass "postgres-ssl-ca fixture: Deployment/${pg_role} postgres-ssl-ca volume references secret synthetic-postgres-server-ca, key ca.crt"
+    # DB_POSTGRESDB_SSL_CA must be sourced from the chart ConfigMap (n8n),
+    # key DB_POSTGRESDB_SSL_CA, once.
+    pg_ca_refs="$(printf '%s\n' "$pg_block" | awk '
+      /- name: DB_POSTGRESDB_SSL_CA$/ { want = 1; cmref = 0; cmname = 0; next }
+      want && /configMapKeyRef:$/ { cmref = 1; next }
+      want && cmref && /^[[:space:]]+name: n8n$/ { cmname = 1; next }
+      want && cmref && cmname && /key: DB_POSTGRESDB_SSL_CA$/ { count++; want = 0 }
+      want && /- name: / { want = 0 }
+      END { print count+0 }
+    ')"
+    pg_ca_total="$(printf '%s\n' "$pg_block" | grep -c -- '- name: DB_POSTGRESDB_SSL_CA$' || true)"
+    if [ "$pg_ca_total" = "1" ] && [ "$pg_ca_refs" = "1" ]; then
+      pass "postgres-ca: Deployment/${pg_role} sources DB_POSTGRESDB_SSL_CA from the chart ConfigMap"
     else
-      fail "postgres-ssl-ca fixture: Deployment/${pg_role} postgres-ssl-ca volume does not reference secret synthetic-postgres-server-ca with key ca.crt"
-    fi
-
-    # The mount entry must carry the documented path, subPath, and readOnly
-    # (toYaml sorts keys: mountPath, name, readOnly, subPath).
-    pg_mount_ok="$(printf '%s\n' "$pg_block" | grep -A3 -- '- mountPath: /etc/n8n-certs/postgres-ssl-ca.crt$' | tr -s ' ' | tr '\n' '|')"
-    if [ "$pg_mount_ok" = " - mountPath: /etc/n8n-certs/postgres-ssl-ca.crt| name: postgres-ssl-ca| readOnly: true| subPath: ca.crt|" ]; then
-      pass "postgres-ssl-ca fixture: Deployment/${pg_role} mounts the CA read-only at /etc/n8n-certs/postgres-ssl-ca.crt via subPath ca.crt"
-    else
-      fail "postgres-ssl-ca fixture: Deployment/${pg_role} postgres-ssl-ca mount is wrong or missing: ${pg_mount_ok:-<not found>}"
+      fail "postgres-ca: Deployment/${pg_role} DB_POSTGRESDB_SSL_CA: expected 1 ConfigMap-sourced entry, found ${pg_ca_total} entries, ${pg_ca_refs} ConfigMap-sourced"
     fi
 
     # config.extraEnv passes through the chart's raw with/toYaml block, so
-    # quoted booleans stay quoted and the path stays a bare scalar. More than
-    # one entry would mean the chart renders its own entry for the same name.
-    for pg_env in 'DB_POSTGRESDB_SSL_ENABLED|"true"' 'DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED|"true"' 'DB_POSTGRESDB_SSL_CA_FILE|/etc/n8n-certs/postgres-ssl-ca.crt'; do
-      pg_env_name="${pg_env%%|*}"
-      pg_env_value="${pg_env#*|}"
-      pg_env_total="$(printf '%s\n' "$pg_block" | grep -c -- "- name: ${pg_env_name}$" || true)"
-      pg_env_matching="$(printf '%s\n' "$pg_block" | awk -v name="$pg_env_name" -v expected="value: ${pg_env_value}" '
-        $0 ~ "- name: " name "$" { getline v; sub(/^[[:space:]]+/, "", v); if (v == expected) count++ }
+    # quoted booleans stay quoted. More than one entry would mean the chart
+    # renders its own entry for the same name.
+    for pg_env in DB_POSTGRESDB_SSL_ENABLED DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED; do
+      pg_env_total="$(printf '%s\n' "$pg_block" | grep -c -- "- name: ${pg_env}$" || true)"
+      pg_env_matching="$(printf '%s\n' "$pg_block" | awk -v name="$pg_env" '
+        $0 ~ "- name: " name "$" { getline v; sub(/^[[:space:]]+/, "", v); if (v == "value: \"true\"") count++ }
         END { print count+0 }
       ')"
       if [ "$pg_env_total" = "1" ] && [ "$pg_env_matching" = "1" ]; then
-        pass "postgres-ssl-ca fixture: Deployment/${pg_role} ${pg_env_name} == ${pg_env_value}, no duplicate"
+        pass "postgres-ca: Deployment/${pg_role} ${pg_env} == \"true\", no duplicate"
       else
-        fail "postgres-ssl-ca fixture: Deployment/${pg_role} ${pg_env_name}: expected 1 entry with value ${pg_env_value}, found ${pg_env_total} entries, ${pg_env_matching} matching"
+        fail "postgres-ca: Deployment/${pg_role} ${pg_env}: expected 1 entry with value \"true\", found ${pg_env_total} entries, ${pg_env_matching} matching"
       fi
     done
+
+    if printf '%s\n' "$pg_block" | grep -q 'DB_POSTGRESDB_SSL_CA_FILE'; then
+      fail "postgres-ca: Deployment/${pg_role} still renders DB_POSTGRESDB_SSL_CA_FILE"
+    else
+      pass "postgres-ca: Deployment/${pg_role} renders no DB_POSTGRESDB_SSL_CA_FILE"
+    fi
+
+    # A different CA must change this role's checksum/config annotation.
+    pg_sum_a="$(printf '%s\n' "$pg_block" | sed -nE 's/^[[:space:]]+checksum\/config: ([0-9a-f]+)$/\1/p' | head -1)"
+    pg_sum_b="$(pg_manifest "$WORKDIR/rendered-postgres-ca-b.yaml" Deployment "$pg_role" | sed -nE 's/^[[:space:]]+checksum\/config: ([0-9a-f]+)$/\1/p' | head -1)"
+    if [ -n "$pg_sum_a" ] && [ -n "$pg_sum_b" ] && [ "$pg_sum_a" != "$pg_sum_b" ]; then
+      pass "postgres-ca: Deployment/${pg_role} checksum/config changes with the CA"
+    else
+      fail "postgres-ca: Deployment/${pg_role} checksum/config did not change with the CA (a='${pg_sum_a:-<none>}', b='${pg_sum_b:-<none>}')"
+    fi
   done
 fi
 

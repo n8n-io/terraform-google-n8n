@@ -218,53 +218,52 @@ locals {
 
   # ── PostgreSQL TLS server-certificate verification (opt-in) ────────────────
   # db_postgresdb_ssl_reject_unauthorized is validated (variables.tf) to only
-  # ever be true when create_postgres_instance = false, so
-  # manage_postgres_ssl_ca never fires for the module-managed Cloud SQL path.
-  # Mirrors the Redis TLS CA volume/mount shape below (manage_redis_tls_ca /
-  # n8n_redis_tls), but references the caller's own Secret directly instead
-  # of wrapping a module-generated one: the module never creates or reads a
-  # CA certificate here, it only mounts the Secret
-  # var.db_postgresdb_ssl_ca_secret_ref names.
-  manage_postgres_ssl_ca = var.db_postgresdb_ssl_reject_unauthorized && var.db_postgresdb_ssl_ca_secret_ref != null
+  # ever be true when db_postgresdb_ssl_enabled = true and
+  # create_postgres_instance = false, so postgres_ssl_ca_active never fires
+  # for the module-managed Cloud SQL path.
+  #
+  # The CA reaches n8n through the chart's own database.ssl.ca value, the same
+  # design as terraform-azurerm-n8n and terraform-aws-n8n#178: the chart
+  # renders it into its ConfigMap as DB_POSTGRESDB_SSL_CA (PEM content), so a
+  # CA change rolls the pods through the chart's checksum/config annotation
+  # and a failed upgrade's atomic rollback restores the previous CA. There is
+  # no module-managed Kubernetes object to delete before the Helm upgrade.
+  #
+  # The chart renders DB_POSTGRESDB_SSL_CA only inside `if database.ssl.enabled`,
+  # so enabled is true here. rejectUnauthorized = true stops the chart from
+  # rendering its own DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED (it does so only
+  # when the value is false), leaving local.n8n_postgres_ssl_env below the
+  # sole owner of that name. The chart also renders DB_POSTGRESDB_SSL, which
+  # n8n does not read; DB_POSTGRESDB_SSL_ENABLED stays in
+  # local.n8n_postgres_ssl_env (n8n-io/n8n-hosting#175).
+  #
+  # An empty map when inactive, merged into helm_release.n8n's database
+  # values (n8n.tf), so a caller who never sets the CA sees no values diff.
+  # trimspace keeps whitespace-only edits to the caller's PEM file (e.g. a
+  # trailing newline) from rolling the pods.
+  postgres_ssl_ca_active = var.db_postgresdb_ssl_reject_unauthorized && var.db_postgresdb_ssl_ca_pem != null
 
-  n8n_postgres_ssl_ca_volume = local.manage_postgres_ssl_ca ? {
-    name = "postgres-ssl-ca"
-    secret = {
-      secretName = var.db_postgresdb_ssl_ca_secret_ref.name
-      items = [{
-        key  = var.db_postgresdb_ssl_ca_secret_ref.key
-        path = "ca.crt"
-      }]
+  n8n_database_ssl_values = local.postgres_ssl_ca_active ? {
+    ssl = {
+      enabled            = true
+      rejectUnauthorized = true
+      ca                 = trimspace(var.db_postgresdb_ssl_ca_pem)
     }
-  } : null
-
-  n8n_postgres_ssl_ca_mount = local.manage_postgres_ssl_ca ? {
-    name      = "postgres-ssl-ca"
-    mountPath = "/etc/n8n-certs/postgres-ssl-ca.crt"
-    subPath   = "ca.crt"
-    readOnly  = true
-  } : null
+  } : {}
 
   # DB_POSTGRESDB_SSL_* env fragment for helm_release.n8n's config.extraEnv
-  # (n8n.tf). Kept as a named local (rather than inline, like most
-  # single-field DB_* tuning fragments elsewhere in this file) so its shape
-  # is directly assertable under the mock provider, where helm_release.values
-  # is unknown at plan time (AGENTS.md's known mock-provider limitations).
-  # The db_postgresdb_ssl_enabled = false branch is unchanged from before
-  # this change; the true branch only adds DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+  # (n8n.tf). Kept as a named local so its shape is directly assertable under
+  # the mock provider, where helm_release.values is unknown at plan time
+  # (AGENTS.md's known mock-provider limitations). The
+  # db_postgresdb_ssl_enabled = false branch is unchanged from before this
+  # change; the true branch only adds DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
   # (tostring(false) renders the same literal "false" the module hardcoded
   # previously, so a caller who never sets db_postgresdb_ssl_reject_unauthorized
-  # sees no plan diff) and, only once a CA is actually mounted,
-  # DB_POSTGRESDB_SSL_CA_FILE.
-  n8n_postgres_ssl_env = var.db_postgresdb_ssl_enabled ? concat(
-    [
-      { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
-      { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = tostring(var.db_postgresdb_ssl_reject_unauthorized) },
-    ],
-    local.manage_postgres_ssl_ca ? [
-      { name = "DB_POSTGRESDB_SSL_CA_FILE", value = local.n8n_postgres_ssl_ca_mount.mountPath },
-    ] : [],
-    ) : [
+  # sees no plan diff).
+  n8n_postgres_ssl_env = var.db_postgresdb_ssl_enabled ? [
+    { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
+    { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = tostring(var.db_postgresdb_ssl_reject_unauthorized) },
+    ] : [
     { name = "DB_POSTGRESDB_SSL_ENABLED", value = "false" },
   ]
 

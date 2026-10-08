@@ -285,7 +285,11 @@ resource "helm_release" "n8n" {
       disableProductionWebhooksOnMainProcess = true
     }
 
-    database = {
+    # ssl is merged in only while a PostgreSQL CA is delivered
+    # (local.n8n_database_ssl_values in locals.tf): the chart renders it into
+    # its ConfigMap as DB_POSTGRESDB_SSL_CA, so a Helm rollback restores the
+    # previous CA and a CA change rolls the pods.
+    database = merge({
       type        = "postgresdb"
       useExternal = true
       # Module-managed Cloud SQL (private IP over PSA) when create_postgres_instance = true,
@@ -299,7 +303,7 @@ resource "helm_release" "n8n" {
         name = local.effective_db_password_secret_name
         key  = local.effective_db_password_secret_key
       }
-    }
+    }, local.n8n_database_ssl_values)
 
     # Ownership-neutral: host/port/tls/username resolve to the module-managed
     # Memorystore instance or the supplied external redis_* inputs
@@ -343,9 +347,7 @@ resource "helm_release" "n8n" {
     # pods. The Redis CA entry comes first so it always exists regardless of
     # what the caller declares; local.n8n_caller_extra_volumes/
     # n8n_caller_extra_volume_mounts (locals.tf) already reject the reserved
-    # "redis-ca" volume name, and "postgres-ssl-ca" whenever the module mounts
-    # its own PostgreSQL CA (n8n_extra_volumes validation), so these lists
-    # cannot collide.
+    # "redis-ca" volume name, so the two lists cannot collide.
     extraVolumes = concat(
       local.manage_redis_tls_ca ? [{
         name = "redis-ca"
@@ -357,7 +359,6 @@ resource "helm_release" "n8n" {
           }]
         }
       }] : [],
-      local.manage_postgres_ssl_ca ? [local.n8n_postgres_ssl_ca_volume] : [],
       local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_volume] : [],
       local.n8n_caller_extra_volumes,
     )
@@ -369,7 +370,6 @@ resource "helm_release" "n8n" {
         subPath   = "ca.crt"
         readOnly  = true
       }] : [],
-      local.manage_postgres_ssl_ca ? [local.n8n_postgres_ssl_ca_mount] : [],
       local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_mount] : [],
       local.n8n_caller_extra_volume_mounts,
     )

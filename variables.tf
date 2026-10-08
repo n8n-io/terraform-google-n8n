@@ -414,7 +414,7 @@ variable "n8n_custom_extensions_path" {
 # (locals.tf) and wired into helm_release.n8n (n8n.tf).
 
 variable "n8n_extra_volumes" {
-  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, and redis-ca belong to the chart/module and cannot be reused. postgres-ssl-ca is also reserved, but only while the module mounts its own PostgreSQL CA (db_postgresdb_ssl_reject_unauthorized = true with db_postgresdb_ssl_ca_secret_ref set)."
+  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, and redis-ca belong to the chart/module and cannot be reused."
   type = list(object({
     name = string
     config_map = optional(object({
@@ -468,14 +468,6 @@ variable "n8n_extra_volumes" {
   }
 
   validation {
-    # Reserved only while the module mounts its own PostgreSQL CA volume
-    # (locals.tf, manage_postgres_ssl_ca), so a caller who already used this
-    # name before the PostgreSQL CA feature existed keeps planning unchanged.
-    condition     = var.db_postgresdb_ssl_reject_unauthorized && var.db_postgresdb_ssl_ca_secret_ref != null ? !contains([for v in var.n8n_extra_volumes : v.name], "postgres-ssl-ca") : true
-    error_message = "n8n_extra_volumes must not use the volume name postgres-ssl-ca while db_postgresdb_ssl_reject_unauthorized = true and db_postgresdb_ssl_ca_secret_ref is set, because the module mounts its PostgreSQL CA under that name. Rename the caller volume."
-  }
-
-  validation {
     # Nested ternaries, not `v.config_map == null || v.config_map.default_mode
     # == null || ...`: Terraform does not short-circuit ||, so the attribute
     # access still runs and errors on Terraform 1.9.x (the CI floor) whenever
@@ -515,7 +507,7 @@ variable "n8n_extra_volumes" {
 }
 
 variable "n8n_extra_volume_mounts" {
-  description = "Mounts of n8n_extra_volumes entries into every n8n pod (main, worker, webhook processor) via the chart's extraVolumeMounts. Each entry's name must match a declared n8n_extra_volumes entry. mount_path must be an absolute, canonical container path outside the module's own protected mounts (/home/node/.n8n, the main pod's data directory; /etc/n8n-certs, the managed Redis and PostgreSQL CA mounts). read_only defaults to true; set false only for a PVC the caller's workload actually needs to write to."
+  description = "Mounts of n8n_extra_volumes entries into every n8n pod (main, worker, webhook processor) via the chart's extraVolumeMounts. Each entry's name must match a declared n8n_extra_volumes entry. mount_path must be an absolute, canonical container path outside the module's own protected mounts (/home/node/.n8n, the main pod's data directory; /etc/n8n-certs, the managed Redis CA mount). read_only defaults to true; set false only for a PVC the caller's workload actually needs to write to."
   type = list(object({
     name       = string
     mount_path = string
@@ -570,7 +562,7 @@ variable "n8n_extra_volume_mounts" {
         m.mount_path == "/etc/n8n-certs" || startswith(m.mount_path, "/etc/n8n-certs/")
       )
     ])
-    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis and PostgreSQL CA mounts)."
+    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis CA mount)."
   }
 }
 
@@ -1297,7 +1289,7 @@ variable "db_postgresdb_ssl_enabled" {
 }
 
 variable "db_postgresdb_ssl_reject_unauthorized" {
-  description = "When true and db_postgresdb_ssl_enabled = true, n8n verifies the PostgreSQL server's certificate (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true) instead of the hardcoded false this module used before, which encrypted the connection but never validated the server certificate. node-postgres (n8n's driver) has no equivalent of libpq's chain-only verify-ca: enabling this performs the same full certificate-chain-plus-hostname check as PostgreSQL's verify-full, whichever name you think of it as. Restricted to create_postgres_instance = false (external PostgreSQL): the module connects to its own Cloud SQL instance by private IP, while Google documents Cloud SQL hostname verification only by DNS name (for example the instance DNS name with the shared CA server_ca_mode and a private DNS record, which this module does not set up), so n8n's hostname check is expected to fail the TLS handshake there. On the external path, point n8n_database_host at a DNS hostname matching the external server's own certificate (not a bare IP) for the hostname check to succeed, and supply the issuing CA via db_postgresdb_ssl_ca_secret_ref unless the pod image's default trust store already trusts it. See docs/postgresql-tls.md."
+  description = "When true and db_postgresdb_ssl_enabled = true, n8n verifies the PostgreSQL server's certificate (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true) instead of the hardcoded false this module used before, which encrypted the connection but never validated the server certificate. node-postgres (n8n's driver) has no equivalent of libpq's chain-only verify-ca: enabling this performs the same full certificate-chain-plus-hostname check as PostgreSQL's verify-full, whichever name you think of it as. Restricted to create_postgres_instance = false (external PostgreSQL): the module connects to its own Cloud SQL instance by private IP, while Google documents Cloud SQL hostname verification only by DNS name (for example the instance DNS name with the shared CA server_ca_mode and a private DNS record, which this module does not set up), so n8n's hostname check is expected to fail the TLS handshake there. On the external path, point n8n_database_host at a DNS hostname matching the external server's own certificate (not a bare IP) for the hostname check to succeed, and supply the issuing CA via db_postgresdb_ssl_ca_pem unless the pod image's default trust store already trusts it. See docs/postgresql-tls.md."
   type        = bool
   default     = false
   nullable    = false
@@ -1308,20 +1300,20 @@ variable "db_postgresdb_ssl_reject_unauthorized" {
   }
 }
 
-variable "db_postgresdb_ssl_ca_secret_ref" {
-  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding a PEM-encoded CA certificate bundle, mounted read-only on every n8n role (main, worker, webhook processor) and pointed at by DB_POSTGRESDB_SSL_CA_FILE whenever db_postgresdb_ssl_reject_unauthorized = true. key defaults to \"ca.crt\" when omitted. The module never reads the referenced Secret's value. Applies only to the external PostgreSQL path (create_postgres_instance = false) with db_postgresdb_ssl_reject_unauthorized = true; ignored, with a plan-time warning, otherwise. Leave null to fall back to the pod image's bundled trust store, which validates successfully only if the external server's certificate chains to a publicly trusted root CA; that fallback also follows Node's process-wide NODE_TLS_REJECT_UNAUTHORIZED setting, see docs/postgresql-tls.md."
-  type = object({
-    name = string
-    key  = optional(string, "ca.crt")
-  })
-  default = null
+variable "db_postgresdb_ssl_ca_pem" {
+  description = "PEM-encoded CA certificate bundle n8n trusts when db_postgresdb_ssl_reject_unauthorized = true. The module passes it, whitespace-trimmed, to the n8n Helm chart's database.ssl.ca value, which the chart renders into its own ConfigMap as DB_POSTGRESDB_SSL_CA for the main, worker, and webhook-processor pods. Because the CA is part of the Helm release, changing it rolls the pods (the chart's checksum/config annotation), and a failed upgrade's atomic rollback restores the previous CA. Same input name as terraform-aws-n8n. A CA certificate is public, so it is not marked sensitive; it is stored in Terraform state and in the Helm release. Applies only to the external PostgreSQL path (create_postgres_instance = false) with db_postgresdb_ssl_reject_unauthorized = true; ignored, with a plan-time warning, otherwise. Leave null to fall back to the pod image's bundled trust store, which validates successfully only if the external server's certificate chains to a publicly trusted root CA; that fallback also follows Node's process-wide NODE_TLS_REJECT_UNAUTHORIZED setting. See docs/postgresql-tls.md."
+  type        = string
+  default     = null
 
+  # Requires PEM certificate framing rather than only rejecting an empty
+  # string, matching terraform-aws-n8n: a DER blob, a truncated download, or
+  # plain text would otherwise only surface as a connection failure once n8n
+  # tried to parse it. (?s) makes "." match newlines so a multi-certificate
+  # bundle still matches end to end. This checks framing only, not the
+  # certificate itself.
   validation {
-    condition = var.db_postgresdb_ssl_ca_secret_ref == null ? true : (
-      trimspace(var.db_postgresdb_ssl_ca_secret_ref.name) != "" &&
-      trimspace(var.db_postgresdb_ssl_ca_secret_ref.key) != ""
-    )
-    error_message = "db_postgresdb_ssl_ca_secret_ref.name and .key must be non-empty (not blank or whitespace-only)."
+    condition     = var.db_postgresdb_ssl_ca_pem == null ? true : can(regex("(?s)^\\s*-----BEGIN CERTIFICATE-----.*-----END CERTIFICATE-----\\s*$", var.db_postgresdb_ssl_ca_pem))
+    error_message = "db_postgresdb_ssl_ca_pem must be null or a PEM-encoded CA bundle (containing -----BEGIN CERTIFICATE----- / -----END CERTIFICATE----- delimiters)."
   }
 }
 

@@ -53,15 +53,16 @@ this project adheres to the stability contract in
   expected to fail there; see
   [`docs/postgresql-tls.md`](./docs/postgresql-tls.md) for the full
   explanation and limits.
-- `db_postgresdb_ssl_ca_secret_ref` references an existing Kubernetes Secret
-  holding the PEM-encoded CA bundle to trust for that verification, mounted
-  read-only on every n8n role (main, worker, webhook processor) via
-  `DB_POSTGRESDB_SSL_CA_FILE`. The module never reads the Secret's value.
-  While the module mounts this CA, `n8n_extra_volumes` cannot use the volume
-  name `postgres-ssl-ca`; callers who do not turn the feature on are not
-  affected. Two new `check` warnings cover a CA reference that is ignored
-  because verification is off, and `NODE_TLS_REJECT_UNAUTHORIZED=0` in an
-  extra env input turning verification off when no CA is supplied.
+- `db_postgresdb_ssl_ca_pem` takes the PEM-encoded CA bundle to trust for
+  that verification (same input name as terraform-aws-n8n). The module
+  passes it, whitespace-trimmed, to the n8n chart's `database.ssl.ca`, which
+  the chart renders as `DB_POSTGRESDB_SSL_CA` for the main, worker, and
+  webhook-processor pods. Because the CA is part of the Helm release, a CA
+  change rolls the pods and a failed upgrade's atomic rollback restores the
+  previous CA (the design of terraform-azurerm-n8n and
+  terraform-aws-n8n#178). Two new `check` warnings cover a CA that is
+  ignored because verification is off, and `NODE_TLS_REJECT_UNAUTHORIZED=0`
+  in an extra env input turning verification off when no CA is supplied.
 - `postgres_ssl_mode` lets the module-managed Cloud SQL instance reject
   unencrypted connections outright (`ip_configuration.ssl_mode =
   ENCRYPTED_ONLY`) instead of the previously hardcoded

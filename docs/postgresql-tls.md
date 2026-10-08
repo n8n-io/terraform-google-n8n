@@ -35,32 +35,48 @@ create_postgres_instance              = false
 n8n_database_host                     = "pg.internal.example.com"
 db_postgresdb_ssl_enabled             = true
 db_postgresdb_ssl_reject_unauthorized = true
-db_postgresdb_ssl_ca_secret_ref = {
-  name = "postgres-server-ca"
-  key  = "ca.crt" # default; omit if your Secret already uses this key
-}
+db_postgresdb_ssl_ca_pem              = file("${path.module}/postgres-server-ca.pem")
 ```
 
-`db_postgresdb_ssl_ca_secret_ref` references an existing Kubernetes Secret (in the n8n namespace) holding the PEM-encoded CA bundle that issued the external server's certificate. The module never reads the Secret's value: it only mounts the named key read-only at `/etc/n8n-certs/postgres-ssl-ca.crt` on every n8n role (main, worker, webhook processor) and points `DB_POSTGRESDB_SSL_CA_FILE` at that path. A missing Secret or key fails at pod-start time, not at plan time. While the module mounts this CA, `n8n_extra_volumes` cannot use the volume name `postgres-ssl-ca`.
+`db_postgresdb_ssl_ca_pem` is the PEM-encoded CA bundle that issued the external server's certificate. The input has the same name as in terraform-aws-n8n. The module trims surrounding whitespace and passes the bundle to the n8n Helm chart's `database.ssl.ca` value. The chart renders it into its own ConfigMap as `DB_POSTGRESDB_SSL_CA`, which the main, worker, and webhook-processor pods read, and n8n passes that value to the TLS connection as PEM content. This is the same design as terraform-azurerm-n8n, and the design terraform-aws-n8n plans to move to ([terraform-aws-n8n#178](https://github.com/n8n-io/terraform-aws-n8n/issues/178)).
 
-If you set `db_postgresdb_ssl_ca_secret_ref` but leave `db_postgresdb_ssl_reject_unauthorized = false`, the module does not mount the Secret, and the `postgres_ssl_ca_ignored_without_verification` check warns at plan time.
+Because the CA is part of the Helm release:
+
+- Changing the CA rolls the pods through the chart's own `checksum/config` pod annotation.
+- A failed upgrade's atomic rollback (`helm_release.n8n` sets `atomic = true`) restores the previous CA together with the previous pod specification, as long as the rollback itself succeeds (see [When verification or a CA change fails](#when-verification-or-a-ca-change-fails)).
+- Removing the CA removes it in the same Helm upgrade. There is no separate Kubernetes object for Terraform to delete first.
+
+A CA certificate is public, so the input is not marked sensitive. It is stored in Terraform state and in the Helm release. You can commit the PEM file next to your Terraform configuration and pass it with `file()`. The module checks only that the value has PEM certificate framing (`-----BEGIN CERTIFICATE-----` / `-----END CERTIFICATE-----`); it does not parse the certificate. A bundle with more than one certificate is accepted.
+
+If you set `db_postgresdb_ssl_ca_pem` but leave `db_postgresdb_ssl_reject_unauthorized = false`, the module does not pass the CA to the chart, and the `postgres_ssl_ca_ignored_without_verification` check warns at plan time. You can stage the CA this way before you turn on verification.
 
 ### Without a CA bundle
 
-Leaving `db_postgresdb_ssl_ca_secret_ref` null while `db_postgresdb_ssl_reject_unauthorized = true` is valid: verification then falls back to the pod image's bundled trust store, which succeeds only if the external server's certificate chains to a publicly trusted root CA already in that image.
+Leaving `db_postgresdb_ssl_ca_pem` null while `db_postgresdb_ssl_reject_unauthorized = true` is valid: verification then falls back to the pod image's bundled trust store, which succeeds only if the external server's certificate chains to a publicly trusted root CA already in that image.
 
 In this mode n8n passes `ssl: true` to its PostgreSQL driver instead of an explicit `rejectUnauthorized` option, so the certificate check follows Node's process-wide default. If `n8n_extra_env`, `n8n_worker_extra_env`, or an `n8n_worker_pools` entry's `extra_env` sets `NODE_TLS_REJECT_UNAUTHORIZED=0`, Node skips the check on the affected pods. The `postgres_ssl_verification_disabled_by_node_tls_env` check warns about this at plan time. When you supply a CA bundle, n8n passes an explicit `rejectUnauthorized`, and `NODE_TLS_REJECT_UNAUTHORIZED` does not affect the database connection.
 
 ### Rotating the CA bundle
 
-The module mounts the CA file with `subPath`, and Kubernetes does not update `subPath` mounts when the Secret changes. n8n also reads `DB_POSTGRESDB_SSL_CA_FILE` only at startup. Changing the Secret's contents therefore produces no Terraform diff and no pod restart. To rotate the CA without breaking database connections:
+A CA change is a normal Helm values change, so each `terraform apply` below rolls the n8n pods. Rotation takes two applies, with the server certificate rotation in between:
 
-1. Add the new CA certificate to the Secret's bundle next to the old one.
-2. Restart every n8n Deployment (main, worker, webhook processor, and any worker pool), for example with `kubectl -n <namespace> rollout restart deployment/<name>` for each one, and wait for the rollouts to finish.
-3. Rotate the database server certificate to one issued by the new CA.
-4. Remove the old CA certificate from the Secret's bundle and restart the n8n Deployments again.
+1. Set `db_postgresdb_ssl_ca_pem` to a bundle with both the old and the new CA certificate, and apply. Wait until every n8n pod has been replaced and connects to the database before you continue.
+2. Rotate the database server certificate to one issued by the new CA.
+3. Set `db_postgresdb_ssl_ca_pem` to a bundle with only the new CA certificate, and apply.
 
-The restarts follow each Deployment's own rollout strategy. A multi-main deployment replaces its pods gradually. A single-main deployment uses the `Recreate` strategy, so restarting its main Deployment stops the only main pod before the new one starts. Plan a short maintenance window for that case.
+Each rollout follows the Deployments' own strategies. A multi-main deployment replaces its main and webhook-processor pods gradually. A single-main deployment uses the `Recreate` strategy for its main Deployment, so the only main pod stops before the new one starts. Plan a short maintenance window for that case.
+
+### When verification or a CA change fails
+
+If the CA bundle does not cover the certificate chain the server presents, or `n8n_database_host` does not match a name in the server certificate, the new pods cannot connect to the database. Test a new bundle or host in a non-production environment first. What can happen on a failed rollout:
+
+- The apply fails slowly. New pods crash-loop, and the Helm upgrade fails only when it reaches `n8n_helm_timeout` (600 seconds by default). `atomic = true` then rolls the release back to the previous values, including the previous CA. If the rollback succeeds, pods that Kubernetes creates afterwards use the previous CA again without another apply. The rollback itself can also fail, and the previous CA only helps if it still matches the server's current certificate (for example, not after the server has moved to a new CA). Keep a bundle that matches the server's current certificate, and set `db_postgresdb_ssl_ca_pem` back to a working bundle before the next apply.
+- During the failing upgrade, the chart's shared ConfigMap already holds the new CA. Pods that are already running keep the CA they started with, but any pod that starts during that time, including an old-revision pod that restarts or a new pod from a scale-up, reads the new CA and can fail too.
+- On a multi-main deployment, main and webhook-processor pods usually keep serving, because their HTTP readiness probes keep failing new pods out of rotation. This is not guaranteed, for the reason above.
+- Workers can stop processing the queue until the rollback finishes. The pinned chart's worker readiness probe only checks that the `n8n worker` process exists (`pgrep`), so a new worker that cannot reach the database can still count as ready, and the rollout can remove a healthy old worker. Queued executions wait in Redis. This needs a chart change ([n8n-io/n8n-hosting#225](https://github.com/n8n-io/n8n-hosting/issues/225)) and affects all three n8n Terraform modules.
+- On a single-main deployment, the `Recreate` strategy stops the only main pod before the new one starts, so the editor, REST API, and webhooks handled by main are unavailable until a working main pod is Ready.
+
+The same applies the first time you turn on `db_postgresdb_ssl_reject_unauthorized`: there is no fallback to an unverified connection once the setting is live.
 
 ## Server-side enforcement: `postgres_ssl_mode`
 
@@ -88,5 +104,5 @@ To go back, reverse the order: set `postgres_ssl_mode = "ALLOW_UNENCRYPTED_AND_E
 | --- | --- | --- |
 | `db_postgresdb_ssl_enabled` | Both paths | Whether n8n encrypts the connection at all (`DB_POSTGRESDB_SSL_ENABLED`) |
 | `db_postgresdb_ssl_reject_unauthorized` | External path only | Whether n8n validates the server's certificate chain *and* hostname (`DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED`); rejected when `create_postgres_instance = true` |
-| `db_postgresdb_ssl_ca_secret_ref` | External path only | CA bundle n8n trusts for that verification; ignored, with a plan-time warning, on the managed path or while `db_postgresdb_ssl_reject_unauthorized = false` |
+| `db_postgresdb_ssl_ca_pem` | External path only | CA bundle n8n trusts for that verification, delivered through the chart's `database.ssl.ca`; ignored, with a plan-time warning, on the managed path or while `db_postgresdb_ssl_reject_unauthorized = false` |
 | `postgres_ssl_mode` | Managed path only | Whether the Cloud SQL instance itself accepts plaintext connections at all |

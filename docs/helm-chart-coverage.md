@@ -50,7 +50,7 @@ this table never mentions.
 | `config` | `n8n_timezone`, `n8n_extra_env`, and the module's large set of dedicated `N8N_*`/`DB_*`/`QUEUE_*` inputs (via `config.extraEnv`) | Most application-level tuning flows through here as environment variables, not chart-native config keys |
 | `license` | `n8n_license_key`, `n8n_license_key_secret_ref` | |
 | `secretRefs` | Derived (`local.effective_core_secret_name`) | |
-| `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs | |
+| `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs, `db_postgresdb_ssl_ca_pem` (`database.ssl.*`) | `database.ssl` is set only while a PostgreSQL CA is delivered (`enabled = true`, `rejectUnauthorized = true`, `ca`), so the chart renders `DB_POSTGRESDB_SSL_CA` and no duplicate `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED`. `DB_POSTGRESDB_SSL_ENABLED` and `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED` come from `config.extraEnv`, because the chart renders the unread `DB_POSTGRESDB_SSL` name. `database.ssl.cert`/`key` (client certificates) are not surfaced. See [`docs/postgresql-tls.md`](./postgresql-tls.md) |
 | `redis` | `redis_*` inputs, KEDA/queue wiring, `n8n_queue_worker_lock_duration`/`n8n_queue_worker_lock_renew_time`/`n8n_queue_worker_stalled_interval`/`n8n_graceful_shutdown_timeout` (`redis.worker.*`) | `redis.worker.maxStalledCount` is not surfaced |
 | `s3` | `gcs_*` inputs (S3-compatible driver over GCS + HMAC) | |
 
