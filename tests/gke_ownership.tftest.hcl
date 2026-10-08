@@ -328,15 +328,37 @@ run "gke_references_ignored_when_managed_triggers_warning" {
 
 # ── Application-layer Secrets Encryption (Cloud KMS) ──────────────────────────
 
+# These mock plans start from empty state, so they cannot prove the update
+# paths that matter for existing clusters: no add-on config in state to an
+# explicit enabled = false (expected: no diff, the provider stores
+# [{enabled = false}]), add-on true to false (expected: in-place disable),
+# and an encrypted cluster with both GKE key inputs cleared (expected: no
+# diff, database_encryption is Optional+Computed). The module-created key's
+# gke_kms_key_id value is also unknown at plan time under mocks. Verify these
+# with a real plan against a live cluster, then confirm
+# `terraform plan -detailed-exitcode` returns 0 after each apply.
+
 run "defaults_omit_database_encryption_and_secret_manager_addon" {
   command = plan
 
   assert {
+    condition     = length(google_container_cluster.n8n[0].database_encryption) == 0
+    error_message = "database_encryption must not render on the default plan."
+  }
+
+  # secret_manager_config always renders, so setting the input back to false
+  # sends enabled = false to GKE instead of no add-on config at all.
+  assert {
     condition = (
-      length(google_container_cluster.n8n[0].database_encryption) == 0 &&
-      length(google_container_cluster.n8n[0].secret_manager_config) == 0
+      length(google_container_cluster.n8n[0].secret_manager_config) == 1 &&
+      google_container_cluster.n8n[0].secret_manager_config[0].enabled == false
     )
-    error_message = "Neither database_encryption nor secret_manager_config must render on the default plan."
+    error_message = "secret_manager_config must render enabled = false on the default plan."
+  }
+
+  assert {
+    condition     = output.gke_kms_key_id == null
+    error_message = "gke_kms_key_id must be null when the module configures no GKE key."
   }
 
   assert {
@@ -435,6 +457,11 @@ run "existing_gke_key_creates_no_key_or_iam" {
     )
     error_message = "The managed cluster must use the supplied existing key."
   }
+
+  assert {
+    condition     = output.gke_kms_key_id == "projects/test-project/locations/us-east4/keyRings/shared/cryptoKeys/gke"
+    error_message = "gke_kms_key_id must report the supplied existing key."
+  }
 }
 
 run "existing_gke_kms_key_id_malformed_shape_fails" {
@@ -481,6 +508,47 @@ run "module_created_gke_key_without_ring_reference_fails" {
   expect_failures = [var.existing_kms_key_ring_id]
 }
 
+# The shared ring's location validations gained a GKE branch: a GKE key must
+# share gcp_region with the cluster, whether the ring is referenced or
+# module-created, and a ring cannot serve GKE and a GCS location that differs
+# from gcp_region at the same time.
+
+run "existing_ring_in_wrong_region_for_gke_key_fails" {
+  command = plan
+
+  variables {
+    create_gke_kms_key       = true
+    existing_kms_key_ring_id = "projects/test-project/locations/europe-west1/keyRings/shared"
+  }
+
+  expect_failures = [var.existing_kms_key_ring_id]
+}
+
+run "managed_ring_location_override_mismatch_for_gke_key_fails" {
+  command = plan
+
+  variables {
+    create_kms_key_ring   = true
+    create_gke_kms_key    = true
+    kms_key_ring_location = "europe-west1"
+  }
+
+  expect_failures = [var.kms_key_ring_location]
+}
+
+run "managed_ring_shared_by_gke_and_gcs_in_other_location_fails" {
+  command = plan
+
+  variables {
+    create_kms_key_ring = true
+    create_gke_kms_key  = true
+    create_gcs_kms_key  = true
+    gcs_location        = "EU"
+  }
+
+  expect_failures = [var.kms_key_ring_location]
+}
+
 run "gke_kms_ignored_when_existing_cluster_triggers_warning" {
   command = plan
 
@@ -501,6 +569,11 @@ run "gke_kms_ignored_when_existing_cluster_triggers_warning" {
       length(google_kms_crypto_key_iam_member.gke) == 0
     )
     error_message = "Ignored GKE CMEK inputs must not create a key ring, key, or IAM binding for an existing cluster."
+  }
+
+  assert {
+    condition     = output.gke_kms_key_id == null
+    error_message = "gke_kms_key_id must be null when create_gke = false."
   }
 }
 

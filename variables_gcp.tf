@@ -1158,13 +1158,16 @@ variable "gke_node_disk_type" {
 # Same explicit create-or-reference contract as Cloud SQL, Memorystore, and
 # GCS (D4): create_gke_kms_key creates a key in the shared ring
 # (create_kms_key_ring/existing_kms_key_ring_id), existing_gke_kms_key_id
-# references an already-existing key, and leaving both unset keeps GKE's
-# default Google-managed etcd encryption. Only takes effect for a
+# references an already-existing key, and leaving both unset means the module
+# does not manage application-layer secrets encryption at all: a new cluster
+# keeps GKE's default Google-managed encryption, but a cluster that was ever
+# encrypted stays encrypted (database_encryption is Optional+Computed in the
+# provider; see gke.tf and docs/destroy-cleanup.md). Only takes effect for a
 # module-managed cluster; ignored when create_gke = false (checks.tf emits
 # the ignored-input diagnostic).
 
 variable "create_gke_kms_key" {
-  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed GKE cluster's application-layer secrets encryption (etcd) to use it. Mutually exclusive with existing_gke_kms_key_id. Ignored when create_gke = false. Defaults to false (Google-managed etcd encryption). The created key is protected by lifecycle prevent_destroy; see docs/destroy-cleanup.md for how to back out of a module-created key."
+  description = "When true, the module creates a Cloud KMS CryptoKey in the shared key ring (see create_kms_key_ring/existing_kms_key_ring_id) and configures the module-managed GKE cluster's application-layer secrets encryption (etcd) to use it. Mutually exclusive with existing_gke_kms_key_id. Ignored when create_gke = false. Defaults to false: the module then does not manage application-layer secrets encryption, so a new cluster uses Google-managed encryption, but setting this back to false never decrypts a cluster that is already encrypted. Enabling it on an existing cluster restarts the control plane while GKE re-encrypts every Secret. The key rotates every 90 days, and Secrets stay wrapped by the key version current when they were last written, so never disable or destroy an older key version the cluster may still use. The created key is protected by lifecycle prevent_destroy; see docs/destroy-cleanup.md for how to turn encryption off and back out of a module-created key."
   type        = bool
   default     = false
   nullable    = false
@@ -1176,7 +1179,7 @@ variable "create_gke_kms_key" {
 }
 
 variable "existing_gke_kms_key_id" {
-  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed GKE cluster should use for application-layer secrets encryption (etcd). Mutually exclusive with create_gke_kms_key. The module grants no IAM on a supplied existing key; grant the GKE service agent (service-<project_number>@container-engine-robot.iam.gserviceaccount.com) roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. Ignored when create_gke = false."
+  description = "Fully qualified ID (projects/<project>/locations/<location>/keyRings/<ring>/cryptoKeys/<key>) of an existing Cloud KMS key the module-managed GKE cluster should use for application-layer secrets encryption (etcd). Mutually exclusive with create_gke_kms_key. The module grants no IAM on a supplied existing key; grant the GKE service agent (service-<project_number>@container-engine-robot.iam.gserviceaccount.com) roles/cloudkms.cryptoKeyEncrypterDecrypter on it out of band. The key may live in another project but must be in gcp_region. Clearing this input does not decrypt the cluster: the module stops managing encryption and the cluster keeps using the key, so keep the key, its versions, and the grant until you have turned encryption off as docs/destroy-cleanup.md describes. Ignored when create_gke = false."
   type        = string
   default     = null
 
@@ -1201,21 +1204,20 @@ variable "existing_gke_kms_key_id" {
 # secret_manager.tf, which grants n8n's own Workload Identity SA access to
 # caller-named Secret Manager secrets for n8n's in-product External Secrets
 # feature): this toggle instead enables the GKE-managed Secret Manager CSI
-# driver component on the cluster itself, letting any pod mount Secret
-# Manager secrets as files or sync them into the Kubernetes Secrets the
-# existing `*_secret_ref` inputs already read (e.g.
-# n8n_license_key_secret_ref, n8n_credentials_overwrite_secret_ref). Workload
-# Identity (workload_identity.tf) already lets a Kubernetes ServiceAccount
-# authenticate as a Google service account with Secret Manager IAM; this
-# add-on is the cluster-side half of that pattern. The module grants no
-# Secret Manager IAM here; the caller's pod-level Workload Identity SA needs
-# roles/secretmanager.secretAccessor on its own secrets out of band (or via
-# n8n_secret_manager_enabled's grant, for n8n's own External Secrets use).
+# driver component on the cluster itself, letting a pod mount Secret Manager
+# secrets as files through a caller-owned SecretProviderClass and a CSI
+# volume (driver secrets-store-gke.csi.k8s.io). The GKE add-on does not sync
+# secrets into Kubernetes Secrets; that is Secret Manager's separate secret
+# synchronization feature, which this module does not configure, so the
+# add-on does not by itself populate the Secrets the *_secret_ref inputs
+# read. The module grants no Secret Manager IAM here: Google documents
+# granting roles/secretmanager.secretAccessor to the pod's Kubernetes
+# ServiceAccount Workload Identity principal on each secret, out of band.
 # Only takes effect for a module-managed cluster; ignored when create_gke =
 # false (checks.tf emits the ignored-input diagnostic).
 
 variable "gke_secret_manager_addon_enabled" {
-  description = "When true and create_gke is true, enables the GKE-managed Secret Manager CSI driver add-on (secret_manager_config) on the module-managed cluster, letting pods mount Google Secret Manager secrets or sync them into the Kubernetes Secrets the *_secret_ref inputs read. Defaults to false. Ignored when create_gke = false."
+  description = "When true and create_gke is true, enables the GKE-managed Secret Manager CSI driver add-on (secret_manager_config) on the module-managed cluster, letting pods mount Google Secret Manager secrets as files through a caller-owned SecretProviderClass. The add-on does not sync secrets into Kubernetes Secrets, so it does not populate the Secrets the *_secret_ref inputs read. The module grants no Secret Manager IAM for it. Setting this back to false disables the add-on. Defaults to false. Ignored when create_gke = false."
   type        = bool
   default     = false
   nullable    = false

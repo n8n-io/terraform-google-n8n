@@ -7,7 +7,7 @@
 # it never appears at all - see AGENTS.md, "Static analysis").
 #
 # The opt-in pass also asserts checkov actually *evaluated* the opt-in
-# resources (kubernetes_deployment_v1.redis_exporter and its Service), not
+# resources (REQUIRED_OPT_IN_RESOURCES below), not
 # just that the run happened to exit 0: --quiet suppresses passed_checks
 # from checkov's own JSON output, so a resource that silently stayed
 # skipped would otherwise pass this script with zero visible signal. This
@@ -41,6 +41,8 @@ OPT_IN_TFVARS="tests/checkov/opt-in.tfvars"
 REQUIRED_OPT_IN_RESOURCES=(
   "kubernetes_deployment_v1.redis_exporter"
   "kubernetes_service_v1.redis_exporter"
+  "google_kms_crypto_key.gke"
+  "google_kms_crypto_key_iam_member.gke"
 )
 
 status=0

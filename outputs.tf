@@ -109,6 +109,11 @@ output "gcs_kms_key_id" {
   value       = var.create_gcs_bucket ? local.effective_gcs_kms_key_id : null
 }
 
+output "gke_kms_key_id" {
+  description = "Cloud KMS key ID the module configures for the module-managed GKE cluster's application-layer secrets encryption: the module-created key, or the supplied existing_gke_kms_key_id. Null when the module configures no key, which does not prove the cluster is unencrypted: a cluster encrypted before both inputs were cleared, or out of band, stays encrypted. Always null when create_gke = false."
+  value       = var.create_gke ? local.effective_gke_kms_key_id : null
+}
+
 output "workload_identity_service_account" {
   description = "Google service account the n8n pods impersonate via Workload Identity."
   value       = google_service_account.n8n.email

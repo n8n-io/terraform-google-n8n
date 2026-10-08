@@ -192,6 +192,13 @@ GKE cluster's application-layer secrets encryption (etcd) via
 (`service-<project_number>@container-engine-robot.iam.gserviceaccount.com`)
 on a module-created key. Only takes effect for a module-managed cluster
 (`create_gke = true`); ignored (with a warning) for an existing cluster.
+Leaving both unset means the module does not manage this encryption: a new
+cluster uses Google-managed encryption, but clearing the inputs on an
+encrypted cluster does not decrypt it. Enabling encryption on an existing
+cluster restarts the control plane while GKE re-encrypts every Secret. See
+[Turning GKE secrets encryption off](./destroy-cleanup.md#turning-gke-secrets-encryption-off)
+for the off procedure and for key-version guidance after rotation. The
+effective key is exposed as the `gke_kms_key_id` output.
 
 The ring location must satisfy every service sharing it. Cloud SQL,
 Memorystore, and GKE require `gcp_region`. Cloud Storage requires the
@@ -246,14 +253,26 @@ IAM that connection needs at runtime.
 `gke_secret_manager_addon_enabled` is an independent, cluster-level opt-in
 (default `false`, gated on `create_gke = true`) that enables the
 GKE-managed Secret Manager CSI driver add-on (`secret_manager_config`) on
-the module-managed cluster. This lets any pod mount Secret Manager secrets
-as files, or sync them into the Kubernetes Secrets the `*_secret_ref` inputs
-already read (for example `n8n_license_key_secret_ref`,
-`n8n_credentials_overwrite_secret_ref`), without the module itself generating
-or copying those Secrets. The module grants no Secret Manager IAM for this
-add-on; the pod-level Workload Identity service account still needs
-`roles/secretmanager.secretAccessor` on the secrets it reads, either via
-`n8n_secret_manager_enabled` above or an out-of-band grant.
+the module-managed cluster. This lets a pod mount Secret Manager secrets as
+files through a `SecretProviderClass` and a CSI volume (driver
+`secrets-store-gke.csi.k8s.io`), both of which you own. Setting the input
+back to `false` disables the add-on. Google requires GKE
+1.27.14-gke.1042001 or later and Linux nodes for the add-on, and Workload
+Identity Federation for GKE, which the module-managed cluster already has.
+
+The add-on does not sync secrets into Kubernetes Secrets, so it does not
+populate the Secrets that the `*_secret_ref` inputs read. Google provides that
+as a separate
+[secret synchronization](https://docs.cloud.google.com/secret-manager/docs/sync-k8-secrets)
+feature, which this module does not configure.
+
+The module grants no Secret Manager IAM for this add-on. Google's
+[add-on documentation](https://docs.cloud.google.com/secret-manager/docs/secret-manager-managed-csi-component)
+grants `roles/secretmanager.secretAccessor` on each secret directly to the
+pod's Kubernetes ServiceAccount, through its Workload Identity principal.
+`n8n_secret_manager_enabled` above grants n8n's Google service account
+instead, for n8n's own External Secrets feature. It has not been verified as
+a substitute for the add-on's grant.
 
 ### Application artifact and runtime portability
 

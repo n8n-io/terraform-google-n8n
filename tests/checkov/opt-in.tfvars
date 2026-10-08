@@ -14,3 +14,9 @@ project_id             = "checkov-optin-project"
 n8n_fqdn               = "n8n.checkov-optin.example.com"
 n8n_license_key        = "checkov-fixture-not-a-real-license-key"
 redis_exporter_enabled = true
+
+# GKE application-layer secrets encryption: unblinds google_kms_crypto_key.gke
+# and google_kms_crypto_key_iam_member.gke (kms.tf). A module-created key
+# needs a key ring reference, so the fixture also creates the shared ring.
+create_kms_key_ring = true
+create_gke_kms_key  = true
