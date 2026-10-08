@@ -47,6 +47,7 @@ changes) against a production deployment.
 | 10 | Redis exporter TLS and metrics | Not run |
 | 11 | Memorystore RDB persistence recovery | Partial (see section) |
 | 12 | n8n Enterprise license activation and single-main entitlement | Partial (see section) |
+| 12a | Offline license activation (`n8n_license_cert_secret_ref`) | Not run |
 | 13 | GKE Dataplane V2 migration | Not run |
 | 14 | GCS access-log delivery | Passed (see section) |
 | 15 | KEDA worker scale-out and scale-in | Passed (see section) |
@@ -357,7 +358,8 @@ single-main entitlement) and the other entitlement boundaries were not tested.
 **Safety prerequisite:** a real n8n offline license certificate (`N8N_LICENSE_CERT`),
 in a caller-managed Kubernetes Secret.
 
-1. Set `n8n_license_cert_secret_ref` (and `n8n_license_key = null`), ideally
+1. Set `n8n_license_cert_secret_ref` (and set both `n8n_license_key` and
+   `n8n_license_key_secret_ref` to `null`), ideally
    with egress to n8n's license server blocked, and `terraform apply`.
    Confirm `kubernetes_secret.n8n_license` is not created, and that
    `helm get values n8n -n <namespace>` shows `license.enabled: true`, an
