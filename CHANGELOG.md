@@ -126,8 +126,10 @@ this project adheres to the stability contract in
   now require `~> 6.1` (was `~> 6.0`), because
   `google_container_cluster.secret_manager_config` does not exist in 6.0.x
   and Terraform rejects the block at validate time even when the add-on is
-  off. The examples now declare `~> 6.1` too. This is a minor-version
-  change under the module's stability contract.
+  off. The examples that call the root module now declare `~> 6.1` too;
+  `modules/controllers/examples/direct-use` stays on `~> 6.0` because the
+  controllers submodule does not need 6.1. This is a minor-version change
+  under the module's stability contract.
   Upgrade note: if your dependency lock file selects a 6.0.x release, run
   `terraform init -upgrade` before planning. If your root module pins either
   provider to 6.0.x, widen the constraint first. The floor change itself
