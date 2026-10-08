@@ -43,6 +43,31 @@ this project adheres to the stability contract in
   (`volatile-lfu`, `allkeys-lfu`) need Redis 4.0 or later, so they are
   rejected at plan time with `redis_version = "REDIS_3_2"`. See the matching
   "Changed" entry for the new default.
+- `db_postgresdb_ssl_reject_unauthorized` lets n8n validate the PostgreSQL
+  server's certificate (`DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true`) on the
+  external PostgreSQL path (`create_postgres_instance = false`) instead of
+  the previously hardcoded `false`, which encrypted the connection but never
+  validated it. Restricted to the external path: the module connects to its
+  own Cloud SQL instance by private IP, and Google documents Cloud SQL
+  hostname verification only by DNS name, so n8n's hostname check is
+  expected to fail there; see
+  [`docs/postgresql-tls.md`](./docs/postgresql-tls.md) for the full
+  explanation and limits.
+- `db_postgresdb_ssl_ca_pem` takes the PEM-encoded CA bundle to trust for
+  that verification (same input name as terraform-aws-n8n). The module
+  passes it, whitespace-trimmed, to the n8n chart's `database.ssl.ca`, which
+  the chart renders as `DB_POSTGRESDB_SSL_CA` for the main, worker, and
+  webhook-processor pods. Because the CA is part of the Helm release, a CA
+  change rolls the pods; if a failed upgrade's atomic rollback succeeds, the
+  previous CA is restored (the design of terraform-azurerm-n8n and
+  terraform-aws-n8n#178). Two new `check` warnings cover a CA that is
+  ignored because verification is off, and `NODE_TLS_REJECT_UNAUTHORIZED=0`
+  in an extra env input turning verification off when no CA is supplied.
+- `postgres_ssl_mode` lets the module-managed Cloud SQL instance reject
+  unencrypted connections outright (`ip_configuration.ssl_mode =
+  ENCRYPTED_ONLY`) instead of the previously hardcoded
+  `ALLOW_UNENCRYPTED_AND_ENCRYPTED`. Default is unchanged, so existing
+  deployments see no plan diff.
 
 ### Changed
 

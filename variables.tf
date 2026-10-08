@@ -1282,9 +1282,39 @@ variable "db_postgresdb_connection_timeout_ms" {
 }
 
 variable "db_postgresdb_ssl_enabled" {
-  description = "Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl_mode ALLOW_UNENCRYPTED_AND_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false)."
+  description = "Whether n8n connects to the database over SSL. For Cloud SQL over Private Services Access the recommended default is false: the instance uses ssl_mode ALLOW_UNENCRYPTED_AND_ENCRYPTED and traffic stays on the VPC private network. Set to true to require SSL; certificate verification is skipped by default (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false) unless db_postgresdb_ssl_reject_unauthorized is also set, which additionally validates the server certificate (see that variable's description for its create_postgres_instance = false restriction)."
   type        = bool
   default     = false
+  nullable    = false
+}
+
+variable "db_postgresdb_ssl_reject_unauthorized" {
+  description = "When true and db_postgresdb_ssl_enabled = true, n8n verifies the PostgreSQL server's certificate (DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=true) instead of the hardcoded false this module used before, which encrypted the connection but never validated the server certificate. node-postgres (n8n's driver) has no equivalent of libpq's chain-only verify-ca: enabling this performs the same full certificate-chain-plus-hostname check as PostgreSQL's verify-full, whichever name you think of it as. Restricted to create_postgres_instance = false (external PostgreSQL): the module connects to its own Cloud SQL instance by private IP, while Google documents Cloud SQL hostname verification only by DNS name (for example the instance DNS name with the shared CA server_ca_mode and a private DNS record, which this module does not set up), so n8n's hostname check is expected to fail the TLS handshake there. On the external path, point n8n_database_host at a hostname or IP address that matches a Subject Alternative Name in the external server's certificate for the hostname check to succeed, and supply the issuing CA via db_postgresdb_ssl_ca_pem unless the pod image's default trust store already trusts it. See docs/postgresql-tls.md."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = var.db_postgresdb_ssl_reject_unauthorized ? (var.db_postgresdb_ssl_enabled && !var.create_postgres_instance) : true
+    error_message = "db_postgresdb_ssl_reject_unauthorized requires db_postgresdb_ssl_enabled = true (an unencrypted connection has no certificate to verify) and create_postgres_instance = false (the module connects to its own Cloud SQL instance by private IP, and Google documents Cloud SQL hostname verification only by DNS name, so n8n's hostname check is expected to fail there; see docs/postgresql-tls.md)."
+  }
+}
+
+variable "db_postgresdb_ssl_ca_pem" {
+  description = "PEM-encoded CA certificate bundle n8n trusts when db_postgresdb_ssl_reject_unauthorized = true. The module passes it, whitespace-trimmed, to the n8n Helm chart's database.ssl.ca value, which the chart renders into its own ConfigMap as DB_POSTGRESDB_SSL_CA for the main, worker, and webhook-processor pods. Because the CA is part of the Helm release, changing it rolls the pods (the chart's checksum/config annotation), and if a failed upgrade's atomic rollback succeeds, the previous CA is restored. Same input name as terraform-aws-n8n. A CA certificate is public, so it is not marked sensitive; it is stored in Terraform state and in the Helm release. Applies only to the external PostgreSQL path (create_postgres_instance = false) with db_postgresdb_ssl_reject_unauthorized = true; ignored, with a plan-time warning, otherwise. Leave null to fall back to the pod image's bundled trust store, which validates successfully only if the external server's certificate chains to a publicly trusted root CA; that fallback also follows Node's process-wide NODE_TLS_REJECT_UNAUTHORIZED setting. See docs/postgresql-tls.md."
+  type        = string
+  default     = null
+
+  # Requires PEM certificate framing rather than only rejecting an empty
+  # string, matching terraform-aws-n8n: a DER blob, a truncated download, or
+  # plain text would otherwise only surface as a connection failure once n8n
+  # tried to parse it. (?s) makes "." match newlines so a multi-certificate
+  # bundle still matches end to end. This checks framing only, not the
+  # certificate itself.
+  validation {
+    condition     = var.db_postgresdb_ssl_ca_pem == null ? true : can(regex("(?s)^\\s*-----BEGIN CERTIFICATE-----.*-----END CERTIFICATE-----\\s*$", var.db_postgresdb_ssl_ca_pem))
+    error_message = "db_postgresdb_ssl_ca_pem must be null or a PEM-encoded CA bundle (containing -----BEGIN CERTIFICATE----- / -----END CERTIFICATE----- delimiters)."
+  }
 }
 
 # ── Execution data storage ────────────────────────────────────────────────────

@@ -285,7 +285,11 @@ resource "helm_release" "n8n" {
       disableProductionWebhooksOnMainProcess = true
     }
 
-    database = {
+    # ssl is merged in only while a PostgreSQL CA is delivered
+    # (local.n8n_database_ssl_values in locals.tf): the chart renders it into
+    # its ConfigMap as DB_POSTGRESDB_SSL_CA, so a Helm rollback restores the
+    # previous CA and a CA change rolls the pods.
+    database = merge({
       type        = "postgresdb"
       useExternal = true
       # Module-managed Cloud SQL (private IP over PSA) when create_postgres_instance = true,
@@ -299,7 +303,7 @@ resource "helm_release" "n8n" {
         name = local.effective_db_password_secret_name
         key  = local.effective_db_password_secret_key
       }
-    }
+    }, local.n8n_database_ssl_values)
 
     # Ownership-neutral: host/port/tls/username resolve to the module-managed
     # Memorystore instance or the supplied external redis_* inputs
@@ -542,15 +546,11 @@ resource "helm_release" "n8n" {
       timezone = var.n8n_timezone
       extraEnv = concat(
         # Direct connections to Cloud SQL over private IP use SSL with a Google CA that Node.js
-        # does not trust by default, so cert verification is skipped within the VPC. Set
-        # db_postgresdb_ssl_enabled = false when n8n's DB host is an in-cluster pooler (e.g.
-        # PgBouncer) that handles SSL on its upstream leg.
-        var.db_postgresdb_ssl_enabled ? [
-          { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
-          { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = "false" },
-          ] : [
-          { name = "DB_POSTGRESDB_SSL_ENABLED", value = "false" },
-        ],
+        # does not trust by default, so cert verification is skipped within the VPC unless
+        # db_postgresdb_ssl_reject_unauthorized is also set (rejected on the managed path, see
+        # that variable's description). Set db_postgresdb_ssl_enabled = false when n8n's DB host
+        # is an in-cluster pooler (e.g. PgBouncer) that handles SSL on its upstream leg.
+        local.n8n_postgres_ssl_env,
         [
           { name = "N8N_LOG_LEVEL", value = var.n8n_log_level },
           # N8N_LOG_OUTPUT controls *where* logs go (console / file), not their

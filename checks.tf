@@ -95,9 +95,10 @@ check "postgres_tuning_ignored_when_external" {
       var.postgres_deletion_protection == true &&
       var.postgres_backup_retained_backups == null &&
       var.postgres_transaction_log_retention_days == null &&
-      var.postgres_query_logging_enabled == false
+      var.postgres_query_logging_enabled == false &&
+      var.postgres_ssl_mode == "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
     )
-    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection, postgres_backup_retained_backups, postgres_transaction_log_retention_days, postgres_query_logging_enabled) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
+    error_message = "create_postgres_instance is false, but one or more managed-Cloud-SQL tuning variables (postgres_version, postgres_edition, postgres_machine_type, postgres_availability_type, postgres_disk_size, postgres_deletion_protection, postgres_backup_retained_backups, postgres_transaction_log_retention_days, postgres_query_logging_enabled, postgres_ssl_mode) differ from their defaults. These are ignored when using an external database; configure the external service out of band instead."
   }
 }
 
@@ -106,9 +107,36 @@ check "postgres_host_and_password_ignored_when_managed" {
     condition = !var.create_postgres_instance || (
       var.n8n_database_host == null &&
       var.n8n_database_password == null &&
-      var.n8n_database_password_secret_ref == null
+      var.n8n_database_password_secret_ref == null &&
+      var.db_postgresdb_ssl_ca_pem == null
     )
-    error_message = "create_postgres_instance is true, but n8n_database_host, n8n_database_password, or n8n_database_password_secret_ref is set. These are ignored for the module-managed instance; the module generates its own password and reports the instance's private IP via the postgres_host output."
+    error_message = "create_postgres_instance is true, but n8n_database_host, n8n_database_password, n8n_database_password_secret_ref, or db_postgresdb_ssl_ca_pem is set. These are ignored for the module-managed instance; the module generates its own password and reports the instance's private IP via the postgres_host output, and db_postgresdb_ssl_reject_unauthorized (the only thing that uses the CA) is itself rejected on the managed path."
+  }
+}
+
+# The CA is passed to the chart only while server-certificate verification is
+# on (locals.tf, postgres_ssl_ca_active). The managed path is already covered by
+# postgres_host_and_password_ignored_when_managed above, so this check only
+# fires on the external path.
+check "postgres_ssl_ca_ignored_without_verification" {
+  assert {
+    condition     = var.create_postgres_instance || var.db_postgresdb_ssl_ca_pem == null || var.db_postgresdb_ssl_reject_unauthorized
+    error_message = "db_postgresdb_ssl_ca_pem is set, but db_postgresdb_ssl_reject_unauthorized is false, so the module does not pass the CA to the n8n chart and n8n does not verify the PostgreSQL server certificate. Set db_postgresdb_ssl_reject_unauthorized = true (with db_postgresdb_ssl_enabled = true) to use the CA, or remove db_postgresdb_ssl_ca_pem."
+  }
+}
+
+# Without a CA bundle, n8n passes `ssl: true` to its PostgreSQL driver, so the
+# certificate check follows Node's process-wide default, which
+# NODE_TLS_REJECT_UNAUTHORIZED=0 turns off. With a CA bundle, n8n passes an
+# explicit rejectUnauthorized and the variable has no effect on this
+# connection. See docs/postgresql-tls.md.
+check "postgres_ssl_verification_disabled_by_node_tls_env" {
+  assert {
+    condition = !(var.db_postgresdb_ssl_reject_unauthorized && var.db_postgresdb_ssl_ca_pem == null) || !anytrue([
+      for e in concat(var.n8n_extra_env, var.n8n_worker_extra_env, flatten([for p in var.n8n_worker_pools : p.extra_env])) :
+      e.name == "NODE_TLS_REJECT_UNAUTHORIZED" && e.value == "0"
+    ])
+    error_message = "db_postgresdb_ssl_reject_unauthorized = true without db_postgresdb_ssl_ca_pem, but n8n_extra_env, n8n_worker_extra_env, or an n8n_worker_pools entry's extra_env sets NODE_TLS_REJECT_UNAUTHORIZED=0. On the affected pods, Node then skips the PostgreSQL server-certificate check. Remove that entry, or supply the CA through db_postgresdb_ssl_ca_pem so n8n passes an explicit rejectUnauthorized."
   }
 }
 
