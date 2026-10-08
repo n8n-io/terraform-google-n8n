@@ -1229,7 +1229,7 @@ else
       fail "Deployment/${name}: N8N_LICENSE_CERT entry is missing the expected secretKeyRef shape: ${entry}"
     fi
 
-    if echo "$entry" | sed -n '2p' | grep -q 'value:'; then
+    if echo "$entry" | grep -q '^[[:space:]]*value:'; then
       fail "Deployment/${name}: N8N_LICENSE_CERT must not carry a literal value"
     fi
 
