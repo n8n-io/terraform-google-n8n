@@ -67,6 +67,7 @@ resource "google_kms_crypto_key" "postgres" {
   key_ring        = local.effective_kms_key_ring_id
   purpose         = "ENCRYPT_DECRYPT"
   rotation_period = local.kms_rotation_period
+  labels          = local.gcp_labels
 
   lifecycle {
     prevent_destroy = true
@@ -111,6 +112,7 @@ resource "google_kms_crypto_key" "redis" {
   key_ring        = local.effective_kms_key_ring_id
   purpose         = "ENCRYPT_DECRYPT"
   rotation_period = local.kms_rotation_period
+  labels          = local.gcp_labels
 
   lifecycle {
     prevent_destroy = true
@@ -153,6 +155,7 @@ resource "google_kms_crypto_key" "gcs" {
   key_ring        = local.effective_kms_key_ring_id
   purpose         = "ENCRYPT_DECRYPT"
   rotation_period = local.kms_rotation_period
+  labels          = local.gcp_labels
 
   lifecycle {
     prevent_destroy = true

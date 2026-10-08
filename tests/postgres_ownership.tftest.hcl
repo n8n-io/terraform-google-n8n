@@ -566,6 +566,14 @@ run "module_created_postgres_key_wires_key_ring_and_iam" {
     condition     = google_kms_crypto_key.postgres[0].rotation_period == "7776000s"
     error_message = "A module-created Cloud SQL CryptoKey must rotate every 90 days."
   }
+
+  assert {
+    condition = (
+      try(google_kms_crypto_key.postgres[0].labels["managed_by"], null) == "terraform" &&
+      try(google_kms_crypto_key.postgres[0].labels["app"], null) == "n8n"
+    )
+    error_message = "A module-created Cloud SQL CryptoKey must carry the module's standard labels (local.gcp_labels)."
+  }
 }
 
 run "existing_postgres_key_creates_no_key_or_iam" {

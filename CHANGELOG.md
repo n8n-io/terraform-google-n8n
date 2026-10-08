@@ -256,6 +256,20 @@ this project adheres to the stability contract in
   (Ports
   [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
 
+### Fixed
+
+- Module-created Cloud KMS keys for Cloud SQL, Memorystore, and GCS
+  (`google_kms_crypto_key.postgres`, `.redis`, and `.gcs`) now carry the
+  module's standard labels (`local.gcp_labels`, including `common_labels`),
+  like the GKE secrets-encryption key (`google_kms_crypto_key.gke`) already
+  does. Applying this is an in-place label update on existing keys: no key
+  replacement and no re-encryption. The provider manages only the label keys
+  in the configuration, so labels added outside Terraform under other keys
+  are kept, but a label added outside Terraform under the same key as a
+  module label (`managed_by`, `app`, `cluster`, or a `common_labels` key) is
+  overwritten. Keys supplied through `existing_*_kms_key_id` are not
+  touched.
+
 ## [0.1.0] - 2026-09-29
 
 Initial release. Nothing was tagged before this version. The pre-release
