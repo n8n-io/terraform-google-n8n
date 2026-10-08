@@ -697,7 +697,12 @@ On an existing deployment, one apply that sets
 To keep that window safe, switch when load is low. To stop KEDA from adding
 default workers during the switch, set `n8n_worker_keda_pause = true` in a
 separate apply first, and set it back to `false` after the switch. That
-input pauses only the default worker Deployment, not `n8n_worker_pools`.
+input pauses only the default worker Deployment, not `n8n_worker_pools`,
+and needs `n8n_chart_version` 1.13.0 or newer (the default is 1.14.0).
+Older charts ignore the pause, and chart 1.12.0 overwrites the held worker
+count on every Helm upgrade, including the switch itself
+(`check.worker_keda_pause_requires_a_supported_chart` warns). On an older
+chart, rely on switching when load is low.
 
 To switch without a credential change during the switch, follow these steps:
 
