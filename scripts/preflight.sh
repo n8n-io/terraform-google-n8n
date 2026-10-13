@@ -96,6 +96,8 @@ perms=(
   compute.globalAddresses.create compute.sslCertificates.create
   servicenetworking.services.addPeering
   container.clusters.create container.clusters.get
+  container.clusterRoles.create container.clusterRoleBindings.create
+  container.roles.create container.roleBindings.create
   cloudsql.instances.create
   redis.instances.create
   storage.buckets.create storage.hmacKeys.create
