@@ -17,6 +17,7 @@
 # Env toggles (match the module's optional paths):
 #   CHECK_ORG_POLICY=true|false   # default true  (manage_sa_key_org_policy path)
 #   CHECK_CLOUD_DNS=true|false    # default false (cloud_dns_zone_name path; off for the Cloudflare example)
+#   CHECK_KEDA_RBAC=true|false    # default true  (install_keda path; the KEDA Helm release's cluster-scoped RBAC)
 #
 # Exit: 0 = all required checks pass; 1 = a required API/permission is missing;
 #       2 = usage / no auth. Org-policy-override rights are reported as WARNING
@@ -27,6 +28,7 @@ set -uo pipefail
 PROJECT="${1:-$(gcloud config get-value project 2>/dev/null)}"
 CHECK_ORG_POLICY="${CHECK_ORG_POLICY:-true}"
 CHECK_CLOUD_DNS="${CHECK_CLOUD_DNS:-false}"
+CHECK_KEDA_RBAC="${CHECK_KEDA_RBAC:-true}"
 
 if [[ -z "${PROJECT}" || "${PROJECT}" == "(unset)" ]]; then
   echo "usage: $0 PROJECT_ID   (or run: gcloud config set project PROJECT_ID)" >&2
@@ -42,7 +44,7 @@ fi
 
 echo "Account : ${ACCOUNT}"
 echo "Project : ${PROJECT}"
-echo "Paths   : org-policy=${CHECK_ORG_POLICY}  cloud-dns=${CHECK_CLOUD_DNS}"
+echo "Paths   : org-policy=${CHECK_ORG_POLICY}  cloud-dns=${CHECK_CLOUD_DNS}  keda-rbac=${CHECK_KEDA_RBAC}"
 echo
 
 fail=0
@@ -52,7 +54,8 @@ warn=0
 # Core APIs are hard-required. orgpolicy is only needed for the override path, so
 # it is handled (softly) in the org-policy section, not here.
 apis=(container.googleapis.com sqladmin.googleapis.com redis.googleapis.com \
-      servicenetworking.googleapis.com compute.googleapis.com iam.googleapis.com)
+      servicenetworking.googleapis.com compute.googleapis.com iam.googleapis.com \
+      cloudresourcemanager.googleapis.com)
 [[ "${CHECK_CLOUD_DNS}" == "true" ]] && apis+=(dns.googleapis.com)
 
 enabled="$(gcloud services list --enabled --project="${PROJECT}" --format='value(config.name)' 2>/dev/null)"
@@ -103,6 +106,13 @@ perms=(
   serviceusage.services.enable
 )
 [[ "${CHECK_CLOUD_DNS}" == "true" ]] && perms+=(dns.managedZones.get dns.changes.create)
+# install_keda path (default true): the KEDA Helm release creates cluster-scoped
+# RBAC, authorized through these four permissions (modules/controllers/keda.tf).
+# Not needed when install_keda = false (no KEDA release, no cluster RBAC).
+[[ "${CHECK_KEDA_RBAC}" == "true" ]] && perms+=(
+  container.clusterRoles.create container.clusterRoleBindings.create
+  container.roles.create container.roleBindings.create
+)
 
 granted="$(query_granted "${perms[@]}")"
 

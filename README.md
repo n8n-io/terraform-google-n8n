@@ -24,6 +24,7 @@ currently blocking you, so you find out now, not at `apply` time:
 ```bash
 ./scripts/preflight.sh YOUR_PROJECT_ID
 # for the Cloudflare example (no Cloud DNS): CHECK_CLOUD_DNS=false ./scripts/preflight.sh YOUR_PROJECT_ID
+# for examples/customer-managed-everything (install_keda = false): CHECK_KEDA_RBAC=false ./scripts/preflight.sh YOUR_PROJECT_ID
 ```
 
 Requires `gcloud` (authenticated), `curl`, and `python3`. Exit code is non-zero if a
@@ -52,11 +53,25 @@ If neither is done, the apply fails when creating `google_storage_hmac_key`.
 
 ### 2. Enable APIs
 
-`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam` (and `orgpolicy` if using `manage_sa_key_org_policy`, `certificatemanager` for `google_managed` TLS).
+`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager` (and `orgpolicy` if using `manage_sa_key_org_policy`, `certificatemanager` for `google_managed` TLS). `cloudresourcemanager.googleapis.com` is needed because the module reads the project (`data.google_project.n8n`) and the Service Networking connection resource looks the project up through it; with the API disabled, `apply` fails with `Cloud Resource Manager API has not been used in project ... before or it is disabled`.
 
 ### 3. Authentication
 
 `gcloud auth application-default login`, or point `GOOGLE_APPLICATION_CREDENTIALS` at a key file.
+
+With `create_psa = true` (the default), the identity running `apply` also needs permission to create the Service Networking peering for Cloud SQL and Memorystore: `servicenetworking.services.addPeering`, carried by `roles/servicenetworking.networksAdmin`. `roles/editor` does not include it, and without it `apply` fails with `Permission denied to add peering for service 'servicenetworking.googleapis.com'`. [`scripts/preflight.sh`](./scripts/preflight.sh) checks for this permission. Grant it with:
+
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:YOUR_DEPLOYER@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/servicenetworking.networksAdmin"
+```
+
+Three more roles are needed beyond `roles/editor` (or use `roles/owner`, which covers them), each only when the module creates the resource it authorizes; `examples/*` all use the defaults below, so a default `apply` fails without all three:
+
+- `roles/iam.serviceAccountAdmin` (`iam.serviceAccounts.setIamPolicy`): always required. The module always creates a Workload Identity binding on the n8n service account (`google_service_account_iam_member.n8n_workload_identity`). Without it `apply` fails with `Error 403 ... Permission 'iam.serviceAccounts.setIamPolicy' denied`.
+- `roles/resourcemanager.projectIamAdmin` (`resourcemanager.projects.setIamPolicy`): required when `create_gke = true` (default; grants project roles to the GKE node service account, `google_project_iam_member.nodes`) or `create_postgres_instance = true` (default; grants `roles/cloudsql.client` to the n8n service account, `google_project_iam_member.n8n_cloudsql_client`). Not needed if both are `false` (fully customer-managed GKE and Postgres).
+- `roles/container.admin`: required when `install_keda = true` (default). The KEDA Helm release creates cluster-scoped RBAC, which GKE authorizes through `container.clusterRoles.create`, `container.clusterRoleBindings.create`, `container.roles.create` and `container.roleBindings.create`. Without it `helm_release.keda` fails with `clusterroles.rbac.authorization.k8s.io is forbidden`. Not needed when `install_keda = false`.
 
 ### 4. Enterprise license
 

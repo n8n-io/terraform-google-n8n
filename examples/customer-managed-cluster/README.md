@@ -25,7 +25,7 @@ for the full ownership matrix and every layer's contract.
   - Grants the credentials used by this `terraform apply` permission to
     create namespaced Kubernetes resources (namespace, Secrets, Deployments,
     Services, HPAs, ScaledObjects).
-- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`.
+- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`.
 - Org policy `iam.disableServiceAccountKeyCreation` OFF (GCS HMAC). Either
   disable it out-of-band, or set `manage_sa_key_org_policy = true`.
 - `gcloud auth application-default login`.

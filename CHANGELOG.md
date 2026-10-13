@@ -269,6 +269,25 @@ this project adheres to the stability contract in
   module label (`managed_by`, `app`, `cluster`, or a `common_labels` key) is
   overwritten. Keys supplied through `existing_*_kms_key_id` are not
   touched.
+- The prerequisite API lists in the README, the example READMEs, and
+  `scripts/preflight.sh` now include `cloudresourcemanager.googleapis.com`.
+  The module always reads the project (`data.google_project.n8n`) and the
+  Service Networking connection looks the project up through it, so `apply`
+  failed with `Cloud Resource Manager API has not been used in project ...`
+  in a project that had never enabled it.
+- The README now names the project roles a deploying identity needs beyond
+  `roles/editor`, each qualified by the switch that creates the resource it
+  authorizes: `roles/servicenetworking.networksAdmin` (Service Networking
+  peering, `create_psa = true`), `roles/iam.serviceAccountAdmin` (the
+  Workload Identity binding, always), `roles/resourcemanager.projectIamAdmin`
+  (the module's project IAM bindings, `create_gke` or
+  `create_postgres_instance`), and `roles/container.admin` (the KEDA
+  release's cluster-scoped RBAC, `install_keda`). Each missing role failed a
+  live apply of `examples/small` (defaults). `scripts/preflight.sh` now also
+  checks `container.clusterRoles.create`, `container.clusterRoleBindings.create`,
+  `container.roles.create`, and `container.roleBindings.create`, gated on a new
+  `CHECK_KEDA_RBAC` toggle (default true, following `CHECK_CLOUD_DNS`'s pattern)
+  so it does not reject `install_keda = false` deployments.
 
 ## [0.1.0] - 2026-09-29
 
