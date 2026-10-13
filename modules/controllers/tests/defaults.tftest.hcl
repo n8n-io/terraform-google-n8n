@@ -28,8 +28,8 @@ run "defaults_install_both_components" {
   }
 
   assert {
-    condition     = helm_release.keda[0].version == "2.20.1"
-    error_message = "KEDA chart version must default to 2.20.1"
+    condition     = helm_release.keda[0].version == "2.21.0"
+    error_message = "KEDA chart version must default to 2.21.0"
   }
 
   assert {
