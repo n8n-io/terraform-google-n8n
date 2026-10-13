@@ -13,6 +13,15 @@ variable "friendly_name_prefix" {
     error_message = "friendly_name_prefix must not contain 'n8n' - the module already appends it, and including it here produces redundant names like <prefix>-n8n-n8n-pg."
   }
 
+  # The module derives both GCS bucket names from this prefix, and Cloud
+  # Storage rejects any bucket name containing "google" at apply time, after
+  # most of the stack already exists. Rejected unconditionally, even when
+  # existing_gcs_bucket_name is used, to keep the contract simple.
+  validation {
+    condition     = !strcontains(var.friendly_name_prefix, "google")
+    error_message = "friendly_name_prefix must not contain 'google': the module uses it in GCS bucket names, and Cloud Storage rejects bucket names containing 'google'."
+  }
+
   # GCP resource names are RFC1035: fail at plan time instead of mid-apply.
   validation {
     condition     = can(regex("^[a-z]([a-z0-9-]*[a-z0-9])?$", var.friendly_name_prefix))
@@ -1430,6 +1439,23 @@ variable "db_postgresdb_ssl_ca_pem" {
   validation {
     condition     = var.db_postgresdb_ssl_ca_pem == null ? true : can(regex("(?s)^\\s*-----BEGIN CERTIFICATE-----.*-----END CERTIFICATE-----\\s*$", var.db_postgresdb_ssl_ca_pem))
     error_message = "db_postgresdb_ssl_ca_pem must be null or a PEM-encoded CA bundle (containing -----BEGIN CERTIFICATE----- / -----END CERTIFICATE----- delimiters)."
+  }
+
+  # PEM is ASCII (RFC 7468), so this makes the length check below byte-accurate
+  # (length() counts characters, not bytes).
+  validation {
+    condition     = var.db_postgresdb_ssl_ca_pem == null ? true : can(regex("^[[:ascii:]]*$", var.db_postgresdb_ssl_ca_pem))
+    error_message = "db_postgresdb_ssl_ca_pem must contain only ASCII characters (PEM is ASCII per RFC 7468)."
+  }
+
+  # The chart passes the value to every n8n container as the single environment
+  # variable DB_POSTGRESDB_SSL_CA. Linux refuses to exec a process whose single
+  # environment string (NAME=value plus the NUL) exceeds MAX_ARG_STRLEN, 131072
+  # bytes with 4 KiB pages: 131072 - len("DB_POSTGRESDB_SSL_CA=") (21) - 1 = 131050.
+  # Measure the trimmed value, because that is what reaches the chart.
+  validation {
+    condition     = var.db_postgresdb_ssl_ca_pem == null ? true : length(trimspace(var.db_postgresdb_ssl_ca_pem)) <= 131050
+    error_message = "db_postgresdb_ssl_ca_pem is ${var.db_postgresdb_ssl_ca_pem == null ? 0 : length(trimspace(var.db_postgresdb_ssl_ca_pem))} characters after trimming; the maximum is 131050. n8n receives it as one environment variable (DB_POSTGRESDB_SSL_CA), and Linux refuses to start a container whose single environment string exceeds 131072 bytes ('argument list too long'). Use a smaller bundle, such as only the CA certificates that sign your database server."
   }
 }
 

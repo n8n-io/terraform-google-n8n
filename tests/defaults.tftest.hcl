@@ -1204,6 +1204,16 @@ run "friendly_name_prefix_rejects_n8n_substring" {
   expect_failures = [var.friendly_name_prefix]
 }
 
+run "friendly_name_prefix_rejects_google_substring" {
+  command = plan
+
+  variables {
+    friendly_name_prefix = "google-review"
+  }
+
+  expect_failures = [var.friendly_name_prefix]
+}
+
 run "friendly_name_prefix_rejects_overlong_value" {
   command = plan
 
