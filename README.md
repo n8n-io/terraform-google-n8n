@@ -66,6 +66,11 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/servicenetworking.networksAdmin"
 ```
 
+Three more roles are needed beyond `roles/editor` (or use `roles/owner`, which covers them). `apply` fails without them:
+
+- `roles/resourcemanager.projectIamAdmin` (`resourcemanager.projects.setIamPolicy`) and `roles/iam.serviceAccountAdmin` (`iam.serviceAccounts.setIamPolicy`): the module grants project roles to the node service account and a Workload Identity binding on the n8n service account. Without them the IAM resources fail with `Error 403 ... Permission 'iam.serviceAccounts.setIamPolicy' denied`.
+- `roles/container.admin`: the KEDA Helm release creates cluster-scoped RBAC, which GKE authorizes through `container.clusterRoles.create`, `container.clusterRoleBindings.create`, `container.roles.create` and `container.roleBindings.create`. Without them `helm_release.keda` fails with `clusterroles.rbac.authorization.k8s.io is forbidden`.
+
 ### 4. Enterprise license
 
 Multi-main requires an n8n Enterprise license (`n8n_license_key`), or an
