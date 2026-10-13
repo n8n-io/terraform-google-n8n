@@ -35,10 +35,16 @@ these points before you apply:
   `ScaledObject`, `ScaledJob`, or `TriggerAuthentication` to the same KEDA
   install, review KEDA's [2.20 to 2.21 migration guide](https://keda.sh/docs/2.21/migration/#upgrading-from-keda-220-to-221).
 - **Kubernetes window.** KEDA 2.21 is tested on Kubernetes v1.34 to v1.36
-  (2.20: v1.33 to v1.35). The GKE `REGULAR` and `STABLE` channels are inside
-  that window today. A cluster still on 1.33 or older (for example on the
-  `EXTENDED` channel) is outside what KEDA tests; the chart itself installs
-  from `kubeVersion >= 1.23`.
+  (2.20: v1.33 to v1.35; as of this writing, `https://keda.sh/docs/2.21/operate/cluster/#kubernetes-compatibility`
+  still lists that range). At the time of writing (2026-10-13), GKE's
+  `REGULAR` channel offers 1.34.11-1.36.4 and `STABLE` offers 1.34.9-1.35.6
+  (`gcloud container get-server-config --format='yaml(channels)'`), both
+  inside that window. The chart's `kubeVersion: '>=v1.23.0-0'`
+  (`helm show chart kedacore/keda --version 2.21.0`) only gates whether Helm
+  lets `helm install`/`helm upgrade` proceed against the cluster's reported
+  Kubernetes version; it is not a tested or supported minimum. A cluster on
+  1.23 through 1.33 (for example on the `EXTENDED` channel) passes that Helm
+  gate but falls outside the Kubernetes versions KEDA 2.21 actually tests.
 - **CRDs are upgraded with the release.** The chart renders its CRDs from
   templates (`crds.install: true`), so the Helm upgrade updates them, unlike a
   chart that ships CRDs in `crds/`.
