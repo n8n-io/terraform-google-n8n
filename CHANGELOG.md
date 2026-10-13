@@ -314,6 +314,14 @@ this project adheres to the stability contract in
   (with 4 KiB pages), so an oversized bundle previously passed the plan and
   then failed every main, worker, and webhook-processor container with
   `argument list too long`.
+- The module-created load balancer static IP
+  (`google_compute_global_address.lb`) and Private Services Access range
+  (`google_compute_global_address.psa`) now carry the module's standard
+  labels (`local.gcp_labels`, including `common_labels`). Applying this is an
+  in-place label update on each address. For the PSA range it was verified
+  live against an active Service Networking peering: the saved plan showed
+  only the label update, with no replacement of the address, the network, or
+  `google_service_networking_connection.psa`.
 
 ## [0.1.0] - 2026-09-29
 
