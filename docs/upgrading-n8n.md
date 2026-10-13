@@ -23,8 +23,11 @@ into.
 **Breaking, every caller of the root module:** the `google` and `google-beta`
 providers must now be `~> 8.0` (was `~> 6.23`). Widen any root-module
 constraint that pins either to 6.x or 7.x, then run `terraform init -upgrade`
-before `terraform plan`. The `modules/controllers` submodule and its
-`examples/direct-use` do not pin the root providers and keep `~> 6.0`.
+before `terraform plan`. The `modules/controllers` submodule itself declares
+no `google` provider constraint (`modules/controllers/versions.tf` pins only
+`kubernetes`/`helm`); its own
+`modules/controllers/examples/direct-use` example separately pins `google`
+to `~> 6.0` and is unaffected by this change.
 
 What was checked:
 
@@ -39,10 +42,12 @@ What was checked:
   cleanly, and `terraform destroy` on 8.7.0 removed all 47 with no Private
   Services Access stall.
 - **Provider behavior claims.** `docs/build-time-decisions.md` was re-checked
-  against the provider source at `v8.7.0`. One row changed:
-  `gke_enable_private_nodes` (`private_cluster_config.enable_private_nodes`)
-  is no longer `ForceNew`, so changing it is an in-place cluster update in
-  8.x, not a replacement. Everything else the page lists is unchanged.
+  against the provider source at `v8.7.0`. `private_cluster_config.enable_private_nodes`
+  itself lost `ForceNew`, but this module always derives
+  `master_ipv4_cidr_block` from `gke_enable_private_nodes` (`gke.tf`), and that
+  field is still `ForceNew`, so toggling `gke_enable_private_nodes` still plans
+  a cluster replacement; the row's footnotes were updated to cite both facts,
+  but its guidance is unchanged. Everything else the page lists is unchanged.
 
 What to expect on the first plan:
 
@@ -56,9 +61,6 @@ What to expect on the first plan:
   `google_service_networking_connection.psa`. It changes no behavior: "DELETE"
   is what an unset policy always meant. This path was not run live; it
   follows from the schema difference between 6.50.0 and 8.7.0.
-- **`gke_enable_private_nodes`.** Changing it on a live cluster now plans an
-  in-place update where 6.x planned a replacement. Read the plan before you
-  apply it: it changes how the cluster's nodes get addresses.
 
 Not verified: a `psa_connection_abandon_on_destroy = false` deployment
 upgraded from 6.x state, `REMOVE_PEERING` (the module does not use it yet), and
