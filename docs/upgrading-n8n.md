@@ -18,6 +18,33 @@ or start a fresh `terraform apply` against new state. See
 chart, and CI-toolchain pin this module makes and which bump tier each falls
 into.
 
+## Moving from KEDA chart 2.20.1 to 2.21.0
+
+The default `keda_chart_version` (root module and `modules/controllers`) moved
+from `2.20.1` to `2.21.0`
+([KEDA v2.21.0](https://github.com/kedacore/keda/releases/tag/v2.21.0)). Check
+these points before you apply:
+
+- **KEDA's three breaking changes do not apply to the module's own
+  configuration.** (1) Service-account-token audiences are now enforced, which
+  affects Vault Kubernetes authentication and `boundServiceAccountToken` in a
+  `TriggerAuthentication`; the module's `n8n-redis-auth` `TriggerAuthentication`
+  uses only `secretTargetRef`. (2) The Azure Pipelines scaler counts in-flight
+  jobs by default and (3) the Temporal scaler dropped three deprecated
+  settings; the module uses neither scaler. If you add your own
+  `ScaledObject`, `ScaledJob`, or `TriggerAuthentication` to the same KEDA
+  install, review KEDA's [2.20 to 2.21 migration guide](https://keda.sh/docs/2.21/migration/#upgrading-from-keda-220-to-221).
+- **Kubernetes window.** KEDA 2.21 is tested on Kubernetes v1.34 to v1.36
+  (2.20: v1.33 to v1.35). The GKE `REGULAR` and `STABLE` channels are inside
+  that window today. A cluster still on 1.33 or older (for example on the
+  `EXTENDED` channel) is outside what KEDA tests; the chart itself installs
+  from `kubeVersion >= 1.23`.
+- **CRDs are upgraded with the release.** The chart renders its CRDs from
+  templates (`crds.install: true`), so the Helm upgrade updates them, unlike a
+  chart that ships CRDs in `crds/`.
+- **The KEDA pods roll once.** Because the release is `atomic`, a failed
+  upgrade rolls back to `2.20.1`.
+
 ## Moving from chart 1.13.0 to 1.14.0
 
 The default `n8n_chart_version` moved from `1.13.0` to `1.14.0`

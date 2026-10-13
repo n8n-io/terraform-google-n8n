@@ -234,6 +234,15 @@ this project adheres to the stability contract in
   - The chart's own values validation now reports every failure in one
     render instead of stopping at the first (n8n-hosting#209).
   - See `docs/upgrading-n8n.md`, "Moving from chart 1.13.0 to 1.14.0".
+- Default `keda_chart_version` bumped to `2.21.0` (was `2.20.1`; KEDA
+  v2.21.0), in the root module and `modules/controllers`. KEDA 2.21 lists
+  three breaking changes (service-account-token audience enforcement for Vault
+  and `boundServiceAccountToken` authentication, Azure Pipelines in-flight
+  jobs, removed Temporal scaler settings); none applies to the module, whose
+  `TriggerAuthentication` uses only `secretTargetRef` and which uses neither
+  scaler. KEDA 2.21 is tested on Kubernetes v1.34 to v1.36 (2.20: v1.33 to
+  v1.35), which covers the GKE `REGULAR` and `STABLE` channels today. See
+  `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to 2.21.0".
 - **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
   sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
   instance, replacing Memorystore's own `volatile-lru` default. Under memory

@@ -238,11 +238,11 @@ variable "n8n_chart_repository" {
 variable "keda_chart_version" {
   description = "KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Passed through to modules/controllers. Ignored when install_keda = false."
   type        = string
-  default     = "2.20.1"
+  default     = "2.21.0"
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.keda_chart_version))
-    error_message = "keda_chart_version must be an exact semantic version, e.g. \"2.20.1\" (optionally with a -prerelease or +build suffix). Version ranges (~>, >=) and floating tags (latest) are not accepted."
+    error_message = "keda_chart_version must be an exact semantic version, e.g. \"2.21.0\" (optionally with a -prerelease or +build suffix). Version ranges (~>, >=) and floating tags (latest) are not accepted."
   }
 }
 
