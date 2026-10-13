@@ -163,7 +163,7 @@ By default (`psa_connection_abandon_on_destroy = true`) `terraform destroy` does
 
 Recreating the connection may require the original allocated range name, since a service producer that still tracks the previous connection can reject a new one that uses a different range. Do not set the provider's `update_on_creation_fail`: its fallback carries the same range-replacement risk and runs without a plan to inspect.
 
-**Opting out:** `psa_connection_abandon_on_destroy = false` leaves `deletion_policy` unset so the provider calls the servicenetworking delete API. Expect the producer-in-use error above unless enough time has passed since the data services were deleted. Google provider 8.1 and later add `deletion_policy = "REMOVE_PEERING"`, which removes the peering only when that API delete is refused specifically because service producer resources still use the connection; other delete failures still surface as errors. The module can adopt it once its `google` constraint moves past 6.x.
+**Opting out:** `psa_connection_abandon_on_destroy = false` sets `deletion_policy = "DELETE"` so the provider calls the servicenetworking delete API. Expect the producer-in-use error above unless enough time has passed since the data services were deleted. Google provider 8.1 and later add `deletion_policy = "REMOVE_PEERING"`, which removes the peering only when that API delete is refused specifically because service producer resources still use the connection; other delete failures still surface as errors. The module does not use it yet: it changes destroy behavior, so it needs its own live destroy check.
 
 ### Namespace stuck in Terminating
 

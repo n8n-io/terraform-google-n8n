@@ -17,22 +17,23 @@ terraform {
 
   required_providers {
     # GCP substrate: GKE, Cloud SQL, Memorystore, GCS, networking, IAM, DNS.
-    # >= 6.23: google_sql_user's password_wo / password_wo_version
-    # (postgres_password_write_only, cloudsql.tf) do not exist before 6.23.0.
-    # This also covers the earlier >= 6.1 need:
-    # google_container_cluster.secret_manager_config (gke.tf) does not exist in
-    # 6.0.x, and Terraform rejects an unknown block at validate time even when
-    # it renders with the add-on disabled. Kept within the same 6.x major.
+    # ~> 8.0: the module was verified on 8.x (docs/build-time-decisions.md
+    # re-checks every ForceNew/in-place claim against v8.7.0). 8.x keeps the
+    # 6.23 features this module needs (google_sql_user's password_wo /
+    # password_wo_version for postgres_password_write_only, cloudsql.tf, and
+    # google_container_cluster.secret_manager_config in gke.tf), and adds
+    # google_service_networking_connection's "REMOVE_PEERING" deletion_policy
+    # (8.1), which network.tf does not use yet.
     google = {
       source  = "hashicorp/google"
-      version = "~> 6.23"
+      version = "~> 8.0"
     }
     # Materializes Google-managed service agents before CMEK IAM grants.
     # Kept in lockstep with google (docs/versioning.md). The module uses no
     # google-beta-only write-only argument; the floor moves with google only.
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 6.23"
+      version = "~> 8.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"

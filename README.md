@@ -189,7 +189,8 @@ Cloud SQL, Memorystore, node-pool sizing, autoscaling bounds, pruning, and OpenT
 
 **Upgrade warning:** module-managed GKE now uses Dataplane V2. Upgrading a
 `LEGACY_DATAPATH` cluster forces cluster replacement and workload downtime
-with Google provider 6.x. This is a minor-release breaking change, not an
+(`datapath_provider` is `ForceNew` in the Google provider, unchanged between
+6.x and 8.x). This is a minor-release breaking change, not an
 in-place network update. Read the
 [GKE migration procedure](./docs/upgrading-n8n.md#gke-dataplane-v2-requires-cluster-replacement)
 before applying to existing state.
@@ -324,7 +325,7 @@ unintentionally. This contract goes away at 1.0.0 in favor of standard SemVer.
 The module ships against specific provider majors and validated versions. See [`docs/versioning.md`](./docs/versioning.md) for the complete pin inventory (every provider, chart, and CI toolchain version, with its bump tier).
 
 - **Terraform CLI:** `>= 1.11`, for the `ephemeral` variable and write-only argument behind `postgres_password_write_only`.
-- **Google provider:** `~> 6.23` (hashicorp/google and hashicorp/google-beta, kept in lockstep). 6.23 is the first release with `google_sql_user`'s `password_wo`, and it also covers `google_container_cluster.secret_manager_config` (added in 6.1).
+- **Google provider:** `~> 8.0` (hashicorp/google and hashicorp/google-beta, kept in lockstep). The module needs `google_sql_user`'s `password_wo` (6.23.0) and `google_container_cluster.secret_manager_config` (6.1), both present in 8.x.
 - **Kubernetes provider:** `~> 3.0` (see [`CHANGELOG.md`](./CHANGELOG.md), Known limitations, for the deprecation warnings it prints). If your root module declares its own `kubernetes` provider constraint at `~> 2.0`, widen it first, or `terraform init` cannot satisfy both.
 - **`time` provider:** `~> 0.14`.
 - **n8n Helm chart:** default `1.14.0`.
@@ -375,8 +376,8 @@ license, and quotas.
 | Name | Version |
 | ---- | ------- |
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
-| <a name="requirement_google"></a> [google](#requirement\_google) | ~> 6.23 |
-| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.23 |
+| <a name="requirement_google"></a> [google](#requirement\_google) | ~> 8.0 |
+| <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 8.0 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
 | <a name="requirement_kubectl"></a> [kubectl](#requirement\_kubectl) | ~> 1.14 |
 | <a name="requirement_kubernetes"></a> [kubernetes](#requirement\_kubernetes) | ~> 3.0 |
@@ -388,8 +389,8 @@ license, and quotas.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_google"></a> [google](#provider\_google) | ~> 6.23 |
-| <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | ~> 6.23 |
+| <a name="provider_google"></a> [google](#provider\_google) | ~> 8.0 |
+| <a name="provider_google-beta"></a> [google-beta](#provider\_google-beta) | ~> 8.0 |
 | <a name="provider_helm"></a> [helm](#provider\_helm) | ~> 3.0 |
 | <a name="provider_kubectl"></a> [kubectl](#provider\_kubectl) | ~> 1.14 |
 | <a name="provider_kubernetes"></a> [kubernetes](#provider\_kubernetes) | ~> 3.0 |
