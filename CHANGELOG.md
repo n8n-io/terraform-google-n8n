@@ -183,10 +183,12 @@ this project adheres to the stability contract in
   provider below 8.0, widen the constraint first. `terraform init -upgrade`
   can also move other providers in your root module, so review the lock
   file diff and the plan before you apply.
-- `gke_enable_private_nodes` is now an in-place update, not a cluster
-  replacement, under provider 8.x (`private_cluster_config.enable_private_nodes`
-  lost `ForceNew`); `docs/build-time-decisions.md` moved the row. Read
-  `terraform plan` before changing it on a live cluster.
+- `private_cluster_config.enable_private_nodes` itself is no longer
+  `ForceNew` under provider 8.x, but this module always derives
+  `master_ipv4_cidr_block` from `gke_enable_private_nodes`
+  (`gke.tf`), and that field is still `ForceNew`: toggling
+  `gke_enable_private_nodes` still plans a cluster replacement.
+  `docs/build-time-decisions.md`'s row now documents both ForceNew facts.
 - Default `n8n_chart_version` bumped to `1.14.0` (was `1.13.0`; n8n-hosting
   v1.14.0, 2026-09-30, which bundles n8n `2.41.4` as its `appVersion`, so a
   caller with `n8n_image_tag = null` moves from n8n `2.40.5` to `2.41.4`; n8n
