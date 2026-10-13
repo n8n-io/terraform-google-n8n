@@ -587,19 +587,24 @@ Ingress; a caller-owned Ingress can still read the same effective hostname
 list from the `n8n_ingress_hosts` output if useful, but nothing requires it
 to.
 
-## Terraform CLI floor raised to >= 1.11
+## Terraform CLI floor raised to >= 1.13
 
 **Breaking, every caller of the root module:** `required_version` is now
-`>= 1.11` (was `>= 1.9`), and the `google`/`google-beta` provider floors
+`>= 1.13` (was `>= 1.9`), and the `google`/`google-beta` provider floors
 are now `~> 6.23` (was `~> 6.0` in 0.1.0). The new opt-in
 `postgres_password_write_only` (see `cloudsql.tf` and the "Cloud SQL
-PostgreSQL" section of `variables.tf`) needs them: an `ephemeral = true`
-variable (`postgres_password_wo`) needs Terraform 1.10's ephemeral-value
-support, feeding it into `google_sql_user.n8n`'s `password_wo` argument
-needs 1.11's write-only-argument support for managed resources, and
+PostgreSQL" section of `variables.tf`) needs the provider floor and
+Terraform 1.11: an `ephemeral = true` variable (`postgres_password_wo`)
+needs Terraform 1.10's ephemeral-value support, feeding it into
+`google_sql_user.n8n`'s `password_wo` argument needs 1.11's
+write-only-argument support for managed resources, and
 `google_sql_user.password_wo`/`password_wo_version` need `google` provider
 `>= 6.23.0` (this also covers the GKE Secret Manager add-on's need for
-6.1, see `CHANGELOG.md`). `google-beta` uses no write-only argument; it
+6.1, see `CHANGELOG.md`). The CLI floor is 1.13 rather than 1.11 because
+`terraform test` on 1.12 and older leaves about one provider process
+running per `run` block until the command exits, which can exhaust CI
+memory as the suites grow (n8n-io/terraform-google-n8n#30); 1.13.0 does not.
+`google-beta` uses no write-only argument; it
 moves only because the module keeps it in lockstep with `google`
 (`docs/versioning.md`). Terraform parses these floors from this module's
 HCL unconditionally, so they apply to every caller regardless of whether
@@ -608,10 +613,11 @@ does not use either feature and keeps its own floors.
 
 Upgrade the Terraform CLI and run `terraform init -upgrade` so the
 `google`/`google-beta` providers resolve within the new range before
-running `terraform plan` against this module version. An older CLI fails
-at parse time on the unsupported `ephemeral = true` argument, before any
-resource is evaluated. If your root module pins either Google provider
-below 6.23, widen that constraint first. No state migration is required for
+running `terraform plan` against this module version. A CLI older than 1.10
+fails at parse time on the unsupported `ephemeral = true` argument, before
+any resource is evaluated. Terraform 1.10 through 1.12 parse it but fail the
+`required_version` check at `terraform init`. If your root module pins either
+Google provider below 6.23, widen that constraint first. No state migration is required for
 this change by itself: the floor bump alone does not change any resource's
 planned attributes. `terraform init -upgrade` can also move other providers
 in your root module, though, so review the lock file diff and the plan

@@ -366,8 +366,8 @@ check "graceful_shutdown_fits_grace_period" {
 # https://cloud.google.com/sql/docs/postgres/instance-settings, "Machine
 # Type", and https://cloud.google.com/compute/docs/instances/creating-instance-with-custom-machine-type
 # for the underlying Compute Engine convention Cloud SQL reuses). regex()
-# is wrapped in try() because Terraform 1.9 does not short-circuit && / ||
-# (AGENTS.md); a non-matching string must not raise an error here. With
+# is wrapped in try() so a non-matching string yields null instead of
+# raising an error. With
 # exactly one capture group, regex() returns a one-element list (not a bare
 # string), hence the [0] index before tonumber(). ENTERPRISE_PLUS
 # db-perf-optimized-N-<vcpus> tiers (N2 machine series) have a fixed,

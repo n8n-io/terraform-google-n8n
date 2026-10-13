@@ -323,7 +323,7 @@ unintentionally. This contract goes away at 1.0.0 in favor of standard SemVer.
 
 The module ships against specific provider majors and validated versions. See [`docs/versioning.md`](./docs/versioning.md) for the complete pin inventory (every provider, chart, and CI toolchain version, with its bump tier).
 
-- **Terraform CLI:** `>= 1.11`, for the `ephemeral` variable and write-only argument behind `postgres_password_write_only`.
+- **Terraform CLI:** `>= 1.13`. The `ephemeral` variable and write-only argument behind `postgres_password_write_only` need 1.11; 1.13 also avoids a `terraform test` provider-process leak in 1.12 and older.
 - **Google provider:** `~> 6.23` (hashicorp/google and hashicorp/google-beta, kept in lockstep). 6.23 is the first release with `google_sql_user`'s `password_wo`, and it also covers `google_container_cluster.secret_manager_config` (added in 6.1).
 - **Kubernetes provider:** `~> 3.0` (see [`CHANGELOG.md`](./CHANGELOG.md), Known limitations, for the deprecation warnings it prints). If your root module declares its own `kubernetes` provider constraint at `~> 2.0`, widen it first, or `terraform init` cannot satisfy both.
 - **`time` provider:** `~> 0.14`.
@@ -374,7 +374,7 @@ license, and quotas.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.13 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | ~> 6.23 |
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.23 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |
