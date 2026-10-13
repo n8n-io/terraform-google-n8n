@@ -239,6 +239,55 @@ run "ca_pem_rejects_blank_value" {
   expect_failures = [var.db_postgresdb_ssl_ca_pem]
 }
 
+run "ca_pem_rejects_non_ascii_value" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\né\n-----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
+}
+
+# 54 characters of framing (27 + 25 + two newlines) + 130996 body = 131050.
+run "ca_pem_accepts_exactly_131050_characters_after_trimming" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "\n-----BEGIN CERTIFICATE-----\n${format("%0130996d", 0)}\n-----END CERTIFICATE-----\n\n"
+  }
+
+  assert {
+    condition     = local.postgres_ssl_ca_active == true
+    error_message = "A bundle of exactly 131050 characters after trimming must pass validation."
+  }
+}
+
+run "ca_pem_rejects_131051_characters_after_trimming" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\n${format("%0130997d", 0)}\n-----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
+}
+
 # ── Cloud SQL server-side ssl_mode (postgres_ssl_mode) ──────────────────────
 
 run "postgres_ssl_mode_defaults_to_allow_unencrypted_and_encrypted" {

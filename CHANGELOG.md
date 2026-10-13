@@ -269,6 +269,16 @@ this project adheres to the stability contract in
   module label (`managed_by`, `app`, `cluster`, or a `common_labels` key) is
   overwritten. Keys supplied through `existing_*_kms_key_id` are not
   touched.
+- `friendly_name_prefix` now rejects values containing `google` at plan time.
+  The module builds its GCS bucket names from the prefix and Cloud Storage
+  refuses any bucket name containing `google`, which previously failed
+  mid-apply after most of the stack was created.
+- `db_postgresdb_ssl_ca_pem` now rejects non-ASCII values and bundles over
+  131,050 characters after trimming. n8n receives the bundle as the single
+  environment variable `DB_POSTGRESDB_SSL_CA`, and Linux cannot start a
+  container whose single environment string exceeds 131,072 bytes, so an
+  oversized bundle previously passed the plan and then failed every main,
+  worker, and webhook-processor container with `argument list too long`.
 
 ## [0.1.0] - 2026-09-29
 
