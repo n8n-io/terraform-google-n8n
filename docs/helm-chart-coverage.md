@@ -1,7 +1,7 @@
 # n8n Helm chart coverage
 
 Every top-level key in the pinned n8n Helm chart's `values.yaml`
-(`n8n_chart_version` default: **1.14.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
+(`n8n_chart_version` default: **1.15.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
 and how this module surfaces it, if at all. Kept honest by
 `tests/scripts/check-helm-chart-coverage.sh`, which fails when this file's
 declared chart version disagrees with `variables.tf`'s `n8n_chart_version`
@@ -27,6 +27,7 @@ this table never mentions.
 | `persistence` | Not surfaced | n8n's binary/execution data goes to Cloud SQL/GCS (`n8n_execution_data_storage_mode`), not a chart-managed PVC |
 | `extraVolumes` | `n8n_extra_volumes` (merged with module-managed CA/credential-overwrite mounts) | |
 | `extraVolumeMounts` | `n8n_extra_volume_mounts` (merged) | |
+| `extraObjects` | Not surfaced | Arbitrary extra Kubernetes objects rendered through the Helm release (chart `1.15.0`, n8n-hosting#219); no caller need identified, and objects the module does not own would sit inside its Helm release lifecycle |
 | `extraContainers` | Not surfaced | No sidecar-injection need identified; would need its own security-review contract before exposing |
 | `extraInitContainers` | Not surfaced | Same as `extraContainers` |
 | `dnsPolicy` | Not surfaced | |
@@ -50,7 +51,7 @@ this table never mentions.
 | `config` | `n8n_timezone`, `n8n_extra_env`, and the module's large set of dedicated `N8N_*`/`DB_*`/`QUEUE_*` inputs (via `config.extraEnv`) | Most application-level tuning flows through here as environment variables, not chart-native config keys |
 | `license` | `n8n_license_key`, `n8n_license_key_secret_ref` | |
 | `secretRefs` | Derived (`local.effective_core_secret_name`) | |
-| `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs, `db_postgresdb_ssl_ca_pem` (`database.ssl.*`) | `database.ssl` is set only while a PostgreSQL CA is delivered (`enabled = true`, `rejectUnauthorized = true`, `ca`), so the chart renders `DB_POSTGRESDB_SSL_CA` and no duplicate `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED`. `DB_POSTGRESDB_SSL_ENABLED` and `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED` come from `config.extraEnv`, because the chart renders the unread `DB_POSTGRESDB_SSL` name. `database.ssl.cert`/`key` (client certificates) are not surfaced. See [`docs/postgresql-tls.md`](./postgresql-tls.md) |
+| `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs, `db_postgresdb_ssl_ca_pem` (`database.ssl.*`) | `database.ssl` is set only while a PostgreSQL CA is delivered (`enabled = true`, `rejectUnauthorized = true`, `ca`), so the chart renders `DB_POSTGRESDB_SSL_CA`, `DB_POSTGRESDB_SSL_ENABLED` (chart `1.15.0` and newer; earlier charts render the unread `DB_POSTGRESDB_SSL` name instead), and no duplicate `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED`. `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED` always comes from `config.extraEnv`. The module also adds `DB_POSTGRESDB_SSL_ENABLED` through `config.extraEnv`, except in the CA path on the upstream chart at `1.15.0` or newer, where the chart owns it (`local.n8n_chart_renders_postgres_ssl_enabled`). `database.ssl.cert`/`key` (client certificates) and `database.ssl.existingSecret` are not surfaced. See [`docs/postgresql-tls.md`](./postgresql-tls.md) |
 | `redis` | `redis_*` inputs, KEDA/queue wiring, `n8n_queue_worker_lock_duration`/`n8n_queue_worker_lock_renew_time`/`n8n_queue_worker_stalled_interval`/`n8n_graceful_shutdown_timeout` (`redis.worker.*`) | `redis.worker.maxStalledCount` is not surfaced |
 | `s3` | `gcs_*` inputs (S3-compatible driver over GCS + HMAC) | |
 

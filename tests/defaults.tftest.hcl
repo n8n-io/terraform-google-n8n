@@ -1403,7 +1403,7 @@ run "worker_keda_pause_allowed_on_a_custom_chart_repository" {
 
 # ── Capacity model: main sidecar allowance is chart-version-gated ──────────
 # n8n-hosting#179 renders the task-runner sidecar on main only in standalone
-# mode, shipped in chart 1.12.0 and unchanged through 1.14.0. At the
+# mode, shipped in chart 1.12.0 and unchanged through 1.15.0. At the
 # verified default pin, the main ceiling term must exclude the sidecar; the
 # worker term still adds it while n8n_task_runners_enabled. Same shape as
 # terraform-aws-n8n's/terraform-azurerm-n8n's own

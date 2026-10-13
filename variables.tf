@@ -215,7 +215,7 @@ variable "create_ingress" {
 variable "n8n_chart_version" {
   description = "n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n). Must be an exact semantic version (e.g. \"1.10.1\"), not a range or floating tag, so every apply is deterministic."
   type        = string
-  default     = "1.14.0"
+  default     = "1.15.0"
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.n8n_chart_version))
@@ -295,7 +295,7 @@ variable "create_pd_balanced_storage_class" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.41.4 for the default 1.14.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. This module requires n8n 2.0 or newer; n8n 1.x is not supported. The tag also decides whether the module still sends the legacy WEBHOOK_URL: only when it names a version below n8n 2.30.0, or when no version can be established (a floating or unversioned tag, or a null tag on a private chart mirror or a chart before 1.12.0). A null tag on the default chart repository at chart 1.12.0 or newer runs the chart's appVersion and gets no WEBHOOK_URL. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
+  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.42.4 for the default 1.15.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. This module requires n8n 2.0 or newer; n8n 1.x is not supported. The tag also decides whether the module still sends the legacy WEBHOOK_URL: only when it names a version below n8n 2.30.0, or when no version can be established (a floating or unversioned tag, or a null tag on a private chart mirror or a chart before 1.12.0). A null tag on the default chart repository at chart 1.12.0 or newer runs the chart's appVersion and gets no WEBHOOK_URL. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
   type        = string
   default     = null
 

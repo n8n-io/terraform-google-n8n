@@ -236,9 +236,12 @@ locals {
   # so enabled is true here. rejectUnauthorized = true stops the chart from
   # rendering its own DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED (it does so only
   # when the value is false), leaving local.n8n_postgres_ssl_env below the
-  # sole owner of that name. The chart also renders DB_POSTGRESDB_SSL, which
-  # n8n does not read; DB_POSTGRESDB_SSL_ENABLED stays in
-  # local.n8n_postgres_ssl_env (n8n-io/n8n-hosting#175).
+  # sole owner of that name. Chart >= 1.15.0 also renders
+  # DB_POSTGRESDB_SSL_ENABLED from its ConfigMap when database.ssl.enabled is
+  # true (n8n-io/n8n-hosting#175; earlier charts rendered DB_POSTGRESDB_SSL,
+  # which n8n does not read), so on those charts the module omits its own
+  # DB_POSTGRESDB_SSL_ENABLED entry in this path, see
+  # local.n8n_chart_renders_postgres_ssl_enabled below.
   #
   # An empty map when inactive, merged into helm_release.n8n's database
   # values (n8n.tf), so a caller who never sets the CA sees no values diff.
@@ -254,6 +257,20 @@ locals {
     }
   } : {}
 
+  # True only when the pinned chart is known to render
+  # DB_POSTGRESDB_SSL_ENABLED from database.ssl.enabled: the upstream
+  # repository at chart 1.15.0 or newer. For any other repository the chart
+  # contents cannot be verified, and the safe error is a duplicate env entry
+  # (same value "true"), not a silently disabled TLS connection, so the module
+  # keeps emitting its own entry there. Nested ternaries, because Terraform
+  # below 1.12 does not short-circuit && / || (AGENTS.md). Same shape as
+  # local.n8n_worker_keda_pause_supported in scaling.tf.
+  n8n_chart_renders_postgres_ssl_enabled = var.n8n_chart_repository != "oci://ghcr.io/n8n-io/n8n-helm-chart" ? false : (
+    tonumber(local.n8n_chart_version_core[0]) > 1 ? true : (
+      tonumber(local.n8n_chart_version_core[0]) < 1 ? false : tonumber(local.n8n_chart_version_core[1]) >= 15
+    )
+  )
+
   # DB_POSTGRESDB_SSL_* env fragment for helm_release.n8n's config.extraEnv
   # (n8n.tf). Kept as a named local so its shape is directly assertable under
   # the mock provider, where helm_release.values is unknown at plan time
@@ -263,10 +280,18 @@ locals {
   # (tostring(false) renders the same literal "false" the module hardcoded
   # previously, so a caller who never sets db_postgresdb_ssl_reject_unauthorized
   # sees no plan diff).
-  n8n_postgres_ssl_env = var.db_postgresdb_ssl_enabled ? [
-    { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
-    { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = tostring(var.db_postgresdb_ssl_reject_unauthorized) },
-    ] : [
+  n8n_postgres_ssl_env = var.db_postgresdb_ssl_enabled ? concat(
+    # The chart renders DB_POSTGRESDB_SSL_ENABLED itself whenever
+    # database.ssl.enabled is true (chart >= 1.15.0), which is exactly when
+    # postgres_ssl_ca_active sets it. A second entry with the same name would
+    # land on every pod, so the module leaves it to the chart there.
+    local.postgres_ssl_ca_active && local.n8n_chart_renders_postgres_ssl_enabled ? [] : [
+      { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
+    ],
+    [
+      { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = tostring(var.db_postgresdb_ssl_reject_unauthorized) },
+    ],
+    ) : [
     { name = "DB_POSTGRESDB_SSL_ENABLED", value = "false" },
   ]
 
@@ -358,7 +383,7 @@ locals {
   )
 
   # The chart's values.yaml default for redis.worker.timeout, in seconds, as of
-  # the pinned n8n_chart_version (1.14.0). Used only by
+  # the pinned n8n_chart_version (1.15.0). Used only by
   # check.graceful_shutdown_fits_grace_period (checks.tf) for callers who leave
   # n8n_graceful_shutdown_timeout null. tests/scripts/check-n8n-chart.sh reads
   # this line and fails if the rendered chart default differs, so a chart bump
@@ -371,7 +396,7 @@ locals {
   # quiet there rather than warn on a number it cannot verify (same reasoning
   # as local.n8n_worker_keda_pause_supported in scaling.tf). Deliberately not
   # gated on n8n_chart_version: every published upstream chart, 1.0.0 through
-  # 1.14.0 including 1.11.0-preview.workerpools.1, defaults redis.worker.timeout
+  # 1.15.0 including 1.11.0-preview.workerpools.1, defaults redis.worker.timeout
   # to 30 and renders it unconditionally (verified by pulling each tag), so an
   # exact-version gate would only silence a correct warning on older pins. A
   # future chart that moves the default fails check-n8n-chart.sh once the
