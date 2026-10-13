@@ -7,7 +7,7 @@
 # post-apply checks (see README.md and docs/upgrading-n8n.md once written).
 #
 # Run: terraform test
-#   (from examples/split-ingress/ - requires terraform >= 1.11)
+#   (from examples/split-ingress/ - requires terraform >= 1.13)
 
 mock_provider "google" {}
 mock_provider "google-beta" {}

@@ -243,16 +243,19 @@ this project adheres to the stability contract in
   This is an in-place configuration update with no instance restart, but it
   overwrites any `maxmemory-policy` set outside Terraform; see
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#memorystore-maxmemory-policy-now-defaults-to-noeviction).
-- **Breaking:** `required_version` is now `>= 1.11` (was `>= 1.9`).
+- **Breaking:** `required_version` is now `>= 1.13` (was `>= 1.9`).
   The `ephemeral` variable `postgres_password_wo` needs Terraform 1.10, and
   passing it to the write-only `password_wo` argument needs 1.11 (see
-  "Added" above). The floor applies module-wide regardless of whether you
-  set that variable, because Terraform parses `ephemeral` and write-only
-  syntax from this module's HCL unconditionally. The `modules/controllers`
-  submodule keeps `>= 1.9`. Upgrade the Terraform CLI, and run
-  `terraform init -upgrade` for the provider floor above, before applying;
-  see
-  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#terraform-cli-floor-raised-to--111)
+  "Added" above). 1.13 is the floor because `terraform test` on 1.12 and
+  older leaves about one provider process running per `run` block until the
+  command exits (n8n-io/terraform-google-n8n#30), which 1.13.0 does not. CI
+  now pins Terraform 1.13.5. The floor applies module-wide regardless of
+  whether you set that variable, because Terraform parses `ephemeral` and
+  write-only syntax from this module's HCL unconditionally. The
+  `modules/controllers` submodule keeps `>= 1.9`. Upgrade the Terraform CLI,
+  and run `terraform init -upgrade` for the provider floor above, before
+  applying; see
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#terraform-cli-floor-raised-to--113)
   (Ports
   [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
 
