@@ -101,8 +101,8 @@ run "psa_connection_can_opt_into_api_delete" {
   }
 
   assert {
-    condition     = google_service_networking_connection.psa[0].deletion_policy == null
-    error_message = "psa_connection_abandon_on_destroy = false must leave deletion_policy unset so the provider calls the servicenetworking delete API on destroy."
+    condition     = google_service_networking_connection.psa[0].deletion_policy == "DELETE"
+    error_message = "psa_connection_abandon_on_destroy = false must set deletion_policy = DELETE so the provider calls the servicenetworking delete API on destroy."
   }
 
   # The input only changes destroy behavior; creation wiring is unchanged.

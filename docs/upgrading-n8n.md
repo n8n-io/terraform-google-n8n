@@ -18,6 +18,53 @@ or start a fresh `terraform apply` against new state. See
 chart, and CI-toolchain pin this module makes and which bump tier each falls
 into.
 
+## Google provider floor raised to ~> 8.0
+
+**Breaking, every caller of the root module:** the `google` and `google-beta`
+providers must now be `~> 8.0` (was `~> 6.23`). Widen any root-module
+constraint that pins either to 6.x or 7.x, then run `terraform init -upgrade`
+before `terraform plan`. The `modules/controllers` submodule and its
+`examples/direct-use` do not pin the root providers and keep `~> 6.0`.
+
+What was checked:
+
+- **Upgrade guides.** None of the breaking changes in the provider's 7.0 and
+  8.0 upgrade guides touches a resource this module creates.
+- **Existing state.** A real `examples/small` deployment (47 resources, Cloud
+  SQL, Memorystore, GKE, Private Services Access, DNS) was applied with
+  provider 6.50.0 and then planned with provider 8.7.0 against the same
+  state: `No changes`, including the Private Services Access connection with
+  its default `deletion_policy = "ABANDON"`. An in-place apply on 8.7.0
+  (turning the deletion-protection flags off) changed four resources
+  cleanly, and `terraform destroy` on 8.7.0 removed all 47 with no Private
+  Services Access stall.
+- **Provider behavior claims.** `docs/build-time-decisions.md` was re-checked
+  against the provider source at `v8.7.0`. One row changed:
+  `gke_enable_private_nodes` (`private_cluster_config.enable_private_nodes`)
+  is no longer `ForceNew`, so changing it is an in-place cluster update in
+  8.x, not a replacement. Everything else the page lists is unchanged.
+
+What to expect on the first plan:
+
+- **Default settings: no diff.** After `terraform init -upgrade`, the plan
+  shows no changes. A `terraform apply -refresh-only` records new computed
+  attributes from the 8.x schema in state and is harmless.
+- **`psa_connection_abandon_on_destroy = false`.** The connection's
+  `deletion_policy` was left unset and recorded as null on 6.x. The module
+  now sets `"DELETE"` explicitly, and 8.x defaults an unset value to
+  `"DELETE"` too, so expect a one-time in-place update `null -> "DELETE"` on
+  `google_service_networking_connection.psa`. It changes no behavior: "DELETE"
+  is what an unset policy always meant. This path was not run live; it
+  follows from the schema difference between 6.50.0 and 8.7.0.
+- **`gke_enable_private_nodes`.** Changing it on a live cluster now plans an
+  in-place update where 6.x planned a replacement. Read the plan before you
+  apply it: it changes how the cluster's nodes get addresses.
+
+Not verified: a `psa_connection_abandon_on_destroy = false` deployment
+upgraded from 6.x state, `REMOVE_PEERING` (the module does not use it yet), and
+any API-side default that Google may add for existing resources after the
+upgrade.
+
 ## Moving from KEDA chart 2.20.1 to 2.21.0
 
 The default `keda_chart_version` (root module and `modules/controllers`) moved
@@ -123,8 +170,8 @@ Check these points before you apply:
 ## GKE Dataplane V2 requires cluster replacement
 
 **Breaking default, minor release only:** module-managed GKE now sets
-`datapath_provider = "ADVANCED_DATAPATH"` (Dataplane V2). With Google provider
-6.x, changing an existing cluster from `LEGACY_DATAPATH` forces cluster
+`datapath_provider = "ADVANCED_DATAPATH"` (Dataplane V2). With the Google
+provider (`datapath_provider` is `ForceNew` in both 6.x and 8.x), changing an existing cluster from `LEGACY_DATAPATH` forces cluster
 replacement, not an in-place network upgrade. This default is intentional;
 there is no module input to retain the legacy datapath on the managed path.
 Clusters already using Dataplane V2 and customer-managed clusters

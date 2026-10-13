@@ -80,7 +80,8 @@ resource "google_container_cluster" "n8n" {
   # network_policy add-on is explicitly left disabled, as Google recommends
   # when datapath_provider is ADVANCED_DATAPATH: enabling both is redundant
   # and unsupported together. This is an intentional breaking default:
-  # upgrading a LEGACY_DATAPATH cluster forces replacement with Google 6.x.
+  # upgrading a LEGACY_DATAPATH cluster forces replacement (datapath_provider
+  # is ForceNew in the Google provider, in 6.x and 8.x alike).
   # See docs/upgrading-n8n.md before applying to an existing deployment.
   datapath_provider = "ADVANCED_DATAPATH"
   network_policy {

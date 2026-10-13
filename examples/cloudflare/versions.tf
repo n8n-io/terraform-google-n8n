@@ -6,11 +6,11 @@ terraform {
       source = "hashicorp/google"
       # >= 6.23 for google_sql_user's password_wo / password_wo_version
       # (postgres_password_write_only).
-      version = "~> 6.23"
+      version = "~> 8.0"
     }
     google-beta = {
       source  = "hashicorp/google-beta"
-      version = "~> 6.23"
+      version = "~> 8.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
