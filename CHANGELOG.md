@@ -275,13 +275,18 @@ this project adheres to the stability contract in
   Service Networking connection looks the project up through it, so `apply`
   failed with `Cloud Resource Manager API has not been used in project ...`
   in a project that had never enabled it.
-- The README prerequisites and `scripts/preflight.sh` now name the project roles a
-  deploying identity needs beyond `roles/editor`: `roles/servicenetworking.networksAdmin`
-  (Service Networking peering), `roles/resourcemanager.projectIamAdmin` and
+- The README now names the project roles a deploying identity needs beyond
+  `roles/editor`: `roles/servicenetworking.networksAdmin` (Service Networking
+  peering), `roles/resourcemanager.projectIamAdmin` and
   `roles/iam.serviceAccountAdmin` (the module's IAM bindings), and
-  `roles/container.admin` (the KEDA release's cluster-scoped RBAC). Each missing
-  role failed a live apply; `preflight.sh` now also checks the four
-  `container.*Role*.create` permissions.
+  `roles/container.admin` (the KEDA release's cluster-scoped RBAC), and
+  qualifies each by the `create_gke`/`create_postgres_instance`/`install_keda`
+  switch that creates the resource it authorizes. Each missing role failed a
+  live apply of `examples/small` (defaults). `scripts/preflight.sh` now also
+  checks `container.clusterRoles.create`, `container.clusterRoleBindings.create`,
+  `container.roles.create`, and `container.roleBindings.create`, gated on a new
+  `CHECK_KEDA_RBAC` toggle (default true, following `CHECK_CLOUD_DNS`'s pattern)
+  so it does not reject `install_keda = false` deployments.
 
 ## [0.1.0] - 2026-09-29
 

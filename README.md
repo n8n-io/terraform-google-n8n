@@ -24,6 +24,7 @@ currently blocking you, so you find out now, not at `apply` time:
 ```bash
 ./scripts/preflight.sh YOUR_PROJECT_ID
 # for the Cloudflare example (no Cloud DNS): CHECK_CLOUD_DNS=false ./scripts/preflight.sh YOUR_PROJECT_ID
+# for examples/customer-managed-everything (install_keda = false): CHECK_KEDA_RBAC=false ./scripts/preflight.sh YOUR_PROJECT_ID
 ```
 
 Requires `gcloud` (authenticated), `curl`, and `python3`. Exit code is non-zero if a
@@ -66,10 +67,11 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/servicenetworking.networksAdmin"
 ```
 
-Three more roles are needed beyond `roles/editor` (or use `roles/owner`, which covers them). `apply` fails without them:
+Three more roles are needed beyond `roles/editor` (or use `roles/owner`, which covers them), each only when the module creates the resource it authorizes; `examples/*` all use the defaults below, so a default `apply` fails without all three:
 
-- `roles/resourcemanager.projectIamAdmin` (`resourcemanager.projects.setIamPolicy`) and `roles/iam.serviceAccountAdmin` (`iam.serviceAccounts.setIamPolicy`): the module grants project roles to the node service account and a Workload Identity binding on the n8n service account. Without them the IAM resources fail with `Error 403 ... Permission 'iam.serviceAccounts.setIamPolicy' denied`.
-- `roles/container.admin`: the KEDA Helm release creates cluster-scoped RBAC, which GKE authorizes through `container.clusterRoles.create`, `container.clusterRoleBindings.create`, `container.roles.create` and `container.roleBindings.create`. Without them `helm_release.keda` fails with `clusterroles.rbac.authorization.k8s.io is forbidden`.
+- `roles/iam.serviceAccountAdmin` (`iam.serviceAccounts.setIamPolicy`): always required. The module always creates a Workload Identity binding on the n8n service account (`google_service_account_iam_member.n8n_workload_identity`). Without it `apply` fails with `Error 403 ... Permission 'iam.serviceAccounts.setIamPolicy' denied`.
+- `roles/resourcemanager.projectIamAdmin` (`resourcemanager.projects.setIamPolicy`): required when `create_gke = true` (default; grants project roles to the GKE node service account, `google_project_iam_member.nodes`) or `create_postgres_instance = true` (default; grants `roles/cloudsql.client` to the n8n service account, `google_project_iam_member.n8n_cloudsql_client`). Not needed if both are `false` (fully customer-managed GKE and Postgres).
+- `roles/container.admin`: required when `install_keda = true` (default). The KEDA Helm release creates cluster-scoped RBAC, which GKE authorizes through `container.clusterRoles.create`, `container.clusterRoleBindings.create`, `container.roles.create` and `container.roleBindings.create`. Without it `helm_release.keda` fails with `clusterroles.rbac.authorization.k8s.io is forbidden`. Not needed when `install_keda = false`.
 
 ### 4. Enterprise license
 
