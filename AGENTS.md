@@ -306,17 +306,21 @@ file. Use `command = plan` unless you specifically need apply semantics.
   above). Prefer `try(...)` over `length(...) > 0 && ...[0]` for readability;
   both evaluate correctly on the 1.13 floor.
 
-- **Terraform 1.13 is the floor and the CI pin (`TF_VERSION` in
-  `.github/workflows/terraform-tests.yml`).** Terraform short-circuits
-  `&&`/`||` from 1.12.0, and in `validation`/`precondition` blocks from 1.13,
-  so a null or empty guard on the left of `&&`/`||` is enough on every
-  supported CLI. The ternary spellings already in `variables.tf`
-  (`var.x == null ? true : contains(...)`, nested ternaries for attribute
-  reads off nullable objects) are still valid; follow the surrounding style
-  rather than rewriting them. The floor also exists because `terraform test`
-  on 1.12 and older leaks about one provider process per `run` block until
-  the command exits (n8n-io/terraform-google-n8n#30), which can exhaust CI
-  memory on a large test file. Do not lower the floor or the CI pin.
+- **Terraform 1.13 is the floor and the CI pin for the root module and the
+  examples (`TF_VERSION` in `.github/workflows/terraform-tests.yml`).**
+  Terraform short-circuits `&&`/`||` from 1.12.0, and in `validation`/
+  `precondition` blocks from 1.13, so in the root module and the examples a
+  null or empty guard on the left of `&&`/`||` is enough. The ternary
+  spellings already in `variables.tf` (`var.x == null ? true : contains(...)`,
+  nested ternaries for attribute reads off nullable objects) are still valid;
+  follow the surrounding style rather than rewriting them. **Exception:
+  `modules/controllers` and its `examples/direct-use` keep `>= 1.9`, where
+  `&&`/`||` do not short-circuit, so the ternary and `try(...)` forms remain
+  required there** (CI still runs them on 1.13.5, which would not catch a
+  violation). The floor also exists because `terraform test` on 1.12 and
+  older leaks about one provider process per `run` block until the command
+  exits (n8n-io/terraform-google-n8n#30), which can exhaust CI memory on a
+  large test file. Do not lower the root floor or the CI pin.
 
 - **A `terraform test` `assert` condition can reference module `local.*` values
   directly** (not just resource/output attributes), which is the way to test

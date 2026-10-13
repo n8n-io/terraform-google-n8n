@@ -613,10 +613,11 @@ does not use either feature and keeps its own floors.
 
 Upgrade the Terraform CLI and run `terraform init -upgrade` so the
 `google`/`google-beta` providers resolve within the new range before
-running `terraform plan` against this module version. An older CLI fails
-at parse time on the unsupported `ephemeral = true` argument, before any
-resource is evaluated. If your root module pins either Google provider
-below 6.23, widen that constraint first. No state migration is required for
+running `terraform plan` against this module version. A CLI older than 1.10
+fails at parse time on the unsupported `ephemeral = true` argument, before
+any resource is evaluated. Terraform 1.10 through 1.12 parse it but fail the
+`required_version` check at `terraform init`. If your root module pins either
+Google provider below 6.23, widen that constraint first. No state migration is required for
 this change by itself: the floor bump alone does not change any resource's
 planned attributes. `terraform init -upgrade` can also move other providers
 in your root module, though, so review the lock file diff and the plan
