@@ -17,6 +17,8 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 # shellcheck source=lib/tf-defaults.sh
 source tests/scripts/lib/tf-defaults.sh
+# shellcheck source=lib/drift-tags.sh
+source tests/scripts/lib/drift-tags.sh
 
 drift_count=0
 error_count=0
@@ -94,19 +96,7 @@ check_n8n_chart() {
   fi
   latest="$(curl -sf -H "Authorization: Bearer ${token}" \
     "https://ghcr.io/v2/n8n-io/n8n-helm-chart/n8n/tags/list" \
-    | python3 -c "
-import json, re, sys
-tags = json.load(sys.stdin)['tags']
-# Keep only plain X.Y.Z release tags. The registry also lists prereleases
-# (e.g. '1.11.0-preview.workerpools.1') and non-version tags such as
-# 'artifacthub.io' and 'sha256-...' (artifact metadata); none of them is the
-# 'latest numbered release' this check reports against, and a non-numeric tag
-# would raise in key() and turn into a bogus 'lookup failed'.
-numbered = [t for t in tags if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', t)]
-def key(v):
-    return tuple(int(x) for x in v.split('.'))
-print(sorted(numbered, key=key)[-1])
-" 2>/dev/null)"
+    | latest_release_tag 2>/dev/null)"
   if [ -z "$latest" ]; then
     report_error "n8n chart" "ghcr.io tag list lookup failed"
     return

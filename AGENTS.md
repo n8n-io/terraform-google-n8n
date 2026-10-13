@@ -466,8 +466,10 @@ tflint --init && tflint --format compact
 terraform-docs --output-check .                # README drift check
 
 # Chart-rendering regression check: pinned Helm CLI, no credentials, no
-# Terraform. Mirrors the `chart-render` CI job.
+# Terraform. Mirrors the `chart-render` CI job, which also runs every
+# tests/scripts/test-*.sh offline regression test (e.g. test-version-drift-tags.sh).
 tests/scripts/check-n8n-chart.sh
+tests/scripts/test-version-drift-tags.sh
 
 # Security baseline: pinned Checkov, both passes (default tfvars and the
 # opt-in fixture that unblinds count-0 resources like the Redis exporter),
