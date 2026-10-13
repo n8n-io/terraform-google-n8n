@@ -338,6 +338,12 @@ this project adheres to the stability contract in
   `compute.globalAddresses.setLabels` in the project that owns each address.
   For the PSA range on a Shared VPC (`existing_network_project_id` set), that
   is the host project.
+- The prerequisite API lists in the README, the example READMEs, and
+  `scripts/preflight.sh` now include `cloudresourcemanager.googleapis.com`.
+  The module always reads the project (`data.google_project.n8n`) and the
+  Service Networking connection looks the project up through it, so `apply`
+  failed with `Cloud Resource Manager API has not been used in project ...`
+  in a project that had never enabled it.
 
 ## [0.1.0] - 2026-09-29
 

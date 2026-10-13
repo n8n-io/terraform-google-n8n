@@ -52,7 +52,8 @@ warn=0
 # Core APIs are hard-required. orgpolicy is only needed for the override path, so
 # it is handled (softly) in the org-policy section, not here.
 apis=(container.googleapis.com sqladmin.googleapis.com redis.googleapis.com \
-      servicenetworking.googleapis.com compute.googleapis.com iam.googleapis.com)
+      servicenetworking.googleapis.com compute.googleapis.com iam.googleapis.com \
+      cloudresourcemanager.googleapis.com)
 [[ "${CHECK_CLOUD_DNS}" == "true" ]] && apis+=(dns.googleapis.com)
 
 enabled="$(gcloud services list --enabled --project="${PROJECT}" --format='value(config.name)' 2>/dev/null)"
