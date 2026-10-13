@@ -23,6 +23,7 @@ resource "google_compute_global_address" "lb" {
 
   name    = "${local.name_prefix}-lb-ip"
   project = var.project_id
+  labels  = local.gcp_labels
 }
 
 # ── Google Cloud DNS A-records (base/default path) ────────────────────────────
