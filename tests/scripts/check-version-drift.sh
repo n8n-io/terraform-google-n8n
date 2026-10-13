@@ -95,11 +95,14 @@ check_n8n_chart() {
   latest="$(curl -sf -H "Authorization: Bearer ${token}" \
     "https://ghcr.io/v2/n8n-io/n8n-helm-chart/n8n/tags/list" \
     | python3 -c "
-import json, sys
+import json, re, sys
 tags = json.load(sys.stdin)['tags']
-# Exclude prereleases (e.g. '1.11.0-preview.workerpools.1'); a prerelease is
-# never the 'latest numbered release' this check reports against.
-numbered = [t for t in tags if '-' not in t]
+# Keep only plain X.Y.Z release tags. The registry also lists prereleases
+# (e.g. '1.11.0-preview.workerpools.1') and non-version tags such as
+# 'artifacthub.io' and 'sha256-...' (artifact metadata); none of them is the
+# 'latest numbered release' this check reports against, and a non-numeric tag
+# would raise in key() and turn into a bogus 'lookup failed'.
+numbered = [t for t in tags if re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', t)]
 def key(v):
     return tuple(int(x) for x in v.split('.'))
 print(sorted(numbered, key=key)[-1])
