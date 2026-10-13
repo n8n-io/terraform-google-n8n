@@ -38,7 +38,7 @@ these points before you apply:
   (2.20: v1.33 to v1.35; as of this writing, `https://keda.sh/docs/2.21/operate/cluster/#kubernetes-compatibility`
   still lists that range). At the time of writing (2026-10-13), GKE's
   `REGULAR` channel offers 1.34.11-1.36.4 and `STABLE` offers 1.34.9-1.35.6
-  (`gcloud container get-server-config --format='yaml(channels)'`), both
+  (`gcloud container get-server-config --region=us-east4 --format='yaml(channels)'`; versions differ by location), both
   inside that window. The chart's `kubeVersion: '>=v1.23.0-0'`
   (`helm show chart kedacore/keda --version 2.21.0`) only gates whether Helm
   lets `helm install`/`helm upgrade` proceed against the cluster's reported
