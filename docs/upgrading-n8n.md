@@ -18,6 +18,39 @@ or start a fresh `terraform apply` against new state. See
 chart, and CI-toolchain pin this module makes and which bump tier each falls
 into.
 
+## Moving from KEDA chart 2.20.1 to 2.21.0
+
+The default `keda_chart_version` (root module and `modules/controllers`) moved
+from `2.20.1` to `2.21.0`
+([KEDA v2.21.0](https://github.com/kedacore/keda/releases/tag/v2.21.0)). Check
+these points before you apply:
+
+- **KEDA's three breaking changes do not apply to the module's own
+  configuration.** (1) Service-account-token audiences are now enforced, which
+  affects Vault Kubernetes authentication and `boundServiceAccountToken` in a
+  `TriggerAuthentication`; the module's `n8n-redis-auth` `TriggerAuthentication`
+  uses only `secretTargetRef`. (2) The Azure Pipelines scaler counts in-flight
+  jobs by default and (3) the Temporal scaler dropped three deprecated
+  settings; the module uses neither scaler. If you add your own
+  `ScaledObject`, `ScaledJob`, or `TriggerAuthentication` to the same KEDA
+  install, review KEDA's [2.20 to 2.21 migration guide](https://keda.sh/docs/2.21/migration/#upgrading-from-keda-220-to-221).
+- **Kubernetes window.** KEDA 2.21 is tested on Kubernetes v1.34 to v1.36
+  (2.20: v1.33 to v1.35; as of this writing, `https://keda.sh/docs/2.21/operate/cluster/#kubernetes-compatibility`
+  still lists that range). At the time of writing (2026-10-13), GKE's
+  `REGULAR` channel offers 1.34.11-1.36.4 and `STABLE` offers 1.34.9-1.35.6
+  (`gcloud container get-server-config --region=us-east4 --format='yaml(channels)'`; versions differ by location), both
+  inside that window. The chart's `kubeVersion: '>=v1.23.0-0'`
+  (`helm show chart kedacore/keda --version 2.21.0`) only gates whether Helm
+  lets `helm install`/`helm upgrade` proceed against the cluster's reported
+  Kubernetes version; it is not a tested or supported minimum. A cluster on
+  1.23 through 1.33 (for example on the `EXTENDED` channel) passes that Helm
+  gate but falls outside the Kubernetes versions KEDA 2.21 actually tests.
+- **CRDs are upgraded with the release.** The chart renders its CRDs from
+  templates (`crds.install: true`), so the Helm upgrade updates them, unlike a
+  chart that ships CRDs in `crds/`.
+- **The KEDA pods roll once.** Because the release is `atomic`, a failed
+  upgrade rolls back to `2.20.1`.
+
 ## Moving from chart 1.13.0 to 1.14.0
 
 The default `n8n_chart_version` moved from `1.13.0` to `1.14.0`
