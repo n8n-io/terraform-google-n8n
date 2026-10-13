@@ -111,6 +111,17 @@ tasks:
     cmds:
       - ./tests/scripts/check-helm-chart-coverage.sh
 
+  script-tests:
+    desc: Run the offline regression tests for the tests/scripts helpers (tests/scripts/test-*.sh); no network or credentials. Same loop as the chart-render CI job.
+    cmds:
+      - |
+        status=0
+        for f in tests/scripts/test-*.sh; do
+          echo "==> $f"
+          bash "$f" || status=1
+        done
+        exit "$status"
+
   chart-diff:
     desc: >-
       Diff the pinned n8n chart's values.yaml against a candidate version
@@ -160,7 +171,7 @@ tasks:
   ci:
     desc: >-
       Run the full local loop (fmt, validate, test, chart, chart-coverage,
-      lint, banners, example-parity, docs, markdown). Covers every CI job
+      script-tests, lint, banners, example-parity, docs, markdown). Covers every CI job
       except checkov (needs a pinned Checkov install the other tasks do not:
       run `task checkov` separately once you have it) and version-drift
       (never fails by design, so it isn't a gate: run `task version-drift`
@@ -173,6 +184,7 @@ tasks:
       - task: test
       - task: chart
       - task: chart-coverage
+      - task: script-tests
       - task: lint
       - task: banners
       - task: example-parity

@@ -462,7 +462,8 @@ terraform-docs --output-check .                # README drift check
 
 # Chart-rendering regression check: pinned Helm CLI, no credentials, no
 # Terraform. Mirrors the `chart-render` CI job, which also runs every
-# tests/scripts/test-*.sh offline regression test (e.g. test-version-drift-tags.sh).
+# tests/scripts/test-*.sh offline regression test (e.g. test-version-drift-tags.sh);
+# `task script-tests` runs the same loop, and `task ci` includes it.
 tests/scripts/check-n8n-chart.sh
 tests/scripts/test-version-drift-tags.sh
 
