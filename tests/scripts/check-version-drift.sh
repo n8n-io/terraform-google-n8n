@@ -17,6 +17,8 @@ set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 # shellcheck source=lib/tf-defaults.sh
 source tests/scripts/lib/tf-defaults.sh
+# shellcheck source=lib/drift-tags.sh
+source tests/scripts/lib/drift-tags.sh
 
 drift_count=0
 error_count=0
@@ -94,16 +96,7 @@ check_n8n_chart() {
   fi
   latest="$(curl -sf -H "Authorization: Bearer ${token}" \
     "https://ghcr.io/v2/n8n-io/n8n-helm-chart/n8n/tags/list" \
-    | python3 -c "
-import json, sys
-tags = json.load(sys.stdin)['tags']
-# Exclude prereleases (e.g. '1.11.0-preview.workerpools.1'); a prerelease is
-# never the 'latest numbered release' this check reports against.
-numbered = [t for t in tags if '-' not in t]
-def key(v):
-    return tuple(int(x) for x in v.split('.'))
-print(sorted(numbered, key=key)[-1])
-" 2>/dev/null)"
+    | latest_release_tag 2>/dev/null)"
   if [ -z "$latest" ]; then
     report_error "n8n chart" "ghcr.io tag list lookup failed"
     return
