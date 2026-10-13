@@ -41,7 +41,7 @@ cd "$(dirname "$0")/../.."
 
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
-CHART_VERSION="1.14.0"
+CHART_VERSION="1.15.0"
 
 # Fail fast if the pins above drift from the module's own chart defaults.
 # Several assertions below (e.g. the graceful shutdown timeout default compared
@@ -986,13 +986,15 @@ fi
 # Mirrors what helm_release.n8n (n8n.tf) renders when
 # db_postgresdb_ssl_reject_unauthorized = true and db_postgresdb_ssl_ca_pem is
 # set: local.n8n_database_ssl_values merged into `database`, plus the
-# DB_POSTGRESDB_SSL_* entries from local.n8n_postgres_ssl_env in
-# config.extraEnv. The mocked terraform test suite asserts those locals; this
-# render proves the chart:
+# DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED entry from local.n8n_postgres_ssl_env
+# in config.extraEnv. Chart >= 1.15.0 renders DB_POSTGRESDB_SSL_ENABLED itself
+# when database.ssl.enabled is true, so the module's extraEnv omits it there
+# (n8n-io/n8n-hosting#175). The mocked terraform test suite asserts those
+# locals; this render proves the chart:
 #   - puts the CA in its ConfigMap as DB_POSTGRESDB_SSL_CA and renders no
 #     DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED of its own,
-#   - sources DB_POSTGRESDB_SSL_CA on every role, next to exactly one of each
-#     module-owned DB_POSTGRESDB_SSL_* entry,
+#   - renders DB_POSTGRESDB_SSL_ENABLED in its ConfigMap, and sources it and
+#     DB_POSTGRESDB_SSL_CA on every role exactly once,
 #   - changes each role's checksum/config annotation when the CA changes,
 #     which is what rolls the pods and lets an atomic rollback restore the CA.
 pg_ca_fixture() {
@@ -1004,8 +1006,6 @@ pg_ca_fixture() {
     "    ca: \"-----BEGIN CERTIFICATE-----\\n$1\\n-----END CERTIFICATE-----\"" \
     'config:' \
     '  extraEnv:' \
-    '    - name: DB_POSTGRESDB_SSL_ENABLED' \
-    '      value: "true"' \
     '    - name: DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED' \
     '      value: "true"'
 }
@@ -1047,6 +1047,11 @@ if [ "$PG_RENDER_OK" = "1" ]; then
   else
     fail "postgres-ca: ConfigMap/n8n does not render DB_POSTGRESDB_SSL_CA with the supplied PEM exactly once"
   fi
+  if [ "$(printf '%s\n' "$PG_CM" | grep -cxF '  DB_POSTGRESDB_SSL_ENABLED: "true"' || true)" = "1" ]; then
+    pass "postgres-ca: ConfigMap/n8n renders DB_POSTGRESDB_SSL_ENABLED: \"true\""
+  else
+    fail "postgres-ca: ConfigMap/n8n does not render DB_POSTGRESDB_SSL_ENABLED: \"true\" exactly once"
+  fi
   if printf '%s\n' "$PG_CM" | grep -q '^  DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED:'; then
     fail "postgres-ca: ConfigMap/n8n renders its own DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED, duplicating the module's extraEnv entry"
   else
@@ -1077,10 +1082,29 @@ if [ "$PG_RENDER_OK" = "1" ]; then
       fail "postgres-ca: Deployment/${pg_role} DB_POSTGRESDB_SSL_CA: expected 1 ConfigMap-sourced entry, found ${pg_ca_total} entries, ${pg_ca_refs} ConfigMap-sourced"
     fi
 
+    # DB_POSTGRESDB_SSL_ENABLED is owned by the chart from 1.15.0 (it renders
+    # the entry from its ConfigMap whenever database.ssl.enabled is true), so
+    # the module's extraEnv must not add a second one: it must appear exactly
+    # once, sourced from the chart ConfigMap.
+    pg_ssl_enabled_total="$(printf '%s\n' "$pg_block" | grep -c -- '- name: DB_POSTGRESDB_SSL_ENABLED$' || true)"
+    pg_ssl_enabled_refs="$(printf '%s\n' "$pg_block" | awk '
+      /- name: DB_POSTGRESDB_SSL_ENABLED$/ { want = 1; cmref = 0; cmname = 0; next }
+      want && /configMapKeyRef:$/ { cmref = 1; next }
+      want && cmref && /^[[:space:]]+name: n8n$/ { cmname = 1; next }
+      want && cmref && cmname && /key: DB_POSTGRESDB_SSL_ENABLED$/ { count++; want = 0 }
+      want && /- name: / { want = 0 }
+      END { print count+0 }
+    ')"
+    if [ "$pg_ssl_enabled_total" = "1" ] && [ "$pg_ssl_enabled_refs" = "1" ]; then
+      pass "postgres-ca: Deployment/${pg_role} sources DB_POSTGRESDB_SSL_ENABLED once, from the chart ConfigMap"
+    else
+      fail "postgres-ca: Deployment/${pg_role} DB_POSTGRESDB_SSL_ENABLED: expected 1 ConfigMap-sourced entry, found ${pg_ssl_enabled_total} entries, ${pg_ssl_enabled_refs} ConfigMap-sourced"
+    fi
+
     # config.extraEnv passes through the chart's raw with/toYaml block, so
     # quoted booleans stay quoted. More than one entry would mean the chart
     # renders its own entry for the same name.
-    for pg_env in DB_POSTGRESDB_SSL_ENABLED DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED; do
+    for pg_env in DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED; do
       pg_env_total="$(printf '%s\n' "$pg_block" | grep -c -- "- name: ${pg_env}$" || true)"
       pg_env_matching="$(printf '%s\n' "$pg_block" | awk -v name="$pg_env" '
         $0 ~ "- name: " name "$" { getline v; sub(/^[[:space:]]+/, "", v); if (v == "value: \"true\"") count++ }
