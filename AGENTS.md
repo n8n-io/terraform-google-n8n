@@ -303,32 +303,20 @@ file. Use `command = plan` unless you specifically need apply semantics.
   assertions that iterate a security policy's `rule` set must guard
   `match[0].config` before indexing into it, since this rule uses
   `match.expr` instead of `match.config` (see the `for`/`anytrue` guidance
-  above). Guard with `try(...)`, not `length(...) > 0 && ...[0]`: Terraform
-  does not short-circuit `&&`, so the CI-pinned 1.11.x still evaluates the
-  empty-list index and fails the run.
+  above). Prefer `try(...)` over `length(...) > 0 && ...[0]` for readability;
+  both evaluate correctly on the 1.13 floor.
 
-- **CI pins Terraform 1.11.x (`TF_VERSION` in
-  `.github/workflows/terraform-tests.yml`); validate every expression against
-  that version's stricter evaluation, not just a newer local CLI.** Terraform
-  added short-circuit evaluation for `&&`/`||` in 1.12.0, and `validation`/
-  `precondition` blocks specifically needed 1.13 before it took effect there;
-  the 1.11.x floor this repo pins predates both, so every expression here
-  must still assume no short-circuiting. Three behaviors bite in particular:
-  (1) `contains(list, var.x)` errors when `var.x` is null, so a
-  nullable variable's validation must use `var.x == null ? true :
-  contains(...)` rather than `var.x == null || contains(...)`; (2) indexing
-  a possibly-empty list on one side of `&&` errors even when the other side
-  is false, so wrap the whole access in `try(..., false)`; (3) reading an
-  attribute off a nullable object variable or `for`-loop element (e.g.
-  `var.x == null || var.x.name != ""`, or `v.config_map == null ||
-  v.config_map.default_mode == null`) errors the same way, so nest ternaries
-  instead: `var.x == null ? true : (var.x.name != "")`. Newer CLIs (1.13+)
-  tolerate all three spellings, which makes a green local run misleading; run
-  the loop with the CI-pinned version when touching validations or test
-  asserts. This bit `n8n_credentials_overwrite_secret_ref`, `n8n_extra_volumes`,
-  `n8n_dns_config`'s `ndots` check, and a `redis_observability.tftest.hcl`
-  assertion (`add-google-parity-through-aws-0-4-0`, section 24.1), none of
-  which failed under a newer local Terraform.
+- **Terraform 1.13 is the floor and the CI pin (`TF_VERSION` in
+  `.github/workflows/terraform-tests.yml`).** Terraform short-circuits
+  `&&`/`||` from 1.12.0, and in `validation`/`precondition` blocks from 1.13,
+  so a null or empty guard on the left of `&&`/`||` is enough on every
+  supported CLI. The ternary spellings already in `variables.tf`
+  (`var.x == null ? true : contains(...)`, nested ternaries for attribute
+  reads off nullable objects) are still valid; follow the surrounding style
+  rather than rewriting them. The floor also exists because `terraform test`
+  on 1.12 and older leaks about one provider process per `run` block until
+  the command exits (n8n-io/terraform-google-n8n#30), which can exhaust CI
+  memory on a large test file. Do not lower the floor or the CI pin.
 
 - **A `terraform test` `assert` condition can reference module `local.*` values
   directly** (not just resource/output attributes), which is the way to test

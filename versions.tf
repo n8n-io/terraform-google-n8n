@@ -6,14 +6,21 @@
 terraform {
   # >= 1.9 was sufficient for stable cross-variable references in validation
   # blocks (the module also uses dynamic blocks and optional() object
-  # attributes), but the postgres_password_write_only opt-in (cloudsql.tf)
-  # raises the floor to >= 1.11: an `ephemeral = true` variable
-  # (postgres_password_wo) needs Terraform 1.10's ephemeral-value support,
-  # and feeding it into google_sql_user.n8n's password_wo argument needs
-  # 1.11's write-only-argument support for managed resources. Both are
-  # parsed unconditionally from this module's HCL regardless of whether any
-  # caller sets postgres_password_write_only, so the floor is module-wide.
-  required_version = ">= 1.11"
+  # attributes). Two things raise the floor to >= 1.13:
+  #   - The postgres_password_write_only opt-in (cloudsql.tf): an
+  #     `ephemeral = true` variable (postgres_password_wo) needs Terraform
+  #     1.10's ephemeral-value support, and feeding it into
+  #     google_sql_user.n8n's password_wo argument needs 1.11's
+  #     write-only-argument support for managed resources. Both are parsed
+  #     unconditionally from this module's HCL regardless of whether any
+  #     caller sets postgres_password_write_only, so the floor is module-wide.
+  #   - `terraform test` on 1.12 and older leaves roughly one provider
+  #     process running per run block until the command exits, so a large
+  #     test file can exhaust CI memory (n8n-io/terraform-google-n8n#30).
+  #     1.13.0 does not leak them. 1.13 also short-circuits && and || in
+  #     validation and precondition blocks, so the contributor guidance no
+  #     longer depends on which CLI runs the suite.
+  required_version = ">= 1.13"
 
   required_providers {
     # GCP substrate: GKE, Cloud SQL, Memorystore, GCS, networking, IAM, DNS.
