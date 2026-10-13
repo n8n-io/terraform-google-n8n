@@ -52,11 +52,19 @@ If neither is done, the apply fails when creating `google_storage_hmac_key`.
 
 ### 2. Enable APIs
 
-`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam` (and `orgpolicy` if using `manage_sa_key_org_policy`, `certificatemanager` for `google_managed` TLS).
+`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager` (and `orgpolicy` if using `manage_sa_key_org_policy`, `certificatemanager` for `google_managed` TLS). `cloudresourcemanager.googleapis.com` is needed because the module reads the project (`data.google_project.n8n`) and the Service Networking connection resource looks the project up through it; with the API disabled, `apply` fails with `Cloud Resource Manager API has not been used in project ... before or it is disabled`.
 
 ### 3. Authentication
 
 `gcloud auth application-default login`, or point `GOOGLE_APPLICATION_CREDENTIALS` at a key file.
+
+With `create_psa = true` (the default), the identity running `apply` also needs permission to create the Service Networking peering for Cloud SQL and Memorystore: `servicenetworking.services.addPeering`, carried by `roles/servicenetworking.networksAdmin`. `roles/editor` does not include it, and without it `apply` fails with `Permission denied to add peering for service 'servicenetworking.googleapis.com'`. [`scripts/preflight.sh`](./scripts/preflight.sh) checks for this permission. Grant it with:
+
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:YOUR_DEPLOYER@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/servicenetworking.networksAdmin"
+```
 
 ### 4. Enterprise license
 

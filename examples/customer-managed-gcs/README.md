@@ -25,7 +25,7 @@ for the full ownership matrix and every layer's contract.
 
   The module never reads this Secret's value; it only passes the reference
   through to the n8n Helm chart.
-- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`.
+- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`.
 - `gcloud auth application-default login`.
 
 ## Usage

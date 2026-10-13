@@ -269,6 +269,12 @@ this project adheres to the stability contract in
   module label (`managed_by`, `app`, `cluster`, or a `common_labels` key) is
   overwritten. Keys supplied through `existing_*_kms_key_id` are not
   touched.
+- The prerequisite API lists in the README, the example READMEs, and
+  `scripts/preflight.sh` now include `cloudresourcemanager.googleapis.com`.
+  The module always reads the project (`data.google_project.n8n`) and the
+  Service Networking connection looks the project up through it, so `apply`
+  failed with `Cloud Resource Manager API has not been used in project ...`
+  in a project that had never enabled it.
 
 ## [0.1.0] - 2026-09-29
 
