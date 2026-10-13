@@ -265,17 +265,24 @@ locals {
     }
   } : {}
 
-  # True only when the pinned chart is known to render
-  # DB_POSTGRESDB_SSL_ENABLED from database.ssl.enabled: the upstream
-  # repository at chart 1.15.0 or newer. For any other repository the chart
-  # contents cannot be verified, and the safe error is a duplicate env entry
-  # (same value "true"), not a silently disabled TLS connection, so the module
-  # keeps emitting its own entry there. Nested ternaries, because Terraform
-  # below 1.12 does not short-circuit && / || (AGENTS.md). Same shape as
+  # True only when the pinned chart is a released version (no prerelease
+  # suffix) known to render DB_POSTGRESDB_SSL_ENABLED from
+  # database.ssl.enabled: the upstream repository at chart 1.15.0 or newer.
+  # A prerelease tag (e.g. "1.15.0-rc.1") may predate the ConfigMap key
+  # (n8n-hosting#175), so it is treated like an older chart and the module
+  # keeps emitting its own entry; build metadata after "+" (e.g.
+  # "1.15.0+build.5") is not a prerelease and still counts as the release.
+  # For any other repository the chart contents cannot be verified, and the
+  # safe error is a duplicate env entry (same value "true"), not a silently
+  # disabled TLS connection, so the module keeps emitting its own entry
+  # there. Nested ternaries, because Terraform below 1.12 does not
+  # short-circuit && / || (AGENTS.md). Same shape as
   # local.n8n_worker_keda_pause_supported in scaling.tf.
   n8n_chart_renders_postgres_ssl_enabled = var.n8n_chart_repository != "oci://ghcr.io/n8n-io/n8n-helm-chart" ? false : (
-    tonumber(local.n8n_chart_version_core[0]) > 1 ? true : (
-      tonumber(local.n8n_chart_version_core[0]) < 1 ? false : tonumber(local.n8n_chart_version_core[1]) >= 15
+    strcontains(split("+", var.n8n_chart_version)[0], "-") ? false : (
+      tonumber(local.n8n_chart_version_core[0]) > 1 ? true : (
+        tonumber(local.n8n_chart_version_core[0]) < 1 ? false : tonumber(local.n8n_chart_version_core[1]) >= 15
+      )
     )
   )
 

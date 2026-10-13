@@ -326,10 +326,12 @@ this project adheres to the stability contract in
     `database.ssl.enabled` instead of `DB_POSTGRESDB_SSL`, which n8n does not
     read (n8n-hosting#175). The module sets `database.ssl.enabled` only for
     `db_postgresdb_ssl_ca_pem` with `db_postgresdb_ssl_reject_unauthorized = true`;
-    there, on the upstream repository at chart `1.15.0` or newer, it now omits
-    its own `DB_POSTGRESDB_SSL_ENABLED` extraEnv entry, so the variable appears
-    once per pod instead of twice. Without a CA the behavior is unchanged, and
-    older charts and custom chart repositories keep the module's entry.
+    there, on the upstream repository at a released chart `1.15.0` or newer,
+    it now omits its own `DB_POSTGRESDB_SSL_ENABLED` extraEnv entry, so the
+    variable appears once per pod instead of twice. Without a CA the behavior
+    is unchanged, and older charts, prerelease chart versions (e.g.
+    `1.15.0-rc.1`), and custom chart repositories keep the module's entry;
+    build metadata (e.g. `1.15.0+build.5`) still counts as the release.
   - New chart values `extraObjects` and `database.ssl.existingSecret`
     (n8n-hosting#219, #222); the module sets neither.
   - See `docs/upgrading-n8n.md`, "Moving from chart 1.14.0 to 1.15.0".
