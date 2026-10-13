@@ -219,6 +219,68 @@ run "ca_pem_on_unverifiable_chart_repository_keeps_module_ssl_enabled_entry" {
   }
 }
 
+run "ca_pem_on_prerelease_chart_keeps_module_ssl_enabled_entry" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
+    n8n_chart_version                     = "1.15.0-rc.1"
+  }
+
+  # A prerelease tag may predate the ConfigMap key the chart needs to render
+  # DB_POSTGRESDB_SSL_ENABLED itself (n8n-hosting#175), so dropping the
+  # module's entry would risk silently leaving TLS off.
+  assert {
+    condition     = local.n8n_chart_renders_postgres_ssl_enabled == false && length(local.n8n_postgres_ssl_env) == 2 && one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_ENABLED"]) == "true"
+    error_message = "On a prerelease chart version the module must keep emitting DB_POSTGRESDB_SSL_ENABLED=true next to DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED."
+  }
+}
+
+run "ca_pem_on_release_with_build_metadata_treats_it_as_the_release" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
+    n8n_chart_version                     = "1.15.0+build.5"
+  }
+
+  # Build metadata after "+" is not a prerelease, so it must still count as
+  # the release and the module must not duplicate DB_POSTGRESDB_SSL_ENABLED.
+  assert {
+    condition     = local.n8n_chart_renders_postgres_ssl_enabled == true && length(local.n8n_postgres_ssl_env) == 1
+    error_message = "On chart 1.15.0+build.5 the module must defer DB_POSTGRESDB_SSL_ENABLED to the chart, same as a plain 1.15.0 release."
+  }
+}
+
+run "ca_pem_on_newer_minor_release_defers_to_chart" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----"
+    n8n_chart_version                     = "1.16.0"
+  }
+
+  assert {
+    condition     = local.n8n_chart_renders_postgres_ssl_enabled == true && length(local.n8n_postgres_ssl_env) == 1
+    error_message = "On chart 1.16.0 the module must defer DB_POSTGRESDB_SSL_ENABLED to the chart."
+  }
+}
+
 run "ca_pem_is_whitespace_trimmed" {
   command = plan
 

@@ -38,13 +38,15 @@ Check these points before you apply:
   `DB_POSTGRESDB_SSL`, which n8n does not read. The module sets
   `database.ssl.enabled` only when `db_postgresdb_ssl_ca_pem` is set with
   `db_postgresdb_ssl_reject_unauthorized = true`. In that case, on the
-  upstream chart repository at `1.15.0` or newer, the module no longer adds
-  its own `DB_POSTGRESDB_SSL_ENABLED` entry, so each pod carries it once
-  (value `"true"`, from the chart's ConfigMap) instead of twice. Without a
-  CA the module's entry is unchanged. A chart pinned below `1.15.0`, or a
-  custom `n8n_chart_repository`, keeps the module's own entry, because the
-  module cannot verify what such a chart renders and a missing entry would
-  leave TLS silently off.
+  upstream chart repository at a released `1.15.0` or newer, the module no
+  longer adds its own `DB_POSTGRESDB_SSL_ENABLED` entry, so each pod carries
+  it once (value `"true"`, from the chart's ConfigMap) instead of twice.
+  Without a CA the module's entry is unchanged. A chart pinned below
+  `1.15.0`, a prerelease tag (e.g. `1.15.0-rc.1`), or a custom
+  `n8n_chart_repository`, keeps the module's own entry, because in each
+  case the module cannot verify what the chart renders and a missing entry
+  would leave TLS silently off. Build metadata (e.g. `1.15.0+build.5`) is
+  not a prerelease and still counts as the release.
 - **No replica, KEDA, or task-runner changes.** No `templates/deployment-*.yaml`
   changed between `1.14.0` and `1.15.0`, so
   `local.n8n_chart_has_worker_only_runners` (`capacity.tf`) now also covers
