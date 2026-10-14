@@ -8,13 +8,18 @@
 # constraint_accepts <constraint> <version>
 # Exit 0 when <version> satisfies the Terraform version constraint (comma
 # separated; operators ~>, >=, >, <=, <, !=, = or none), 1 when it does not,
-# 2 when the constraint cannot be parsed. Missing version parts count as 0.
+# 2 when the constraint or the version cannot be parsed (both must be plain
+# numeric N[.N[.N]]; a prerelease such as 1.2.0-beta is exit 2). Missing
+# version parts count as 0.
 constraint_accepts() {
   python3 - "$1" "$2" <<'PYEOF'
 import re
 import sys
 
 constraint, version = sys.argv[1], sys.argv[2]
+
+if not re.fullmatch(r"\d+(?:\.\d+){0,2}", version):
+    sys.exit(2)
 
 
 def parse(s):
