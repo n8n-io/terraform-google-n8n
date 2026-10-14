@@ -527,54 +527,70 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
     fi
   }
 
-  deployed_chart_label=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.metadata.labels.helm\.sh/chart}' 2>/dev/null || echo "")
-  deployed_chart_version="${deployed_chart_label#n8n-}"
+  # Guarded by if/else, not `label=$(...) 2>/dev/null || echo ""`: that
+  # idiom turns a real kubectl read failure (RBAC, API timeout) into a
+  # silent empty string, which would then hit the "can't parse, skip"
+  # branch below and let a transient API error pass as a successful check.
+  # A read failure must FAIL; warn+skip is reserved for a successfully
+  # fetched label that is empty or unparsable. Combining stderr into the
+  # same capture (2>&1) is safe here: kubectl prints only the label value
+  # to stdout on success (no stderr), so success always yields a clean
+  # value, and any failure yields only the error text, nothing to confuse
+  # the two. The `if` form is also required for this script's `set -e`: a
+  # bare `label=$(...) 2>&1; rc=$?` would abort the whole script on the
+  # exact failure this is meant to catch.
+  if deployed_chart_label=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
+    -o jsonpath='{.metadata.labels.helm\.sh/chart}' 2>&1); then
+    deployed_chart_version="${deployed_chart_label#n8n-}"
 
-  # Guarded by if/else, not a bare call: under this script's `set -e`, a
-  # plain `version_at_least ...; rc=$?` would abort the whole script the
-  # instant the function returns non-zero (chart < 1.16.0 or unparseable).
-  if version_at_least "$deployed_chart_version" 1 16; then
-    chart_pdb_behavior=0
-  else
-    chart_pdb_behavior=$?
-  fi
-
-  if [ "$chart_pdb_behavior" -eq 2 ]; then
-    warn "Could not parse a chart version from Deployment n8n-main's helm.sh/chart label ('${deployed_chart_label:-<unset>}'); skipping the main PDB check (chart >= 1.16.0 omits it at one replica, n8n-hosting#228; earlier charts render minAvailable=0)"
-  elif [ "$chart_pdb_behavior" -eq 0 ]; then
-    # Only NotFound means "chart correctly omitted the PDB at one replica"
-    # (n8n-hosting#228); any other error (RBAC, API timeout) must not fall
-    # through and pass while the PDB's real state is unverified, and a PDB
-    # that DOES exist here is itself the failure.
-    pdb_state=present
-    if ! pdb_err=$(kubectl get pdb n8n-main -n "$NAMESPACE" 2>&1 >/dev/null); then
-      if [[ "$pdb_err" == *"NotFound"* ]]; then
-        pdb_state=absent
-      else
-        pdb_state=unreadable
-      fi
+    # Guarded by if/else, not a bare call: under this script's `set -e`, a
+    # plain `version_at_least ...; rc=$?` would abort the whole script the
+    # instant the function returns non-zero (chart < 1.16.0 or unparseable).
+    if version_at_least "$deployed_chart_version" 1 16; then
+      chart_pdb_behavior=0
+    else
+      chart_pdb_behavior=$?
     fi
-    if [[ "$pdb_state" == unreadable ]]; then
-      fail "Cannot read PDB n8n-main in namespace $NAMESPACE, single-main PDB state unverified"
-      info "$pdb_err"
-    elif [[ "$pdb_state" == absent ]]; then
-      pass "No main PodDisruptionBudget object (chart ${deployed_chart_version} omits it while main has one replica, n8n-hosting#228)"
+
+    if [ "$chart_pdb_behavior" -eq 2 ]; then
+      warn "Deployment n8n-main's helm.sh/chart label ('${deployed_chart_label:-<empty>}') did not contain a parsable chart version; skipping the main PDB check (chart >= 1.16.0 omits it at one replica, n8n-hosting#228; earlier charts render minAvailable=0)"
+    elif [ "$chart_pdb_behavior" -eq 0 ]; then
+      # Only NotFound means "chart correctly omitted the PDB at one replica"
+      # (n8n-hosting#228); any other error (RBAC, API timeout) must not fall
+      # through and pass while the PDB's real state is unverified, and a PDB
+      # that DOES exist here is itself the failure.
+      pdb_state=present
+      if ! pdb_err=$(kubectl get pdb n8n-main -n "$NAMESPACE" 2>&1 >/dev/null); then
+        if [[ "$pdb_err" == *"NotFound"* ]]; then
+          pdb_state=absent
+        else
+          pdb_state=unreadable
+        fi
+      fi
+      if [[ "$pdb_state" == unreadable ]]; then
+        fail "Cannot read PDB n8n-main in namespace $NAMESPACE, single-main PDB state unverified"
+        info "$pdb_err"
+      elif [[ "$pdb_state" == absent ]]; then
+        pass "No main PodDisruptionBudget object (chart ${deployed_chart_version} omits it while main has one replica, n8n-hosting#228)"
+      else
+        pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+          -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
+        fail "Main PodDisruptionBudget n8n-main exists with minAvailable='${pdb_min:-<unset>}'; chart ${deployed_chart_version} (>= 1.16.0) is expected to omit it entirely while main has one replica"
+      fi
     else
       pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
         -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
-      fail "Main PodDisruptionBudget n8n-main exists with minAvailable='${pdb_min:-<unset>}'; chart ${deployed_chart_version} (>= 1.16.0) is expected to omit it entirely while main has one replica"
+      pdb_allowed=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+        -o jsonpath='{.status.disruptionsAllowed}' 2>/dev/null || echo "")
+      if [ "$pdb_min" = "0" ]; then
+        pass "Main PDB minAvailable=0 on chart ${deployed_chart_version} (< 1.16.0, disruptionsAllowed=${pdb_allowed:-?})"
+      else
+        fail "Main PDB minAvailable is '${pdb_min:-<unset>}' on chart ${deployed_chart_version} (< 1.16.0), expected 0, otherwise node drains stall on the single main"
+      fi
     fi
   else
-    pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
-      -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
-    pdb_allowed=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
-      -o jsonpath='{.status.disruptionsAllowed}' 2>/dev/null || echo "")
-    if [ "$pdb_min" = "0" ]; then
-      pass "Main PDB minAvailable=0 on chart ${deployed_chart_version} (< 1.16.0, disruptionsAllowed=${pdb_allowed:-?})"
-    else
-      fail "Main PDB minAvailable is '${pdb_min:-<unset>}' on chart ${deployed_chart_version} (< 1.16.0), expected 0, otherwise node drains stall on the single main"
-    fi
+    fail "Cannot read Deployment n8n-main's helm.sh/chart label in namespace $NAMESPACE, single-main PDB state unverified"
+    info "$deployed_chart_label"
   fi
   info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
 
