@@ -89,8 +89,11 @@ job). Its grammar is narrow:
 
 - **Supported:** comma-separated `~>`, `>=`, `>`, `<=`, `<`, `!=`, `=` or a
   bare version, over numeric `N[.N[.N]]` versions.
-- **Prerelease** versions (constraint or candidate) are an explicit exit `2`,
-  reported as `ERROR`, never `OK` or `DRIFT`.
+- **Prerelease** versions (constraint or candidate) make the evaluator exit
+  `2` ("cannot parse"), never `0` or `1`. That is separate from the caller:
+  `check_provider` filters prerelease registry versions out before calling
+  the evaluator, so a prerelease candidate is skipped, not reported. Only a
+  prerelease *constraint* in `versions.tf` surfaces as `ERROR`.
 - **Not enforced:** Terraform's rule that an exact constraint (`=` or a bare
   version) cannot be combined with another, so `= 1.2.3, >= 1.0` is accepted.
   `versions.tf` is validated by Terraform itself, so this is left alone.
