@@ -87,4 +87,9 @@ variable "pd_disk_labels" {
     ])
     error_message = "pd_disk_labels keys and values must use the lowercase GCE label syntax (keys start with a lowercase letter; at most 63 characters of lowercase letters, numbers, dashes, and underscores), which also rules out the commas and equals signs the PD CSI labels parameter uses as separators."
   }
+
+  validation {
+    condition     = length(var.pd_disk_labels) <= 64
+    error_message = "pd_disk_labels may hold at most 64 labels: Google Cloud allows 64 labels per resource and the PD CSI driver applies the whole map to each disk."
+  }
 }
