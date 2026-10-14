@@ -213,14 +213,16 @@ Check these points before you apply:
 - **Multi-main guard: this module's existing configuration already
   satisfies it.** The chart now fails to render `replicaCount` or
   `hpa.main.maxReplicas` above 1 without `multiMain.enabled = true`, and
-  fails to render `multiMain.enabled = true` without `license.enabled =
-  true` (n8n-hosting#229). This module has always derived `multiMain.enabled`
-  from the same effective main-replica count it uses for `replicaCount` and
-  `hpa.main.maxReplicas` (`n8n.tf`), and always sets `license.enabled = true`
-  regardless of whether `n8n_license_key` is set, so none of this module's
-  topology combinations can trip either guard. No module change was needed;
-  `tests/scripts/check-n8n-chart.sh` adds a negative-fixture render proving
-  the guard exists and trips on the combinations this module never produces.
+  fails to render `multiMain.enabled = true` without
+  `license.enabled = true` (n8n-hosting#229). This module has always
+  derived `multiMain.enabled` from the same effective main-replica count
+  it uses for `replicaCount` and `hpa.main.maxReplicas` (`n8n.tf`), and
+  always sets `license.enabled = true` regardless of whether
+  `n8n_license_key` is set, so none of this module's topology
+  combinations can trip either guard. No module change was needed;
+  `tests/scripts/check-n8n-chart.sh` adds a negative-fixture render
+  proving the guard exists and trips on the combinations this module
+  never produces.
 - **The main `PodDisruptionBudget` no longer renders at one main replica.**
   Previously the chart rendered a PDB with `minAvailable: 0` for a
   single-main deployment (permissive, since evicting the sole main is
@@ -234,14 +236,14 @@ Check these points before you apply:
   returns no `n8n-main` PDB at all, not one with `minAvailable: 0`.
   `tests/scripts/check-n8n-chart.sh`'s single-main fixture was updated to
   assert the PDB's absence in that topology instead of its `minAvailable`
-  value (it always renders the one pinned chart). `tests/scripts/
-  smoke-test.sh` checks a live deployment, whose `n8n_chart_version` a
-  caller can override below `1.16.0`, so it reads the chart actually
-  deployed (the main Deployment's `helm.sh/chart` label) and only expects
-  the PDB's absence on `1.16.0` or newer, falling back to the
-  `minAvailable: 0` assertion on an older pin. The multi-main case (main
-  replicas above one) is unaffected on every chart version and still
-  renders a PDB with `minAvailable: 1`.
+  value (it always renders the one pinned chart).
+  `tests/scripts/smoke-test.sh` checks a live deployment, whose
+  `n8n_chart_version` a caller can override below `1.16.0`, so it reads
+  the chart actually deployed (the main Deployment's `helm.sh/chart`
+  label) and only expects the PDB's absence on `1.16.0` or newer, falling
+  back to the `minAvailable: 0` assertion on an older pin. The multi-main
+  case (main replicas above one) is unaffected on every chart version and
+  still renders a PDB with `minAvailable: 1`.
 - **Task-runner sidecar liveness probe, on by default.** The sidecar now
   gets a liveness probe against the launcher's own `/healthz` endpoint on
   port 5680 (`taskRunners.probes.liveness`, n8n-hosting#223). The module sets
