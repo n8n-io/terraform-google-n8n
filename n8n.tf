@@ -893,6 +893,12 @@ resource "helm_release" "n8n" {
     # `nameservers: null` into the chart's `{{- toYaml . }}`, which the API
     # server rejects as an invalid pod spec. The local strips unset keys.
     local.n8n_dns_config == null ? {} : { dnsConfig = local.n8n_dns_config },
+
+    # Google Cloud partner consumption tracking: the label belongs on pod
+    # specs. podLabels reaches the main, worker, and webhook-processor pod
+    # templates (chart 1.14.0 _helpers.tpl "n8n.podLabels"). Omitted when
+    # unset so an unconfigured module renders unchanged values.
+    length(local.google_partner_attribution_labels) == 0 ? {} : { podLabels = local.google_partner_attribution_labels },
   ))]
 
   lifecycle {
