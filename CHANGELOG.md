@@ -14,11 +14,13 @@ this project adheres to the stability contract in
   products. Prepared ahead of end-to-end testing: it defaults to empty
   (nothing is added) because n8n's Marketplace consumption tracking label,
   shown in Producer Portal, has not been agreed for use here yet; the default
-  changes to that value once it is. Set, it reaches every labelable resource
-  the module creates through `local.gcp_labels` (and wins over a colliding
-  `common_labels` key), the GKE node VMs through
+  changes to that value once it is. Set, it reaches the module-managed
+  resources that accept labels through `local.gcp_labels` (including the
+  load-balancer and Private Service Access global addresses; it wins over a
+  colliding `common_labels` key), the module-managed GKE node VMs through
   `node_config.resource_labels` (the cluster's `resource_labels` and the
-  existing node `labels` do not reach the VMs), the n8n main, worker and
+  existing node `labels` do not reach the VMs; with `create_gke = false` the
+  existing node pools are unchanged), the n8n main, worker and
   webhook-processor pod templates through the chart's `podLabels`, the Redis
   exporter pods, and disks provisioned through the module's pd-balanced
   StorageClass through a new `modules/controllers` input, `pd_disk_labels`

@@ -130,6 +130,7 @@ resource "google_compute_global_address" "psa" {
   address_type  = "INTERNAL"
   prefix_length = var.psa_prefix_length
   network       = local.effective_network_id
+  labels        = local.gcp_labels
 }
 
 # deletion_policy: by default (psa_connection_abandon_on_destroy = true) the
