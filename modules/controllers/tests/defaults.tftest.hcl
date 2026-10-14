@@ -250,3 +250,13 @@ run "pd_disk_labels_reject_separator_characters" {
 
   expect_failures = [var.pd_disk_labels]
 }
+
+run "pd_disk_labels_reject_more_than_64_labels" {
+  command = plan
+
+  variables {
+    pd_disk_labels = { for i in range(65) : "k${i}" => "v" }
+  }
+
+  expect_failures = [var.pd_disk_labels]
+}
