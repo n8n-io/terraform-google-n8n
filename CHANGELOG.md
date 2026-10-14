@@ -364,9 +364,13 @@ this project adheres to the stability contract in
     `local.n8n_main_pdb_min_available`), so this only changes what the
     chart does with them: a single-main deployment now has no `n8n-main`
     PDB object to query at all, rather than one with `minAvailable: 0`.
-    `tests/scripts/smoke-test.sh` and `tests/scripts/check-n8n-chart.sh`
-    now assert the PDB's absence instead of its `minAvailable` value in
-    that topology.
+    `tests/scripts/check-n8n-chart.sh` now asserts the PDB's absence
+    instead of its `minAvailable` value in that topology (it always
+    renders the one pinned chart). `tests/scripts/smoke-test.sh` checks a
+    live, possibly caller-overridden deployment, so it reads the chart
+    version actually deployed (the `helm.sh/chart` label on the main
+    Deployment) and asserts absence only on `1.16.0` or newer, falling
+    back to the old `minAvailable: 0` assertion on an older pin.
   - **Task-runner sidecar liveness probe**, enabled by default
     (`taskRunners.probes.liveness`, port 5680, path `/healthz`). The module
     sets neither `taskRunners.probes` nor
