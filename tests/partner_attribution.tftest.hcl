@@ -116,3 +116,31 @@ run "partner_label_rejects_overlong_value" {
 
   expect_failures = [var.google_partner_attribution_label]
 }
+
+run "partner_label_rejects_non_alphanumeric_boundaries" {
+  command = plan
+
+  variables {
+    google_partner_attribution_label = "-partner"
+  }
+
+  expect_failures = [var.google_partner_attribution_label]
+}
+
+run "partner_label_reaches_global_addresses" {
+  command = plan
+
+  variables {
+    google_partner_attribution_label = "isol_plb32_0123456789abcdef"
+  }
+
+  assert {
+    condition     = google_compute_global_address.lb[0].labels["goog-partner-solution"] == "isol_plb32_0123456789abcdef"
+    error_message = "The load balancer's static address must carry the partner label"
+  }
+
+  assert {
+    condition     = google_compute_global_address.psa[0].labels["goog-partner-solution"] == "isol_plb32_0123456789abcdef"
+    error_message = "The Private Service Access range must carry the partner label"
+  }
+}

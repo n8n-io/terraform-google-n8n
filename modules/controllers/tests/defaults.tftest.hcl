@@ -240,3 +240,13 @@ run "pd_disk_labels_become_pd_csi_labels_parameter" {
     error_message = "pd_disk_labels must not displace the pd-balanced disk type"
   }
 }
+
+run "pd_disk_labels_reject_separator_characters" {
+  command = plan
+
+  variables {
+    pd_disk_labels = { team = "a,b=c" }
+  }
+
+  expect_failures = [var.pd_disk_labels]
+}
