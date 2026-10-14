@@ -28,6 +28,12 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
+# checkov 3.3.20 can ignore --var-file when any TF_VAR_* is exported (seen in
+# terraform-aws-n8n#199), which makes the opt-in pass silently evaluate
+# nothing new. Clear them so local runs match CI, which exports none.
+# shellcheck disable=SC2046
+unset $(env | awk -F= '/^TF_VAR_/{print $1}')
+
 if ! command -v checkov >/dev/null 2>&1; then
   echo "check-checkov.sh: checkov is not on PATH. Install the pinned version" >&2
   echo "named in .github/workflows/terraform-tests.yml's checkov job comment" >&2
