@@ -252,6 +252,54 @@ this project adheres to the stability contract in
   - New chart values `extraObjects` and `database.ssl.existingSecret`
     (n8n-hosting#219, #222); the module sets neither.
   - See `docs/upgrading-n8n.md`, "Moving from chart 1.14.0 to 1.15.0".
+- Default `n8n_chart_version` bumped to `1.16.0` (was `1.15.0`; n8n-hosting
+  v1.16.0, which bundles n8n `2.43.5` as its `appVersion`, so a caller with
+  `n8n_image_tag = null` moves from n8n `2.42.4` to `2.43.5`; the n8n release
+  notes for 2.43.0 through 2.43.5 list no breaking changes). Upstream changes
+  that reach this module:
+  - `templates/deployment-main.yaml` and `templates/deployment-worker.yaml`
+    changed (shared helpers for pod/container `securityContext` and the
+    task-runner sidecar), but the worker-only task-runner capacity rule
+    (`local.n8n_chart_has_worker_only_runners`) still applies: the sidecar's
+    standalone-mode gate (`n8n.mainTaskRunnersEnabled`, n8n-hosting#179) is
+    byte-for-byte unchanged, so `1.16.0` is added to that list.
+  - **Multi-main guard, already satisfied.** The chart now refuses to render
+    `replicaCount > 1` or `hpa.main.maxReplicas > 1` without
+    `multiMain.enabled = true`, and refuses `multiMain.enabled = true`
+    without `license.enabled = true` (n8n-hosting#229). The module already
+    always sets `multiMain.enabled` from the same effective main-replica
+    count it sets `replicaCount`/`hpa.main.maxReplicas` from, and always sets
+    `license.enabled = true`, so no module change was needed; a negative
+    render fixture in `tests/scripts/check-n8n-chart.sh` now proves the
+    guard trips on the combinations the module never produces.
+  - **The main `PodDisruptionBudget` no longer renders at one main
+    replica.** Previously the chart rendered a permissive PDB
+    (`minAvailable: 0`) for a single main; now it renders no PDB object at
+    all unless main exceeds one replica, by `replicaCount`/
+    `multiMain.replicas` or `hpa.main.minReplicas` (n8n-hosting#228). The
+    module's own values are unchanged (`pdb.enabled = true`,
+    `local.n8n_main_pdb_min_available`), so this only changes what the
+    chart does with them: a single-main deployment now has no `n8n-main`
+    PDB object to query at all, rather than one with `minAvailable: 0`.
+    `tests/scripts/smoke-test.sh` and `tests/scripts/check-n8n-chart.sh`
+    now assert the PDB's absence instead of its `minAvailable` value in
+    that topology.
+  - **Task-runner sidecar liveness probe**, enabled by default
+    (`taskRunners.probes.liveness`, port 5680, path `/healthz`). The module
+    sets neither `taskRunners.probes` nor
+    `N8N_RUNNERS_LAUNCHER_HEALTH_CHECK_PORT`, so the chart's default applies
+    unmodified; the task-runner fixture in `check-n8n-chart.sh` now also
+    asserts the probe renders on the worker sidecar.
+  - New values the module does not set: `editor.url` (would collide with
+    the module's own `N8N_EDITOR_BASE_URL` extraEnv entry if ever set,
+    n8n-hosting#243), `podSecurityContext`/`containerSecurityContext`
+    per-role overrides (n8n-hosting#236), `hostAliases` (n8n-hosting#167),
+    `image.digest`/`taskRunners.image.digest` (n8n-hosting#240), and
+    `persistence.annotations` (n8n-hosting#240). The chart's own
+    `editor.url`/`ingress.enabled`/`webhook.url` all stay unset by this
+    module, so its `N8N_EDITOR_BASE_URL` ConfigMap entry stays empty and
+    does not duplicate the module's own extraEnv entry.
+  - See `docs/upgrading-n8n.md`, "Moving from chart 1.15.0 to 1.16.0".
 - **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
   sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
   instance, replacing Memorystore's own `volatile-lru` default. Under memory
