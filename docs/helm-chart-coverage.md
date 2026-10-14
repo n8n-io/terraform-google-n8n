@@ -20,7 +20,7 @@ this table never mentions.
 | `multiMain` | `n8n_main_hpa_min_replicas`/`n8n_main_fixed_replicas` (topology derivation) | Single-main vs multi-main is derived from the effective main replica count, not set directly |
 | `taskRunners` | `n8n_task_runners_enabled`, `n8n_task_runner_timeout`, `n8n_task_runner_custom_config` | Since chart 1.12.0 the sidecar renders on worker pods only in queue mode (n8n-hosting#179); main and webhook-processor pods carry none |
 | `strategy` | Derived (`local.n8n_main_strategy`) | `Recreate` at one main replica (election staging), chart default above one |
-| `podLabels` | Not surfaced | No caller need identified |
+| `podLabels` | `google_partner_attribution_label` (only `goog-partner-solution`) | Only set when that input is non-empty; no general pass-through |
 | `replicaCount` | Derived (`local.n8n_effective_main_replica_count`) | Always set explicitly, alongside `multiMain.replicas`, so an upstream chart default change cannot silently change single-main replica count unnoticed (set since the 0.4.0 topology work) |
 | `service` | `n8n_main_service_annotations`-equivalent wiring (BackendConfig) | |
 | `ingress` | Not surfaced (chart-level) | This module disables the chart's own Ingress and manages its own `kubernetes_ingress_v1.n8n` in `n8n.tf`, including the `/mcp` route the chart's Ingress would otherwise add |

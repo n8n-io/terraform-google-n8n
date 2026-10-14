@@ -54,6 +54,20 @@ variable "common_labels" {
   }
 }
 
+variable "google_partner_attribution_label" {
+  description = <<-EOT
+    Value of the goog-partner-solution label, Google Cloud's partner consumption tracking label for Cloud Marketplace products (the "Consumption tracking label" shown for n8n's listing in Producer Portal, e.g. isol_plb32_0123456789abcdef). When set, the label is added to the module-managed resources that accept labels (through local.gcp_labels, including the load-balancer and Private Service Access global addresses), to the module-managed GKE node VMs (node_config.resource_labels; with create_gke = false the existing node pools are unchanged), to the n8n and Redis-exporter pods, and, as a PD CSI disk label, to disks provisioned by the module's pd-balanced StorageClass. It wins over a goog-partner-solution key in common_labels. Must start and end with a lowercase letter or number, because it is also used as a Kubernetes pod label value. Empty (the default) adds nothing. Resources GKE creates outside Terraform, such as the Ingress's forwarding rules and backend services, are not labeled.
+  EOT
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition     = can(regex("^([a-z0-9]([a-z0-9_-]{0,61}[a-z0-9])?)?$", var.google_partner_attribution_label))
+    error_message = "google_partner_attribution_label must be empty or a valid Google Cloud label value that is also a valid Kubernetes label value: at most 63 characters of lowercase letters, numbers, dashes (-), and underscores (_), starting and ending with a letter or number."
+  }
+}
+
 variable "n8n_fqdn" {
   description = "Fully-qualified domain name for n8n (e.g. n8n.example.com). Must match the certificate served for the chosen tls_mode."
   type        = string

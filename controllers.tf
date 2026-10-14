@@ -27,6 +27,7 @@ module "controllers" {
   create_pd_balanced_storage_class = var.create_pd_balanced_storage_class
   pd_balanced_storage_class_name   = "n8n-pd-balanced"
   common_labels                    = local.gcp_labels
+  pd_disk_labels                   = local.google_partner_attribution_labels
 
   depends_on = [google_container_node_pool.n8n]
 }

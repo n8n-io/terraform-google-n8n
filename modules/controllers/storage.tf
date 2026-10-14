@@ -19,7 +19,13 @@ resource "kubernetes_storage_class_v1" "pd_balanced" {
   volume_binding_mode    = "WaitForFirstConsumer"
   allow_volume_expansion = true
 
-  parameters = {
+  # parameters is immutable on a StorageClass, so setting pd_disk_labels on an
+  # existing class replaces it; bound PVs keep working.
+  parameters = merge({
     type = "pd-balanced"
-  }
+    }, length(var.pd_disk_labels) == 0 ? {} : {
+    # GCE PD CSI driver `labels` parameter: comma-separated key=value pairs
+    # applied to every disk it provisions through this class.
+    labels = join(",", [for k, v in var.pd_disk_labels : "${k}=${v}"])
+  })
 }

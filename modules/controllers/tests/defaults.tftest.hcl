@@ -208,3 +208,53 @@ run "custom_storage_class_name_and_labels" {
     error_message = "common_labels must be applied to the StorageClass"
   }
 }
+
+run "pd_disk_labels_unset_adds_no_labels_parameter" {
+  command = plan
+
+  assert {
+    condition     = !contains(keys(kubernetes_storage_class_v1.pd_balanced[0].parameters), "labels")
+    error_message = "No PD CSI labels parameter may be set while pd_disk_labels is empty"
+  }
+}
+
+run "pd_disk_labels_become_pd_csi_labels_parameter" {
+  command = plan
+
+  variables {
+    pd_disk_labels = {
+      "goog-partner-solution" = "isol_plb32_0123456789abcdef"
+      team                    = "platform"
+    }
+  }
+
+  assert {
+    condition     = kubernetes_storage_class_v1.pd_balanced[0].parameters["labels"] == "goog-partner-solution=isol_plb32_0123456789abcdef,team=platform"
+    error_message = "pd_disk_labels must render as the PD CSI driver's comma-separated key=value labels parameter"
+  }
+
+  assert {
+    condition     = kubernetes_storage_class_v1.pd_balanced[0].parameters["type"] == "pd-balanced"
+    error_message = "pd_disk_labels must not displace the pd-balanced disk type"
+  }
+}
+
+run "pd_disk_labels_reject_separator_characters" {
+  command = plan
+
+  variables {
+    pd_disk_labels = { team = "a,b=c" }
+  }
+
+  expect_failures = [var.pd_disk_labels]
+}
+
+run "pd_disk_labels_reject_more_than_64_labels" {
+  command = plan
+
+  variables {
+    pd_disk_labels = { for i in range(65) : "k${i}" => "v" }
+  }
+
+  expect_failures = [var.pd_disk_labels]
+}

@@ -5,12 +5,13 @@
 
 locals {
   # GCP labels: lowercase keys/values only. common_labels is merged in first so
-  # the module's own built-in labels win on key collision.
+  # the module's own built-in labels, and the partner consumption tracking
+  # label, win on key collision.
   gcp_labels = merge(var.common_labels, {
     managed_by = "terraform"
     app        = "n8n"
     cluster    = local.name_prefix
-  })
+  }, local.google_partner_attribution_labels)
 }
 
 # create_network gates the VPC, subnetwork, secondary ranges, router, and NAT
@@ -129,6 +130,7 @@ resource "google_compute_global_address" "psa" {
   address_type  = "INTERNAL"
   prefix_length = var.psa_prefix_length
   network       = local.effective_network_id
+  labels        = local.gcp_labels
 }
 
 # deletion_policy: by default (psa_connection_abandon_on_destroy = true) the
