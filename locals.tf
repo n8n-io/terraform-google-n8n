@@ -14,6 +14,13 @@ locals {
   # (local.n8n_webhook_url_env), so the two never drift apart.
   effective_webhook_url = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
 
+  # Google Cloud partner consumption tracking (goog-partner-solution). Empty
+  # map when unset so every consumer (local.gcp_labels in network.tf, node VM
+  # resource_labels, n8n podLabels, PD CSI disk labels) merges it unconditionally.
+  google_partner_attribution_labels = var.google_partner_attribution_label == "" ? {} : {
+    "goog-partner-solution" = var.google_partner_attribution_label
+  }
+
   # (GCP labels live in local.gcp_labels, network.tf.)
 
   # ── n8n_extra_env collision guard ──────────────────────────────────────────

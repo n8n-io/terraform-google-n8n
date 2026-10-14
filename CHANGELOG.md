@@ -9,6 +9,28 @@ this project adheres to the stability contract in
 
 ### Added
 
+- `google_partner_attribution_label` sets the `goog-partner-solution` label,
+  Google Cloud's partner consumption tracking label for Cloud Marketplace
+  products. Prepared ahead of end-to-end testing: it defaults to empty
+  (nothing is added) because n8n's Marketplace consumption tracking label,
+  shown in Producer Portal, has not been agreed for use here yet; the default
+  changes to that value once it is. Set, it reaches every labelable resource
+  the module creates through `local.gcp_labels` (and wins over a colliding
+  `common_labels` key), the GKE node VMs through
+  `node_config.resource_labels` (the cluster's `resource_labels` and the
+  existing node `labels` do not reach the VMs), the n8n main, worker and
+  webhook-processor pod templates through the chart's `podLabels`, the Redis
+  exporter pods, and disks provisioned through the module's pd-balanced
+  StorageClass through a new `modules/controllers` input, `pd_disk_labels`
+  (the PD CSI driver's `labels` parameter). Not labeled: resources GKE
+  creates outside Terraform for the Ingress (forwarding rules, backend
+  services), disks already provisioned, and resources without a label
+  argument (VPC, subnet, router, NAT, firewall). Upgrade note, when set: the
+  pod label rolls the n8n pods once; whether `node_config.resource_labels`
+  updates the node pool in place or replaces it has not been verified against
+  a live apply; and the StorageClass is replaced because its parameters are
+  immutable (bound volumes keep working).
+
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services

@@ -31,6 +31,7 @@ resource "google_container_cluster" "n8n" {
 
   # checkov:skip=CKV_GCP_65: intentional, requires caller-owned Google Group, see resource comment above.
   # checkov:skip=CKV_GCP_66: intentional, out of module scope, see resource comment above.
+  # checkov:skip=CKV_GCP_21: false positive, resource_labels is set below from local.gcp_labels; Checkov cannot resolve that merge() once it contains the conditional google_partner_attribution_label map and reports the cluster as unlabeled.
 
   name     = local.name_prefix
   project  = var.project_id
@@ -278,6 +279,14 @@ resource "google_container_node_pool" "n8n" {
     }
 
     labels = local.gcp_labels
+
+    # GCE labels on the node VMs themselves. node_config.labels above are
+    # Kubernetes node labels and do not reach the VMs, and the cluster's
+    # resource_labels do not propagate to them either, so the partner
+    # consumption tracking label is set here explicitly. Only that label, not
+    # all of gcp_labels, so an unset google_partner_attribution_label leaves
+    # node_config untouched.
+    resource_labels = local.google_partner_attribution_labels
   }
 
   # Nodes must come up with their logging/monitoring roles already granted, or

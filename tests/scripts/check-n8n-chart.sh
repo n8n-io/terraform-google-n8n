@@ -144,6 +144,8 @@ s3:
   storage:
     mode: s3
     forcePathStyle: true
+podLabels:
+  goog-partner-solution: isol_synthetic_partner_urn
 EOF
 
 echo "==> helm template ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
@@ -160,6 +162,17 @@ fi
 pass "helm template rendered ${CHART_NAME}:${CHART_VERSION} with no credentials"
 
 RENDERED="$WORKDIR/rendered.yaml"
+
+# podLabels (google_partner_attribution_label): the Google Cloud partner
+# consumption tracking label must land on all three pod templates, main,
+# worker, and webhook-processor, which are the only pod-producing resources in
+# this fixture.
+PARTNER_LABEL_COUNT="$(grep -cF 'goog-partner-solution: isol_synthetic_partner_urn' "$RENDERED" || true)"
+if [ "$PARTNER_LABEL_COUNT" = "3" ]; then
+  pass "podLabels goog-partner-solution reaches the main, worker, and webhook-processor pod templates"
+else
+  fail "podLabels goog-partner-solution: expected 3 pod templates, found ${PARTNER_LABEL_COUNT}"
+fi
 
 # assert_deployment_replicas <deployment-name> <expected-replica-count>
 # Reads the `replicas:` field from the named Deployment's manifest block.

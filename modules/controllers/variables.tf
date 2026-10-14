@@ -72,3 +72,10 @@ variable "common_labels" {
   default     = {}
   nullable    = false
 }
+
+variable "pd_disk_labels" {
+  description = "GCE labels the PD CSI driver applies to every disk it provisions through the pd-balanced StorageClass (the class's `labels` parameter), e.g. the goog-partner-solution partner consumption tracking label. Changing it on an existing class replaces the class (StorageClass parameters are immutable); disks already provisioned are not relabeled. Ignored when create_pd_balanced_storage_class = false."
+  type        = map(string)
+  default     = {}
+  nullable    = false
+}

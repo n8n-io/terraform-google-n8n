@@ -5,12 +5,13 @@
 
 locals {
   # GCP labels: lowercase keys/values only. common_labels is merged in first so
-  # the module's own built-in labels win on key collision.
+  # the module's own built-in labels, and the partner consumption tracking
+  # label, win on key collision.
   gcp_labels = merge(var.common_labels, {
     managed_by = "terraform"
     app        = "n8n"
     cluster    = local.name_prefix
-  })
+  }, local.google_partner_attribution_labels)
 }
 
 # create_network gates the VPC, subnetwork, secondary ranges, router, and NAT
