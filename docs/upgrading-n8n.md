@@ -57,11 +57,16 @@ Check these points before you apply:
   1 otherwise). Only the chart's rendering decision changed. After this
   upgrade, `kubectl get pdb -n <namespace>` on a single-main deployment
   returns no `n8n-main` PDB at all, not one with `minAvailable: 0`.
-  `tests/scripts/smoke-test.sh` and the single-main fixture in
-  `tests/scripts/check-n8n-chart.sh` were updated to assert the PDB's
-  absence in that topology instead of its `minAvailable` value; the
-  multi-main case (main replicas above one) is unaffected and still renders
-  a PDB with `minAvailable: 1`.
+  `tests/scripts/check-n8n-chart.sh`'s single-main fixture was updated to
+  assert the PDB's absence in that topology instead of its `minAvailable`
+  value (it always renders the one pinned chart). `tests/scripts/
+  smoke-test.sh` checks a live deployment, whose `n8n_chart_version` a
+  caller can override below `1.16.0`, so it reads the chart actually
+  deployed (the main Deployment's `helm.sh/chart` label) and only expects
+  the PDB's absence on `1.16.0` or newer, falling back to the
+  `minAvailable: 0` assertion on an older pin. The multi-main case (main
+  replicas above one) is unaffected on every chart version and still
+  renders a PDB with `minAvailable: 1`.
 - **Task-runner sidecar liveness probe, on by default.** The sidecar now
   gets a liveness probe against the launcher's own `/healthz` endpoint on
   port 5680 (`taskRunners.probes.liveness`, n8n-hosting#223). The module sets
