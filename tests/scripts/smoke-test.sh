@@ -1134,13 +1134,16 @@ fi
 
 header "Redis TLS and AUTH"
 
+# A paused worker ScaledObject may hold zero workers; say so in the skips below.
+no_worker_reason="no running worker pod found"
+[[ "${worker_paused:-}" == "true" ]] && no_worker_reason="worker ScaledObject paused via n8n_worker_keda_pause, no running worker pod"
 worker_pod=$(kubectl get pods -n "$NAMESPACE" \
   -l "app.kubernetes.io/component=worker" \
   --field-selector=status.phase=Running \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if [[ -z "$worker_pod" ]]; then
-  skip "Redis TLS/AUTH check (no running worker pod found)"
+  skip "Redis TLS/AUTH check ($no_worker_reason)"
 else
   redis_tls_env=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
     -- printenv QUEUE_BULL_REDIS_TLS 2>/dev/null || true)
@@ -1171,7 +1174,7 @@ header "GCS Object Storage Access"
 if [[ -z "$GCS_BUCKET_NAME" ]]; then
   skip "GCS access check (gcs_bucket_name output not available)"
 elif [[ -z "$worker_pod" ]]; then
-  skip "GCS access check (no running worker pod found)"
+  skip "GCS access check ($no_worker_reason)"
 else
   s3_host=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
     -- printenv N8N_EXTERNAL_STORAGE_S3_HOST 2>/dev/null || true)
@@ -1313,7 +1316,7 @@ worker_pod=$(kubectl get pods -n "$NAMESPACE" \
   -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
 
 if [[ -z "$worker_pod" ]]; then
-  skip "Redis command-channel/Bull prefix check (no running worker pod found)"
+  skip "Redis command-channel/Bull prefix check ($no_worker_reason)"
 else
   bull_prefix=$(kubectl exec "$worker_pod" -n "$NAMESPACE" -c n8n-worker \
     -- sh -c 'printenv QUEUE_BULL_PREFIX 2>/dev/null || true')
