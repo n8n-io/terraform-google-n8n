@@ -66,7 +66,7 @@ edition that supports single-main.
    strategy is `Recreate`, `multiMain.enabled` is `false`, and no main
    PodDisruptionBudget exists at all (chart `1.16.0` and newer render none
    while main does not exceed one replica, n8n-hosting#228;
-   `kubectl get deployment n8n-main -o jsonpath='{.spec.strategy.type}'`,
+   `kubectl get deployment n8n-main -n <namespace> -o jsonpath='{.spec.strategy.type}'`,
    `kubectl get pdb n8n-main -n <namespace>` returns NotFound).
 4. Trigger a rollout (e.g. `kubectl rollout restart deployment/n8n-main -n
    <namespace>`) and confirm the editor and REST API are briefly unreachable
