@@ -3,12 +3,66 @@
 #
 # Logs into n8n's REST API from inside the cluster, creates and activates
 # workflow.json (edit its Code node's host/servername/path first), triggers
-# its webhook, and prints the result. Run it once against the stock
-# image/config as a negative control, then again after applying
-# task-runner-ca.tf.example (with n8n-task-runners.test.json) as the positive proof.
+# its webhook, and asserts the result. Run it once with --expect blocked
+# against the stock image/config as a negative control, then again with
+# --expect ok after applying task-runner-ca.tf.example (with
+# n8n-task-runners.test.json) as the positive proof.
 #
-# Requires: kubectl pointed at the cluster, and an n8n owner account.
+# Requires: kubectl pointed at the cluster, an n8n owner account, and
+# python3 on the host (used to build the login payload and parse JSON
+# responses).
 set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: verify.sh --expect ok|blocked
+
+  --expect ok       Positive proof: the custom image + test launcher config
+                     (n8n-task-runners.test.json) trust the private CA.
+                     Asserts requireHttps == "ok" and "status:200" appears
+                     in the Code node's result.
+  --expect blocked  Negative control: the stock image/config (or the
+                     production n8n-task-runners.json) rejects the runner's
+                     TLS attempt outright. Asserts requireHttps == "blocked".
+
+Environment:
+  N8N_NAMESPACE   Namespace n8n runs in (default: n8n).
+  N8N_EMAIL       n8n owner/admin account email (required).
+  N8N_PASSWORD    Password for that account (required).
+  WORKFLOW_FILE   Path to the workflow to import (default: workflow.json
+                  next to this script).
+  TEST_POD_NAME   Name for the disposable curl pod this script creates and
+                  deletes (default: task-runner-ca-verify-client). Change
+                  this if it collides with a pod already in the namespace.
+  TEST_POD_IMAGE  Image for that pod (default: curlimages/curl:8.11.0).
+EOF
+}
+
+expect=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --expect)
+      expect="${2:-}"
+      shift 2
+      ;;
+    --expect=*)
+      expect="${1#*=}"
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage
+      exit 2
+      ;;
+  esac
+done
+if [ "$expect" != "ok" ] && [ "$expect" != "blocked" ]; then
+  usage
+  exit 2
+fi
 
 : "${N8N_NAMESPACE:=n8n}"
 : "${N8N_EMAIL:?set N8N_EMAIL to an n8n owner/admin account}"
@@ -24,12 +78,27 @@ trap 'kubectl -n "$N8N_NAMESPACE" delete pod "$TEST_POD_NAME" --now --ignore-not
 kubectl -n "$N8N_NAMESPACE" wait --for=condition=Ready "pod/$TEST_POD_NAME" --timeout=60s
 
 exec_curl() { kubectl -n "$N8N_NAMESPACE" exec "$TEST_POD_NAME" -- curl -s "$@"; }
+# Pipes stdin (read by this function's caller) into the pod's curl via
+# `kubectl exec -i`, so sensitive request bodies never appear in the
+# container's argument vector (visible to anyone who can list processes on
+# the node).
+exec_curl_stdin() { kubectl -n "$N8N_NAMESPACE" exec -i "$TEST_POD_NAME" -- curl -s "$@"; }
 
 echo "Logging in..." >&2
-login_headers=$(exec_curl -i -X POST http://n8n-main:5678/rest/login \
+login_payload=$(N8N_EMAIL="$N8N_EMAIL" N8N_PASSWORD="$N8N_PASSWORD" python3 -c '
+import json, os
+print(json.dumps({
+    "emailOrLdapLoginId": os.environ["N8N_EMAIL"],
+    "password": os.environ["N8N_PASSWORD"],
+}))
+')
+login_headers=$(printf '%s' "$login_payload" | exec_curl_stdin -i -X POST http://n8n-main:5678/rest/login \
   -H 'Content-Type: application/json' \
-  -d "{\"emailOrLdapLoginId\":\"${N8N_EMAIL}\",\"password\":\"${N8N_PASSWORD}\"}")
-auth_cookie=$(printf '%s' "$login_headers" | grep -i '^Set-Cookie: n8n-auth=' | sed -E 's/^Set-Cookie: (n8n-auth=[^;]+);.*/\1/I' | tr -d '\r')
+  --data-binary @-)
+# Under `set -o pipefail`, `grep` finding no match would fail this whole
+# pipeline and exit the script before the diagnostic below can print;
+# `|| true` keeps the diagnostic branch reachable.
+auth_cookie=$(printf '%s' "$login_headers" | grep -i '^Set-Cookie: n8n-auth=' | sed -E 's/^Set-Cookie: (n8n-auth=[^;]+);.*/\1/I' | tr -d '\r' || true)
 if [ -z "$auth_cookie" ]; then
   echo "Login failed; response:" >&2
   printf '%s\n' "$login_headers" >&2
@@ -52,7 +121,45 @@ exec_curl -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/activate" \
   -d "{\"versionId\":\"${version_id}\"}" >/dev/null
 
 echo "Triggering webhook..." >&2
-exec_curl -i http://n8n-webhook-processor:5678/webhook/task-runner-ca-verify
+webhook_resp=$(exec_curl http://n8n-webhook-processor:5678/webhook/task-runner-ca-verify)
+printf '%s\n' "$webhook_resp" >&2
 
 echo "" >&2
 echo "Deactivate/delete the workflow (PATCH .../${wf_id} {\"active\":false} then DELETE) when done." >&2
+
+# Assert the result matches the requested mode instead of just printing it,
+# so a regression (e.g. the runner TLS check silently failing) makes the
+# script exit non-zero rather than looking like a pass.
+webhook_resp="$webhook_resp" expect="$expect" python3 -c '
+import json, os, sys
+
+resp = os.environ["webhook_resp"]
+expect = os.environ["expect"]
+try:
+    data = json.loads(resp)
+except ValueError as e:
+    print(f"Could not parse webhook response as JSON: {e}\nResponse: {resp}", file=sys.stderr)
+    sys.exit(1)
+
+require_https = data.get("requireHttps")
+if expect == "blocked":
+    if require_https != "blocked":
+        print(
+            f"--expect blocked failed: requireHttps was {require_https!r}, "
+            f"wanted \"blocked\". Full response: {data}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("OK: negative control confirmed (requireHttps: blocked).", file=sys.stderr)
+else:
+    result = data.get("result", "")
+    if require_https != "ok" or "status:200" not in str(result):
+        print(
+            f"--expect ok failed: requireHttps was {require_https!r} "
+            f"(wanted \"ok\") and result was {result!r} "
+            f"(wanted \"status:200\" in it). Full response: {data}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("OK: positive proof confirmed (requireHttps: ok, status:200).", file=sys.stderr)
+'

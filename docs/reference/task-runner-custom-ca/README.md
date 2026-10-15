@@ -124,7 +124,14 @@ releases before.
 runner's non-root `runner` user (uid 1000) can read it without changing
 image ownership elsewhere:
 
+The build context must contain both the Dockerfile and your CA bundle, since
+`COPY ${CA_BUNDLE}` resolves relative to the context, not your working
+directory. Copy your CA bundle into this directory first (or build from a
+staging directory that holds a copy of the `Dockerfile` and the bundle),
+then build with this directory (or that staging directory) as the context:
+
 ```bash
+cp <your-ca.pem> docs/reference/task-runner-custom-ca/
 docker build \
   --build-arg RUNNER_IMAGE_TAG=<your runner tag, e.g. 2.41.4> \
   --build-arg CA_BUNDLE=<your-ca.pem> \
@@ -202,11 +209,18 @@ and ignores the extra field).
 
 ### 5. Wire it into Terraform
 
-[`task-runner-ca.tf.example`](./task-runner-ca.tf.example) shows a `kubernetes_config_map_v1`
-holding the launcher config, and the three module inputs that reference it
-and the custom image. Copy it into your own root module, next to your
-`module "n8n"` block, and adjust the repository/tag/namespace to match your
-deployment.
+[`task-runner-ca.tf.example`](./task-runner-ca.tf.example) shows a
+`kubernetes_namespace_v1` creating the namespace, a `kubernetes_config_map_v1`
+holding the launcher config in that namespace, and the three module inputs
+that reference the ConfigMap and the custom image. The namespace is created
+outside `module.n8n` (with `create_namespace = false` and
+`n8n_kube_namespace` passed to the module) because the ConfigMap must exist
+before `module.n8n` applies, since the module input references the
+ConfigMap's name, but the module only creates the namespace as part of its
+own apply; on a fresh deployment the ConfigMap would otherwise fail with
+"namespace not found". Copy the snippet into your own root module, next to
+your `module "n8n"` block, and adjust the repository/tag/namespace to match
+your deployment.
 
 ```bash
 terraform plan
@@ -233,19 +247,30 @@ kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker
 [`workflow.json`](./workflow.json) is the Code node used in both controls
 above; edit its `host`/`servername`/`path` to point at your own private
 endpoint. [`verify.sh`](./verify.sh) logs into n8n's REST API from inside
-the cluster, creates and activates the workflow, and triggers its webhook:
+the cluster, creates and activates the workflow, triggers its webhook, and
+asserts the result against an explicit `--expect` mode. Requires `kubectl`
+pointed at the cluster, an n8n owner account, and `python3` on the host
+(used to build the login payload and parse the webhook's JSON response).
+
+Run it once with `--expect blocked` before this reference is applied: it
+asserts `requireHttps` is `"blocked"` against the default config (or against
+the test-variant config on the stock image, before your CA is baked in,
+where the runner's TLS attempt still fails, just with a different error:
+see the script's assertion failure message for the raw response). Run it
+again with `--expect ok` after applying, which additionally requires
+`status:200` in `result`, true once the custom image, the test launcher
+config, and a restart are all in place. Either mode exits non-zero with the
+full response on a mismatch.
 
 ```bash
 N8N_EMAIL=you@example.com N8N_PASSWORD='...' \
-  ./docs/reference/task-runner-custom-ca/verify.sh
-```
+  ./docs/reference/task-runner-custom-ca/verify.sh --expect blocked
 
-Run it once before this reference is applied (expect
-`{"requireHttps":"blocked", ...}` against the default config, or
-`UNABLE_TO_VERIFY_LEAF_SIGNATURE` in `result` if you are testing against the
-test-variant config but the stock image without your CA baked in), and once
-after (expect a `200` status in `result` once the custom image, the test
-launcher config, and a restart are all in place).
+# ...apply the reference, restart, then...
+
+N8N_EMAIL=you@example.com N8N_PASSWORD='...' \
+  ./docs/reference/task-runner-custom-ca/verify.sh --expect ok
+```
 
 ## Rotation
 
