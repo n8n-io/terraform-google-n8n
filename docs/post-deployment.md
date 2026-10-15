@@ -33,6 +33,10 @@ With `tls_mode = "google_managed"`, the certificate cannot provision until this 
 
 Open `https://n8n.yourdomain.com` in your browser. Create your owner account, then select **Settings** > **License** and enter your activation key.
 
+### Offline license activation
+
+If you deployed with `n8n_license_cert_secret_ref` instead of `n8n_license_key` or `n8n_license_key_secret_ref` (an air-gapped or egress-restricted cluster; see ["Offline license activation"](../README.md#offline-license-activation) in the root README), there is no key to paste in **Settings** > **License**: the certificate in your caller-managed Secret activates the license as `N8N_LICENSE_CERT` at pod startup, with no activation round trip to n8n's license server. That is offline *initial activation* only: n8n's `N8N_LICENSE_AUTO_RENEW_ENABLED` still defaults to `true`, so a cluster that must never contact the license server should also set `N8N_LICENSE_AUTO_RENEW_ENABLED=false` through `n8n_extra_env` and block egress to the license server at the network level. In that setup n8n cannot renew the license itself, so request a replacement certificate from n8n before the current one expires. Confirm activation from **Settings** > **License**, or with `kubectl -n <n8n_kube_namespace> exec deploy/n8n-main -- n8n license:info`. Rotating the certificate means updating the caller-managed Secret's payload and restarting the `n8n-main`, `n8n-worker`, and `n8n-webhook-processor` deployments, plus any `n8n-worker-<pool>` deployments from `n8n_worker_pools` (`kubectl -n <n8n_kube_namespace> rollout restart deployment -l app.kubernetes.io/instance=n8n,app.kubernetes.io/component=worker-group`), since the module never reads the Secret's value and cannot detect a payload change itself.
+
 ## Redis persistence and recovery
 
 `redis_persistence_enabled` (default `false`) turns on Memorystore's own RDB

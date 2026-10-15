@@ -47,6 +47,7 @@ changes) against a production deployment.
 | 10 | Redis exporter TLS and metrics | Not run |
 | 11 | Memorystore RDB persistence recovery | Partial (see section) |
 | 12 | n8n Enterprise license activation and single-main entitlement | Partial (see section) |
+| 12a | Offline license activation (`n8n_license_cert_secret_ref`) | Partial (see section) |
 | 13 | GKE Dataplane V2 migration | Not run |
 | 14 | GCS access-log delivery | Passed (see section) |
 | 15 | KEDA worker scale-out and scale-in | Passed (see section) |
@@ -351,6 +352,60 @@ or pod env), activation succeeded, multi-main and single-main both ran, and the
 floating seat survived every main restart with
 `N8N_LICENSE_DETACH_FLOATING_ON_SHUTDOWN=false`. Step 3 (an edition without
 single-main entitlement) and the other entitlement boundaries were not tested.
+
+### 12a. Offline license activation (`n8n_license_cert_secret_ref`)
+
+**Safety prerequisite:** a real n8n offline license certificate (`N8N_LICENSE_CERT`),
+in a caller-managed Kubernetes Secret.
+
+1. Set `n8n_license_cert_secret_ref` (and set both `n8n_license_key` and
+   `n8n_license_key_secret_ref` to `null`), ideally
+   with egress to n8n's license server blocked, and `terraform apply`.
+   Confirm `kubernetes_secret.n8n_license` is not created, and that
+   `helm get values n8n -n <namespace>` shows `license.enabled: true`, an
+   empty `activationKey`, and no `existingSecret` block. Then list the env
+   var names without printing any values:
+   `kubectl -n <namespace> get deploy n8n-main -o jsonpath='{.spec.template.spec.containers[0].env[*].name}'`.
+   The list must include `N8N_LICENSE_CERT` and must not include
+   `N8N_LICENSE_ACTIVATION_KEY`. Avoid a plain `printenv` in the pod,
+   because it prints the certificate and every other credential.
+2. Confirm activation from **Settings → License** or
+   `kubectl -n <namespace> exec deploy/n8n-main -- n8n license:info`, with no
+   outbound call to n8n's license server.
+3. Confirm multi-main still runs (2+ main replicas) on the certificate path,
+   since `license.enabled` staying `true` is what keeps
+   `N8N_MULTI_MAIN_SETUP_ENABLED` rendering.
+4. Roll the main deployment and confirm replacement pods stay licensed with
+   no re-activation round trip.
+5. Rotate the certificate (update the caller-managed Secret's payload) and
+   restart `n8n-main`/`n8n-worker`/`n8n-webhook-processor` and any
+   `n8n-worker-<pool>` deployments; confirm the new
+   certificate takes effect, since the module never reads the Secret's value
+   and cannot detect a payload change itself.
+
+**Status: partial, run on GKE (us-east4).** `examples/small` was applied
+first with `n8n_license_key` (same `n8n_encryption_key` throughout, so the
+instance ID stayed fixed), then switched in place to
+`n8n_license_cert_secret_ref` against a caller-created Secret
+(plan: 0 to add, 1 to change, 1 to destroy: the Helm release, and the
+now-unused `kubernetes_secret.n8n_license`). Observed:
+
+- `n8n license:info` showed the same `deviceFingerprint` on both paths, a
+  `LICENSE CERT` entry with an all-zeros `consumerId` (offline shape), and
+  `planName: Enterprise`.
+- `N8N_LICENSE_CERT` rendered as a `secretKeyRef` on main, worker, and
+  webhook-processor; no `N8N_LICENSE_ACTIVATION_KEY` anywhere.
+- Both main replicas ran, with `Leader is now this instance` logged after the
+  switch and after a `rollout restart` of `n8n-main` (replacement pods kept
+  the license).
+- With `N8N_LICENSE_AUTO_RENEW_ENABLED=false` set through `n8n_extra_env`,
+  the license SDK logged only "Skipping renewal" lines; no activation or
+  renewal request appeared in any pod log. Egress to n8n's license server was
+  not blocked at the network level.
+
+Not exercised: executions through the queue under the certificate, and
+rotating to a different certificate (only one certificate was available;
+step 5 was not run).
 
 ## 13. GKE Dataplane V2 migration
 
