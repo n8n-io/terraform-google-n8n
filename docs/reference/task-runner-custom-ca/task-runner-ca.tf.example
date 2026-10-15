@@ -12,17 +12,30 @@
 #   - A custom task-runner image already built and pushed; see README.md.
 
 # Must match the module's own n8n_kube_namespace input (default "n8n").
-# This reference creates the namespace itself (create_namespace = false on
-# the module below) because the ConfigMap must exist before module.n8n
-# applies (the module input references the ConfigMap's name), but the
-# module only creates the namespace as part of its own apply. Referencing
-# module.n8n's namespace output here would also create a dependency cycle,
-# since the module needs this ConfigMap's name as an input.
 locals {
   n8n_kube_namespace = "n8n"
 }
 
+# true  = NEW deployment: this snippet creates the namespace outside the
+#         module (create_namespace = false on the module below), because the
+#         ConfigMap must exist before module.n8n applies (the module input
+#         references the ConfigMap's name) but the module only creates its
+#         namespace as part of its own apply. Referencing module.n8n's
+#         namespace output here would also be a dependency cycle.
+# false = EXISTING deployment: the module already owns the namespace, so
+#         this snippet creates none and leaves create_namespace at its
+#         default. Do not flip an existing deployment to true: that removes
+#         the namespace from the module's state while a second resource
+#         tries to create the same name (AlreadyExists, or workload
+#         deletion risk).
+variable "create_namespace_outside_module" {
+  type    = bool
+  default = true
+}
+
 resource "kubernetes_namespace_v1" "n8n" {
+  count = var.create_namespace_outside_module ? 1 : 0
+
   metadata {
     name = local.n8n_kube_namespace
   }
@@ -31,7 +44,7 @@ resource "kubernetes_namespace_v1" "n8n" {
 resource "kubernetes_config_map_v1" "task_runner_launcher_config" {
   metadata {
     name      = "n8n-task-runner-launcher-config"
-    namespace = kubernetes_namespace_v1.n8n.metadata[0].name
+    namespace = var.create_namespace_outside_module ? kubernetes_namespace_v1.n8n[0].metadata[0].name : local.n8n_kube_namespace
   }
 
   data = {
@@ -45,9 +58,9 @@ module "n8n" {
 
   # ... your other inputs ...
 
-  # The namespace is created above, outside the module, so the ConfigMap
-  # can exist before module.n8n applies.
-  create_namespace   = false
+  # new deployment (variable true): false, the namespace is created above;
+  # existing deployment (variable false): true, the module's own default.
+  create_namespace   = !var.create_namespace_outside_module
   n8n_kube_namespace = local.n8n_kube_namespace
 
   n8n_task_runner_image_repository = "us-east4-docker.pkg.dev/<project>/<repo>/runners"

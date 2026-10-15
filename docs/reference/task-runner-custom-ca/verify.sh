@@ -15,15 +15,22 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-Usage: verify.sh --expect ok|blocked
+Usage: verify.sh --expect ok|blocked|untrusted
 
-  --expect ok       Positive proof: the custom image + test launcher config
-                     (n8n-task-runners.test.json) trust the private CA.
-                     Asserts requireHttps == "ok" and "status:200" appears
-                     in the Code node's result.
-  --expect blocked  Negative control: the stock image/config (or the
-                     production n8n-task-runners.json) rejects the runner's
-                     TLS attempt outright. Asserts requireHttps == "blocked".
+  --expect ok         Positive proof: the custom image + test launcher config
+                      (n8n-task-runners.test.json) trust the private CA.
+                      Asserts requireHttps == "ok" and "status:200" appears
+                      in the Code node's result.
+  --expect blocked    Negative control for the default/production launcher
+                      config (n8n-task-runners.json or the stock one): it
+                      rejects require('https') outright. Asserts
+                      requireHttps == "blocked".
+  --expect untrusted  Negative control for the TEST launcher config
+                      (n8n-task-runners.test.json) on an image that does not
+                      have your CA baked in: https is allowed, so the runner
+                      attempts TLS and the certificate check fails. Asserts
+                      requireHttps == "ok" and the result is an err: entry
+                      carrying a certificate-verification code.
 
 Environment:
   N8N_NAMESPACE   Namespace n8n runs in (default: n8n).
@@ -42,7 +49,11 @@ expect=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --expect)
-      expect="${2:-}"
+      if [ $# -lt 2 ]; then
+        usage
+        exit 2
+      fi
+      expect="$2"
       shift 2
       ;;
     --expect=*)
@@ -59,7 +70,7 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-if [ "$expect" != "ok" ] && [ "$expect" != "blocked" ]; then
+if [ "$expect" != "ok" ] && [ "$expect" != "blocked" ] && [ "$expect" != "untrusted" ]; then
   usage
   exit 2
 fi
@@ -151,6 +162,26 @@ if expect == "blocked":
         )
         sys.exit(1)
     print("OK: negative control confirmed (requireHttps: blocked).", file=sys.stderr)
+elif expect == "untrusted":
+    result = str(data.get("result", ""))
+    tls_codes = (
+        "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        "UNABLE_TO_GET_ISSUER_CERT",
+        "SELF_SIGNED_CERT_IN_CHAIN",
+        "DEPTH_ZERO_SELF_SIGNED_CERT",
+        "CERT_UNTRUSTED",
+    )
+    if require_https != "ok" or not (
+        result.startswith("err:") and any(c in result for c in tls_codes)
+    ):
+        print(
+            f"--expect untrusted failed: requireHttps was {require_https!r} "
+            f"(wanted \"ok\") and result was {result!r} (wanted an err: "
+            f"entry with a certificate-verification code). Full response: {data}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    print("OK: negative control confirmed (runner rejected the untrusted certificate).", file=sys.stderr)
 else:
     result = data.get("result", "")
     if require_https != "ok" or "status:200" not in str(result):
