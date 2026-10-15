@@ -627,7 +627,44 @@ variable "n8n_extra_volume_mounts" {
         m.mount_path == "/etc/n8n-certs" || startswith(m.mount_path, "/etc/n8n-certs/")
       )
     ])
-    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis CA mount)."
+    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis CA and extra CA bundle mounts)."
+  }
+}
+
+variable "n8n_extra_ca_pem" {
+  description = "PEM-encoded CA certificate(s) every n8n role should trust for outbound TLS, in addition to Node's built-in roots. Use it when egress traffic passes through a TLS-intercepting proxy or reaches endpoints signed by a private CA. The module stores the PEM (public certificates only, never private keys) in a module-managed Secret, mounts it read-only at /etc/n8n-certs/ca-bundle.crt on main, worker, and webhook-processor pods, and points NODE_EXTRA_CA_CERTS at it. Node honours a single NODE_EXTRA_CA_CERTS file, so while the module-managed Memorystore TLS CA is also in play (redis_transit_encryption_enabled = true) the Secret holds the Redis CA followed by this PEM; do not include the Redis CA yourself. Combine with n8n_extra_env HTTP_PROXY/HTTPS_PROXY/NO_PROXY to route traffic through the proxy; the module does not manage those. A change rewrites the Secret but does not restart running pods: restart the n8n-main, n8n-worker, and n8n-webhook-processor deployments to pick it up. Null (the default) leaves NODE_EXTRA_CA_CERTS to the Redis CA path or unset. The task-runner sidecars are not covered. NODE_EXTRA_CA_CERTS stays rejected in n8n_extra_env; this is the supported way to set it."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.n8n_extra_ca_pem == null ? true : (can(regex("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) && can(regex("-----END CERTIFICATE-----", var.n8n_extra_ca_pem)))
+    error_message = "n8n_extra_ca_pem must contain at least one PEM-encoded certificate (-----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----)."
+  }
+
+  validation {
+    condition     = var.n8n_extra_ca_pem == null ? true : !can(regex("PRIVATE KEY-----", var.n8n_extra_ca_pem))
+    error_message = "n8n_extra_ca_pem must contain certificates only; remove any private key block."
+  }
+
+  validation {
+    condition     = var.n8n_extra_ca_pem == null ? true : !contains([for v in var.n8n_extra_volumes : v.name], "ca-bundle")
+    error_message = "n8n_extra_ca_pem reserves the \"ca-bundle\" volume name for its own read-only mount while set; remove or rename the conflicting n8n_extra_volumes entry."
+  }
+}
+
+variable "n8n_proxy_hops" {
+  description = "Number of reverse proxies / load balancers in front of n8n, mapped to N8N_PROXY_HOPS on every n8n role (Express \"trust proxy\"). n8n then takes the client IP and protocol from X-Forwarded-For / X-Forwarded-Proto instead of the immediate peer. Use it for an inbound TLS-terminating proxy, WAF, or CDN placed in front of the ingress: count every hop between the client and the pod, including the Google Cloud load balancer itself, so one customer proxy in front of the module-managed GKE Ingress is 2. Null (the default) omits the variable and leaves n8n's own default (0) in place. The proxy's own TLS to the origin is configured elsewhere: tls_mode (custom or secret to present a certificate from the customer's private CA), ingress_source_cidrs to admit only the proxy's egress addresses, and n8n_webhook_url if the public webhook host differs. N8N_PROXY_HOPS stays usable through n8n_extra_env only while this is null."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : (var.n8n_proxy_hops >= 0 && var.n8n_proxy_hops <= 10 && var.n8n_proxy_hops == floor(var.n8n_proxy_hops))
+    error_message = "n8n_proxy_hops must be a whole number between 0 and 10, or null to leave N8N_PROXY_HOPS unset."
+  }
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : !anytrue([for e in var.n8n_extra_env : e.name == "N8N_PROXY_HOPS"])
+    error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it itself); remove the conflicting n8n_extra_env entry."
   }
 }
 
