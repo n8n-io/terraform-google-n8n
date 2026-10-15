@@ -210,17 +210,28 @@ and ignores the extra field).
 ### 5. Wire it into Terraform
 
 [`task-runner-ca.tf.example`](./task-runner-ca.tf.example) shows a
-`kubernetes_namespace_v1` creating the namespace, a `kubernetes_config_map_v1`
-holding the launcher config in that namespace, and the three module inputs
-that reference the ConfigMap and the custom image. The namespace is created
-outside `module.n8n` (with `create_namespace = false` and
-`n8n_kube_namespace` passed to the module) because the ConfigMap must exist
-before `module.n8n` applies, since the module input references the
-ConfigMap's name, but the module only creates the namespace as part of its
-own apply; on a fresh deployment the ConfigMap would otherwise fail with
-"namespace not found". Copy the snippet into your own root module, next to
-your `module "n8n"` block, and adjust the repository/tag/namespace to match
-your deployment.
+`kubernetes_config_map_v1` holding the launcher config and the three module
+inputs that reference the ConfigMap and the custom image. It has two
+namespace paths, selected by the `create_namespace_outside_module` variable:
+
+- **New deployment (default, `true`).** The ConfigMap must exist before
+  `module.n8n` applies, because the module input references its name, but the
+  module only creates its namespace as part of its own apply, so the
+  ConfigMap would otherwise fail with "namespace not found". The snippet
+  creates the namespace outside the module and passes `create_namespace =
+  false` and `n8n_kube_namespace` to it.
+- **Existing deployment (`false`).** The module already owns the namespace
+  (it exists, so the ConfigMap can be created in it). The snippet creates no
+  namespace and leaves the module's `create_namespace` at its default; do not
+  switch an existing deployment to the new-deployment path. Setting
+  `create_namespace = false` on a module that has already created its
+  namespace removes the namespace from the module's state while a second
+  resource tries to create the same name, which fails with `AlreadyExists`
+  or risks deleting workloads. Handing namespace ownership over is a state
+  operation outside this reference.
+
+Copy the snippet into your own root module, next to your `module "n8n"`
+block, and adjust the repository/tag/namespace to match your deployment.
 
 ```bash
 terraform plan
@@ -252,15 +263,17 @@ asserts the result against an explicit `--expect` mode. Requires `kubectl`
 pointed at the cluster, an n8n owner account, and `python3` on the host
 (used to build the login payload and parse the webhook's JSON response).
 
-Run it once with `--expect blocked` before this reference is applied: it
-asserts `requireHttps` is `"blocked"` against the default config (or against
-the test-variant config on the stock image, before your CA is baked in,
-where the runner's TLS attempt still fails, just with a different error:
-see the script's assertion failure message for the raw response). Run it
-again with `--expect ok` after applying, which additionally requires
-`status:200` in `result`, true once the custom image, the test launcher
-config, and a restart are all in place. Either mode exits non-zero with the
-full response on a mismatch.
+Run it with `--expect blocked` against the default/production launcher
+config (`n8n-task-runners.json`, or the stock one): `require('https')` is
+rejected outright, so it asserts `requireHttps` is `"blocked"`. To check the
+test-variant config (`n8n-task-runners.test.json`) before your CA is baked
+in, use `--expect untrusted` instead: that launcher allows `https`, so the
+runner attempts TLS and the certificate check fails, which it asserts as
+`requireHttps` `"ok"` with an `err:` result carrying a certificate
+verification code. Run it again with `--expect ok` after applying, which
+additionally requires `status:200` in `result`, true once the custom image,
+the test launcher config, and a restart are all in place. Every mode exits
+non-zero with the full response on a mismatch.
 
 ```bash
 N8N_EMAIL=you@example.com N8N_PASSWORD='...' \
