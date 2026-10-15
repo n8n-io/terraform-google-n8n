@@ -551,6 +551,11 @@ this project adheres to the stability contract in
   lives in `tests/scripts/lib/constraints.sh`, and the offline test
   `tests/scripts/test-version-drift-constraints.sh` runs in CI with the
   other `tests/scripts/test-*.sh` scripts.
+- `examples/split-ingress`: the three exposure-specific Services now request
+  `cloud.google.com/neg` explicitly and ignore the controller-written
+  `cloud.google.com/neg-status`. Before, any re-apply removed the annotations
+  GKE had added, and both Ingresses stopped syncing with `service is type
+  ClusterIP, expected NodePort or LoadBalancer`.
 - Module-created Cloud KMS keys for Cloud SQL, Memorystore, and GCS
   (`google_kms_crypto_key.postgres`, `.redis`, and `.gcs`) now carry the
   module's standard labels (`local.gcp_labels`, including `common_labels`),
