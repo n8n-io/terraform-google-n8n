@@ -1,0 +1,96 @@
+# TLS-inspecting and TLS-terminating proxies
+
+A customer proxy can sit on either side of n8n, or both. The two sides are
+independent inputs, so any combination works:
+
+| Proxy position | What breaks without configuration | Module inputs | You still own |
+| --- | --- | --- | --- |
+| **Outbound** (n8n to the internet, TLS-inspecting) | Node rejects the proxy's re-signed certificates (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`) | `n8n_extra_ca_pem` for the proxy CA, plus `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` in `n8n_extra_env` | The proxy itself, its allow-list, and which hosts bypass it |
+| **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (count every hop including the Google load balancer); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses; `n8n_webhook_url` if the public host differs | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
+| **Both** | Both rows above | Set both groups | Both |
+
+## Outbound: trust the proxy's CA
+
+```hcl
+n8n_extra_ca_pem = file("${path.module}/proxy-ca.pem")   # certificates only
+
+n8n_extra_env = [
+  { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
+  { name = "HTTP_PROXY",  value = "http://proxy.corp.example:3128" },
+  # Keep cluster-internal and Google API traffic off the proxy.
+  { name = "NO_PROXY",    value = "localhost,127.0.0.1,.svc,.cluster.local,.googleapis.com,metadata.google.internal" },
+]
+```
+
+- The PEM is stored in a module-managed Secret and mounted read-only at
+  `/etc/n8n-certs/ca-bundle.crt` on the main, worker, and webhook-processor
+  pods. `NODE_EXTRA_CA_CERTS` points at it. `NODE_EXTRA_CA_CERTS` itself stays
+  rejected in `n8n_extra_env`.
+- Node reads one file, so with `redis_transit_encryption_enabled = true` the
+  bundle is the Memorystore CA followed by your PEM. Do not add the Redis CA
+  yourself.
+- Changing the PEM rewrites the Secret but does not restart pods. Restart
+  `n8n-main`, `n8n-worker`, and `n8n-webhook-processor` afterward.
+- Private keys are rejected at plan time; supply certificates only.
+- An authenticated proxy works by putting the credentials in the proxy URL
+  (`http://user:password@proxy.corp.example:3128`). Without them n8n's outbound
+  requests fail (the proxy answers 407). `n8n_extra_env` values are plain text
+  in Terraform state and Helm values, so treat the proxy password as stored
+  there.
+
+### Task-runner sidecar
+
+The module does not deliver the CA to the task-runner sidecar. Chart 1.14.0
+mounts only the launcher config into that container, and the chart's top-level
+`extraVolumeMounts` apply to the n8n container only, so there is no chart value
+that places a file in the sidecar. The runner's JavaScript sandbox has no
+`fetch`, and requests from a Code node through `this.helpers.httpRequest` are
+made by the n8n process, which does trust the bundle. If a custom runner
+workload needs the CA itself, bake it into the image and point
+`n8n_task_runner_image_repository` / `n8n_task_runner_image_tag` at it, with a
+matching `n8n_task_runner_custom_config` launcher configuration that adds
+`NODE_EXTRA_CA_CERTS`. See
+[`docs/reference/task-runner-custom-ca/`](./reference/task-runner-custom-ca/README.md)
+for a live-proven, step-by-step reference: why the module cannot do this
+itself, a Dockerfile, both a production and a verification launcher config,
+a Terraform snippet, and the exact negative/positive evidence this was
+tested against.
+
+## Inbound: a proxy in front of the ingress
+
+```hcl
+n8n_proxy_hops = 2                       # customer proxy + Google load balancer
+ingress_source_cidrs = ["203.0.113.0/24"] # the proxy's egress range
+```
+
+- `n8n_proxy_hops` sets `N8N_PROXY_HOPS` on every role. Leave it null when no
+  proxy is in front, so n8n keeps its own default.
+- For a proxy that verifies the origin certificate against a private CA, use
+  `tls_mode = "custom"` (`tls_cert_pem` / `tls_key_pem`) or `tls_mode =
+  "secret"` (a TLS Secret you create, named by `tls_secret_name`) with a
+  certificate signed by that CA. With `google_managed` the proxy needs the
+  public roots only.
+- Changing `tls_mode` from `custom` to `secret` in place needs two applies. The
+  first updates the Ingress but fails destroying the old
+  `google_compute_ssl_certificate` with `resourceInUseByAnotherResource`,
+  because the load balancer still references it; once GKE has switched the
+  target proxy to the Secret (about a minute), the second apply removes it.
+- `ingress_source_cidrs` is matched against the client address the load
+  balancer sees, which for a proxy is its public egress address. Anything else
+  gets a 403 from the load balancer (the TLS handshake still succeeds). List
+  every address the proxy can egress from, plus any direct webhook senders.
+- The module cannot configure the proxy. It must send `X-Forwarded-For` and
+  `X-Forwarded-Proto`, and its `Host` header must match the hostname the
+  ingress serves.
+- The editor's live updates use a WebSocket on `/rest/push`. The proxy must
+  forward `Upgrade` / `Connection` (nginx needs `proxy_http_version 1.1` and
+  `proxy_set_header Upgrade $http_upgrade`; without them the push request
+  returns 500). n8n also rejects the connection with close code 1008
+  (`Invalid origin!`) unless the browser's `Origin` matches the `Host` the
+  proxy forwards. n8n's server pings every 60 seconds, so keep the proxy's idle
+  timeout above that; a connection held open for 420 seconds through nginx and
+  the internal load balancer (backend timeout 300) stayed up.
+
+With the split-ingress example, the private editor ingress uses a certificate
+you supply, so a private CA works there directly; the public webhook ingress
+uses a Google-managed certificate.

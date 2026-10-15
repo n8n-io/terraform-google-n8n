@@ -9,6 +9,30 @@ this project adheres to the stability contract in
 
 ### Added
 
+- `n8n_extra_ca_pem`: trust a private or TLS-intercepting-proxy CA for
+  n8n's outbound TLS. The module stores the PEM in a module-managed Secret,
+  mounts it read-only at `/etc/n8n-certs/ca-bundle.crt` on the main, worker,
+  and webhook-processor pods, and sets `NODE_EXTRA_CA_CERTS` to it. Node reads
+  one file, so when `redis_transit_encryption_enabled = true` the Secret holds
+  the Memorystore CA followed by the supplied PEM. Proxy routing itself
+  (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) stays in `n8n_extra_env`.
+  `NODE_EXTRA_CA_CERTS` remains reserved against `n8n_extra_env`. Changing the
+  PEM needs a manual restart of the three deployments. The task-runner sidecar
+  is not covered; see `docs/tls-proxy.md`.
+- `n8n_proxy_hops`: sets `N8N_PROXY_HOPS` on every role for an inbound
+  reverse proxy, WAF, or CDN in front of the ingress (count every hop, including
+  the Google load balancer). Without it n8n logs
+  `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` and treats the proxy as the client.
+  `N8N_PROXY_HOPS` is reserved against `n8n_extra_env` only while this is set.
+- `docs/tls-proxy.md`: outbound, inbound, and combined proxy setups, with the
+  task-runner sidecar limitation.
+- `docs/reference/task-runner-custom-ca/`: a live-proven reference for making
+  the task-runner sidecar's JavaScript runner trust a private/proxy CA with a
+  custom runner image (`n8n_task_runner_image_repository` /
+  `n8n_task_runner_image_tag`) and a matching launcher configuration
+  (`n8n_task_runner_custom_config`) that sets `NODE_EXTRA_CA_CERTS`. Includes a
+  Dockerfile, production and verification launcher configs, a Terraform
+  snippet, and a verification script. The Python runner is not covered.
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services
