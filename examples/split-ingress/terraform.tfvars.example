@@ -25,3 +25,13 @@ internal_tls_key_pem  = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-
 # Let Terraform disable iam.disableServiceAccountKeyCreation for the GCS HMAC key.
 # Requires org-policy admin rights; otherwise leave false and disable it manually.
 # manage_sa_key_org_policy = true
+
+# ── TLS-inspecting egress proxy / TLS-terminating proxy in front (optional) ──
+# See docs/tls-proxy.md in the module root.
+# n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"  # or pass -var "n8n_extra_ca_pem=$(cat proxy-ca.pem)"
+# n8n_proxy_hops   = <count hops to the endpoint the client uses; this example creates no module-managed ingress, so there is no default to copy>
+# n8n_extra_env = [
+#   { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
+#   { name = "HTTP_PROXY",  value = "http://proxy.corp.example:3128" },
+#   { name = "NO_PROXY",    value = "localhost,127.0.0.1,.svc,.cluster.local,.googleapis.com,metadata.google.internal" },
+# ]

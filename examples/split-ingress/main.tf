@@ -47,6 +47,11 @@ module "n8n" {
   postgres_backup_retained_backups        = var.postgres_backup_retained_backups
   postgres_transaction_log_retention_days = var.postgres_transaction_log_retention_days
 
+  # ── TLS-inspecting / TLS-terminating proxy passthrough ───────────────────
+  n8n_extra_ca_pem = var.n8n_extra_ca_pem
+  n8n_proxy_hops   = var.n8n_proxy_hops
+  n8n_extra_env    = var.n8n_extra_env
+
   # This example owns ingress, DNS, and TLS entirely (network.tf, services.tf,
   # tls.tf); leave every managed-ingress tuning input at its default so
   # checks.tf's create_ingress = false guard stays quiet.

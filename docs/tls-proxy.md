@@ -9,6 +9,15 @@ independent inputs, so any combination works:
 | **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (count every hop including the Google load balancer); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses; `n8n_webhook_url` if the public host differs | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
 | **Both** | Both rows above | Set both groups | Both |
 
+`n8n_extra_ca_pem`, `n8n_proxy_hops`, and `n8n_extra_env` are exposed as
+variables by every example under `examples/`. Set them in the example's
+`terraform.tfvars` (pass the PEM with `-var "n8n_extra_ca_pem=$(cat proxy-ca.pem)"`,
+since `file()` is not allowed in a `.tfvars` file). The examples mark
+`n8n_extra_env` `sensitive = true` so a proxy password in it is not printed in
+plan output. The inputs that depend on the ingress (`tls_mode`,
+`ingress_source_cidrs`) are not passed through the examples; set them on the
+module call where the example uses the module-managed ingress.
+
 ## Outbound: trust the proxy's CA
 
 ```hcl
