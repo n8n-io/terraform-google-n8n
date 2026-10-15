@@ -62,6 +62,11 @@ module "n8n" {
   # Additional hostnames (default []: none).
   n8n_additional_domains = var.n8n_additional_domains
 
+  # TLS-inspecting / TLS-terminating proxy passthrough (all default to "none").
+  n8n_extra_ca_pem = var.n8n_extra_ca_pem
+  n8n_proxy_hops   = var.n8n_proxy_hops
+  n8n_extra_env    = var.n8n_extra_env
+
   # DNS + TLS: manage the record in Cloud DNS, Google-managed cert.
   cloud_dns_zone_name = var.cloud_dns_zone_name
   tls_mode            = "google_managed"

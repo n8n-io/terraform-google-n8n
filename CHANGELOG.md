@@ -33,6 +33,9 @@ this project adheres to the stability contract in
   (`n8n_task_runner_custom_config`) that sets `NODE_EXTRA_CA_CERTS`. Includes a
   Dockerfile, production and verification launcher configs, a Terraform
   snippet, and a verification script. The Python runner is not covered.
+- Every example now exposes `n8n_extra_ca_pem`, `n8n_proxy_hops`, and
+  `n8n_extra_env` as passthrough variables, so a TLS-inspecting egress proxy or
+  a proxy in front of the ingress can be used from any of them.
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services

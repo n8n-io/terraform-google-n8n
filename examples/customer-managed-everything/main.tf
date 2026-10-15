@@ -83,4 +83,9 @@ module "n8n" {
   # pd-balanced StorageClass ─────────────────────────────────────────────────
   install_keda                     = false
   create_pd_balanced_storage_class = false
+
+  # TLS-inspecting / TLS-terminating proxy passthrough.
+  n8n_extra_ca_pem = var.n8n_extra_ca_pem
+  n8n_proxy_hops   = var.n8n_proxy_hops
+  n8n_extra_env    = var.n8n_extra_env
 }
