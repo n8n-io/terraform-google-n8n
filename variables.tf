@@ -588,18 +588,28 @@ variable "n8n_extra_ca_pem" {
 }
 
 variable "n8n_proxy_hops" {
-  description = "Number of reverse proxies / load balancers in front of n8n, mapped to N8N_PROXY_HOPS on every n8n role (Express \"trust proxy\"). n8n then takes the client IP and protocol from X-Forwarded-For / X-Forwarded-Proto instead of the immediate peer. Use it for an inbound TLS-terminating proxy, WAF, or CDN placed in front of the ingress: count every hop between the client and the pod, including the Google Cloud load balancer itself, so one customer proxy in front of the module-managed GKE Ingress is 2. Null (the default) omits the variable and leaves n8n's own default (0) in place. The proxy's own TLS to the origin is configured elsewhere: tls_mode (custom or secret to present a certificate from the customer's private CA), ingress_source_cidrs to admit only the proxy's egress addresses, and n8n_webhook_url if the public webhook host differs. N8N_PROXY_HOPS stays usable through n8n_extra_env only while this is null."
+  description = "Number of reverse proxies / load balancers in front of n8n, mapped to N8N_PROXY_HOPS on every n8n role (Express \"trust proxy\"). n8n then takes the client IP and protocol from X-Forwarded-For / X-Forwarded-Proto instead of the immediate peer. Use it for an inbound TLS-terminating proxy, WAF, or CDN placed in front of the ingress: count every hop between the client and the pod, including the Google Cloud load balancer itself, so one customer proxy in front of the module-managed GKE Ingress is 2. Any whole number of 0 or more is accepted. Null (the default) omits the variable and leaves n8n's own default (0) in place. The proxy's own TLS to the origin is configured elsewhere: tls_mode (custom or secret to present a certificate from the customer's private CA), ingress_source_cidrs to admit only the proxy's egress addresses, and n8n_webhook_url if the public webhook host differs. N8N_PROXY_HOPS is rejected in n8n_extra_env, n8n_worker_extra_env, and every n8n_worker_pools entry's extra_env while this is set, and stays usable there while it is null."
   type        = number
   default     = null
 
   validation {
-    condition     = var.n8n_proxy_hops == null ? true : (var.n8n_proxy_hops >= 0 && var.n8n_proxy_hops <= 10 && var.n8n_proxy_hops == floor(var.n8n_proxy_hops))
-    error_message = "n8n_proxy_hops must be a whole number between 0 and 10, or null to leave N8N_PROXY_HOPS unset."
+    condition     = var.n8n_proxy_hops == null ? true : (var.n8n_proxy_hops >= 0 && var.n8n_proxy_hops == floor(var.n8n_proxy_hops))
+    error_message = "n8n_proxy_hops must be a whole number of 0 or more, or null to leave N8N_PROXY_HOPS unset."
   }
 
   validation {
     condition     = var.n8n_proxy_hops == null ? true : !anytrue([for e in var.n8n_extra_env : e.name == "N8N_PROXY_HOPS"])
     error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it itself); remove the conflicting n8n_extra_env entry."
+  }
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : !anytrue([for e in var.n8n_worker_extra_env : e.name == "N8N_PROXY_HOPS"])
+    error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it on every role); remove the conflicting n8n_worker_extra_env entry."
+  }
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : !anytrue(flatten([for p in var.n8n_worker_pools : [for e in p.extra_env : e.name == "N8N_PROXY_HOPS"]]))
+    error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it on every role); remove the conflicting extra_env entry from n8n_worker_pools."
   }
 }
 

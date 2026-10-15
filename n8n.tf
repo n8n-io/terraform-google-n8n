@@ -681,9 +681,10 @@ resource "helm_release" "n8n" {
         # already contains the Redis CA), else the Redis CA alone.
         local.n8n_extra_ca_enabled ? [
           { name = "NODE_EXTRA_CA_CERTS", value = local.n8n_ca_bundle_mount.mountPath },
-          ] : (local.manage_redis_tls_ca ? [
-            { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
-        ] : []),
+        ] : [],
+        !local.n8n_extra_ca_enabled && local.manage_redis_tls_ca ? [
+          { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
+        ] : [],
         # Ships nodes baked into a custom image (n8n_image_repository) at this
         # path. Omitted entirely when unset, matching n8n's own default (no
         # extra scan directory).
