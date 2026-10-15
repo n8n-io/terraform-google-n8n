@@ -42,8 +42,9 @@ cloud_dns_zone_name     = "my-cloud-dns-zone" # empty = manage the A-record your
 #   ...
 #   -----END CERTIFICATE-----
 # EOT
-# n8n_proxy_hops   = 2
+# n8n_proxy_hops   = 2  # only when a proxy/WAF sits in front of n8n's ingress; count the Google Cloud load balancer too; omit for an egress-only proxy
 # n8n_extra_env = [
 #   { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
+#   { name = "HTTP_PROXY",  value = "http://proxy.corp.example:3128" },
 #   { name = "NO_PROXY",    value = "localhost,127.0.0.1,.svc,.cluster.local,.googleapis.com,metadata.google.internal" },
 # ]

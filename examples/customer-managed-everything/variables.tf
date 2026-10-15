@@ -134,22 +134,23 @@ variable "n8n_kube_namespace" {
 
 # ── TLS-inspecting / TLS-terminating proxy passthrough ─────────────────────
 variable "n8n_extra_ca_pem" {
-  description = "PEM-encoded CA certificate(s) every n8n role should trust for outbound TLS, for a TLS-inspecting egress proxy or a private CA. Passed straight through to the module's n8n_extra_ca_pem. Certificates only, no private keys. Null (the default) adds nothing. See docs/tls-proxy.md."
+  description = "PEM-encoded CA certificate(s) every n8n role should trust for outbound TLS, for a TLS-inspecting egress proxy or a private CA. Passed straight through to the module's n8n_extra_ca_pem. Certificates only, no private keys. Null (the default) adds nothing. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
   type        = string
   default     = null
 }
 
 variable "n8n_proxy_hops" {
-  description = "Number of reverse proxies and load balancers in front of n8n (N8N_PROXY_HOPS), counting the Google Cloud load balancer, so one customer proxy in front of the module's ingress is 2. Passed straight through to the module's n8n_proxy_hops. Null (the default) leaves n8n's own default. See docs/tls-proxy.md."
+  description = "Number of reverse proxies and load balancers in front of n8n (N8N_PROXY_HOPS): count the load balancers and proxies you run in front of the n8n Services, passed through to the module's n8n_proxy_hops. Null (the default) leaves n8n's own default. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
   type        = number
   default     = null
 }
 
 variable "n8n_extra_env" {
-  description = "Additional environment variables for every n8n pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see docs/tls-proxy.md). Values are stored in plain text in Terraform state and Helm values."
+  description = "Additional environment variables for every n8n pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md). Marked sensitive so a proxy password is not printed in plan output; values are still stored in plain text in state and Helm values."
   type = list(object({
     name  = string
     value = string
   }))
-  default = []
+  default   = []
+  sensitive = true
 }
