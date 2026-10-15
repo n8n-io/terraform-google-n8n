@@ -30,6 +30,11 @@ module "n8n" {
   postgres_backup_retained_backups        = var.postgres_backup_retained_backups
   postgres_transaction_log_retention_days = var.postgres_transaction_log_retention_days
 
+  # TLS-inspecting / TLS-terminating proxy passthrough.
+  n8n_extra_ca_pem = var.n8n_extra_ca_pem
+  n8n_proxy_hops   = var.n8n_proxy_hops
+  n8n_extra_env    = var.n8n_extra_env
+
   # DNS is managed here in Cloudflare (dns.tf), not by the module.
   cloud_dns_zone_name = ""
 
