@@ -47,7 +47,7 @@ changes) against a production deployment.
 | 10 | Redis exporter TLS and metrics | Not run |
 | 11 | Memorystore RDB persistence recovery | Partial (see section) |
 | 12 | n8n Enterprise license activation and single-main entitlement | Partial (see section) |
-| 12a | Offline license activation (`n8n_license_cert_secret_ref`) | Not run |
+| 12a | Offline license activation (`n8n_license_cert_secret_ref`) | Partial (see section) |
 | 13 | GKE Dataplane V2 migration | Not run |
 | 14 | GCS access-log delivery | Passed (see section) |
 | 15 | KEDA worker scale-out and scale-in | Passed (see section) |
@@ -383,8 +383,29 @@ in a caller-managed Kubernetes Secret.
    certificate takes effect, since the module never reads the Secret's value
    and cannot detect a payload change itself.
 
-**Status: not yet run.** Requires a real offline license certificate from
-n8n; not available in this environment.
+**Status: partial, run on GKE (us-east4).** `examples/small` was applied
+first with `n8n_license_key` (same `n8n_encryption_key` throughout, so the
+instance ID stayed fixed), then switched in place to
+`n8n_license_cert_secret_ref` against a caller-created Secret
+(plan: 0 to add, 1 to change, 1 to destroy: the Helm release, and the
+now-unused `kubernetes_secret.n8n_license`). Observed:
+
+- `n8n license:info` showed the same `deviceFingerprint` on both paths, a
+  `LICENSE CERT` entry with an all-zeros `consumerId` (offline shape), and
+  `planName: Enterprise`.
+- `N8N_LICENSE_CERT` rendered as a `secretKeyRef` on main, worker, and
+  webhook-processor; no `N8N_LICENSE_ACTIVATION_KEY` anywhere.
+- Both main replicas ran, with `Leader is now this instance` logged after the
+  switch and after a `rollout restart` of `n8n-main` (replacement pods kept
+  the license).
+- With `N8N_LICENSE_AUTO_RENEW_ENABLED=false` set through `n8n_extra_env`,
+  the license SDK logged only "Skipping renewal" lines; no activation or
+  renewal request appeared in any pod log. Egress to n8n's license server was
+  not blocked at the network level.
+
+Not exercised: executions through the queue under the certificate, and
+rotating to a different certificate (only one certificate was available;
+step 5 was not run).
 
 ## 13. GKE Dataplane V2 migration
 
