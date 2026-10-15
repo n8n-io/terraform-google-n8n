@@ -1243,6 +1243,33 @@ else
   assert_license_cert_env "n8n-main"
   assert_license_cert_env "n8n-worker"
   assert_license_cert_env "n8n-webhook-processor"
+
+  # Worker-pool Deployments (n8n-worker-<pool>) only render on a chart with
+  # queueMode.workerGroups, which the default chart pin does not carry; the
+  # module's own worker-pools gate names the preview chart below. Render the
+  # same fixture there with one pool and assert the pool Deployment gets the
+  # certificate from the shared config.extraEnv too.
+  POOL_CHART_VERSION="1.11.0-preview.workerpools.1"
+  cat >"$WORKDIR/fixture-license-cert-pool.yaml" <<'EOF'
+queueMode:
+  workerGroups:
+    - name: heavy
+      poolName: heavy
+      concurrency: 5
+EOF
+  echo "==> helm template (license-cert + worker pool) ${CHART_REPOSITORY}/${CHART_NAME} --version ${POOL_CHART_VERSION}"
+  if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+    --version "${POOL_CHART_VERSION}" \
+    --namespace n8n-chart-check \
+    -f "$WORKDIR/fixture-license-cert.yaml" \
+    -f "$WORKDIR/fixture-license-cert-pool.yaml" \
+    >"$WORKDIR/rendered-license-cert-pool.yaml" 2>"$WORKDIR/helm-stderr-license-cert-pool.log"; then
+    cat "$WORKDIR/helm-stderr-license-cert-pool.log" >&2
+    fail "helm template (license-cert + worker pool) exited non-zero; see stderr above."
+  else
+    LC_RENDERED="$WORKDIR/rendered-license-cert-pool.yaml"
+    assert_license_cert_env "n8n-worker-heavy"
+  fi
 fi
 
 # ── Replica ownership with KEDA on (n8n-hosting#201, chart >= 1.13.0) ───────

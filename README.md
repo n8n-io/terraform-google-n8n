@@ -171,7 +171,7 @@ Two independently opt-in GKE hardening inputs, both defaulting to the module's c
 For air-gapped or egress-restricted clusters that cannot reach n8n's license
 server, set `n8n_license_cert_secret_ref` instead of `n8n_license_key` - a
 reference to a caller-managed Kubernetes Secret holding a base64-encoded
-[offline license certificate](https://docs.n8n.io/hosting/configuration/environment-variables/licenses/)
+[offline license certificate](https://docs.n8n.io/deploy/host-n8n/configure-n8n/manage-your-license)
 (`N8N_LICENSE_CERT`, obtained from n8n directly):
 
 ```hcl
