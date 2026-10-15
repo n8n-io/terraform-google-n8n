@@ -42,10 +42,17 @@ run "proxy_hops_accepts_in_range_value" {
   }
 }
 
-run "proxy_hops_rejects_above_ten" {
+run "proxy_hops_accepts_long_chain" {
   command = plan
-  variables { n8n_proxy_hops = 11 }
-  expect_failures = [var.n8n_proxy_hops]
+
+  variables {
+    n8n_proxy_hops = 12
+  }
+
+  assert {
+    condition     = var.n8n_proxy_hops == 12
+    error_message = "There is no upper bound beyond a whole number of 0 or more."
+  }
 }
 
 run "proxy_hops_rejects_negative" {
@@ -67,6 +74,35 @@ run "proxy_hops_rejects_extra_env_collision_while_set" {
     n8n_proxy_hops = 2
     n8n_extra_env = [
       { name = "N8N_PROXY_HOPS", value = "1" },
+    ]
+  }
+
+  expect_failures = [var.n8n_proxy_hops]
+}
+
+run "proxy_hops_rejects_worker_extra_env_collision_while_set" {
+  command = plan
+
+  variables {
+    n8n_proxy_hops = 2
+    n8n_worker_extra_env = [
+      { name = "N8N_PROXY_HOPS", value = "1" },
+    ]
+  }
+
+  expect_failures = [var.n8n_proxy_hops]
+}
+
+run "proxy_hops_rejects_worker_pool_extra_env_collision_while_set" {
+  command = plan
+
+  variables {
+    n8n_proxy_hops = 2
+    n8n_worker_pools = [
+      {
+        name      = "heavy"
+        extra_env = [{ name = "N8N_PROXY_HOPS", value = "1" }]
+      },
     ]
   }
 

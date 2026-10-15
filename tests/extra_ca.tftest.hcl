@@ -60,6 +60,22 @@ run "extra_ca_creates_secret_and_mount" {
 run "extra_ca_with_redis_tls_merges_both" {
   command = plan
 
+  # The Memorystore CA is a computed attribute, unknown under the mock
+  # provider, so give it a known value to assert on the merge.
+  override_resource {
+    target          = google_redis_instance.n8n
+    override_during = plan
+    values = {
+      server_ca_certs = [{
+        cert             = "-----BEGIN CERTIFICATE-----\nMIIBredisca\n-----END CERTIFICATE-----\n"
+        create_time      = "2026-01-01T00:00:00Z"
+        expire_time      = "2036-01-01T00:00:00Z"
+        serial_number    = "1"
+        sha1_fingerprint = "00"
+      }]
+    }
+  }
+
   variables {
     n8n_extra_ca_pem                 = "-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----\n"
     redis_transit_encryption_enabled = true
@@ -68,6 +84,11 @@ run "extra_ca_with_redis_tls_merges_both" {
   assert {
     condition     = local.manage_redis_tls_ca == true && length(kubernetes_secret.n8n_ca_bundle) == 1
     error_message = "Redis TLS and the extra CA should coexist, with one bundle Secret."
+  }
+
+  assert {
+    condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBredisca\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----"
+    error_message = "The bundle must hold the Memorystore CA first, then the caller's PEM, each trimmed and newline-joined."
   }
 }
 
