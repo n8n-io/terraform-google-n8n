@@ -40,21 +40,39 @@ needs a live cluster. Same manual-verification tier as the smoke test.
 ## Chart-rendering regression check (`check-n8n-chart.sh`)
 
 `check-n8n-chart.sh` is a separate, credential-free check that renders the
-pinned n8n Helm chart (`var.n8n_chart_version` / `var.n8n_chart_repository`)
-with a synthetic values fixture and asserts on the rendered Kubernetes
-manifests: replica-count floor seeding on the main/worker/webhook-processor
-Deployments, the `service.annotations` BackendConfig annotation reaching both
-the main and webhook-processor Services, and the four
-`EXECUTIONS_DATA_SAVE_*` env vars, plus the `N8N_GRACEFUL_SHUTDOWN_TIMEOUT`
-ConfigMap entry against `local.n8n_chart_default_graceful_shutdown_timeout`.
-It first fails fast if its own chart pins differ from the module's
-`n8n_chart_repository` / `n8n_chart_version` defaults. It needs `helm` and
-`python3` on `PATH` (`python3` for `lib/tf-defaults.sh`, which reads those
-defaults from `variables.tf`), no Terraform, no Kubernetes cluster, and no
-cloud credentials:
+pinned n8n Helm chart (`var.n8n_chart_version` / `var.n8n_chart_repository`,
+chart 2.0, n8n-io/n8n-hosting#250) with a synthetic values fixture and
+asserts on the rendered Kubernetes manifests: replica-count floor seeding on
+the main/worker/webhook-processor Deployments, the `service.annotations`
+BackendConfig annotation reaching both the main and webhook-processor
+Services, the four `EXECUTIONS_DATA_SAVE_*` keys landing in the main/worker
+`env` ConfigMaps (chart 2.0 renders one ConfigMap per component, loaded with
+`envFrom`, instead of 1.x's per-container `extraEnv` list entries), the
+`N8N_GRACEFUL_SHUTDOWN_TIMEOUT` ConfigMap entry against
+`local.n8n_chart_default_graceful_shutdown_timeout`, `editor.url`/
+`webhook.url` reaching `N8N_EDITOR_BASE_URL`/`N8N_WEBHOOK_URL`, and that the
+chart 2.0 retired-key/conflict renders (`config.extraEnv`,
+`secretRefs.env.N8N_HOST`, `webhook.timeout`, `queueMode.workerConcurrency` +
+`executions.concurrency.productionLimit`) actually fail with the documented
+replacement named. It first fails fast if its own chart pins differ from the
+module's `n8n_chart_repository` / `n8n_chart_version` defaults. It needs
+`helm` and `python3` on `PATH` (`python3` for `lib/tf-defaults.sh`, which
+reads those defaults from `variables.tf`), no Terraform, no Kubernetes
+cluster, and no cloud credentials:
 
 ```bash
 tests/scripts/check-n8n-chart.sh
+```
+
+Chart 2.0 was unreleased at the time this script was authored
+(n8n-io/n8n-hosting#250). To develop or verify against a local chart
+checkout instead of the pinned OCI registry tag, set `N8N_CHART_DIR` to that
+checkout's `charts/n8n` directory; the script prints a loud notice and skips
+the registry pull, but still enforces the `CHART_VERSION`-vs-`variables.tf`
+guard:
+
+```bash
+N8N_CHART_DIR=/path/to/n8n-hosting/charts/n8n tests/scripts/check-n8n-chart.sh
 ```
 
 This proves the chart renders these value fragments the way the module
@@ -103,7 +121,9 @@ and bump-tier classification these scripts check against.
   [`docs/helm-chart-coverage.md`](../../docs/helm-chart-coverage.md)'s
   declared chart version disagrees with `n8n_chart_version`'s default, or
   when the pinned chart's `values.yaml` has a top-level key the doc never
-  mentions.
+  mentions. Accepts the same `N8N_CHART_DIR` override as
+  `check-n8n-chart.sh`, to read a local chart checkout's `values.yaml`
+  instead of pulling the pin from the registry.
 - **`chart-values-diff.sh <candidate-version>`**: diffs the pinned chart's
   `values.yaml` against a candidate version, e.g.
   `tests/scripts/chart-values-diff.sh 1.12.0`. Manual, run when picking up a

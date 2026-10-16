@@ -3,10 +3,10 @@
 # db_ping_max_failures_before_recovery) and the PostgreSQL
 # connection-acquisition timeout (db_postgresdb_connection_timeout_ms).
 #
-# All four settings render through config.extraEnv in helm_release.n8n.values
+# All four settings render through env.shared in helm_release.n8n.values
 # (a JSON-encoded string, unknown at plan time under the mock provider - see
 # AGENTS.md's known mock-provider limitations), and apply identically for
-# managed Cloud SQL and external PostgreSQL since config.extraEnv does not
+# managed Cloud SQL and external PostgreSQL since env.shared does not
 # distinguish infrastructure ownership. This is asserted at the
 # variable-contract layer, mirroring the existing OTEL/log-streaming test
 # pattern. To verify the rendered env vars end-to-end on all three n8n roles:

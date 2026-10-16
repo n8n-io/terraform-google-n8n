@@ -16,7 +16,7 @@
 #
 # helm_release.n8n.values is unknown at plan time under the mock provider
 # (AGENTS.md's known mock-provider limitations), so the database.ssl and
-# extraEnv fragments are asserted against local.n8n_database_ssl_values and
+# env.shared fragments are asserted against local.n8n_database_ssl_values and
 # local.n8n_postgres_ssl_env directly (permitted per AGENTS.md: "A terraform
 # test assert condition can reference module local.* values directly").
 
@@ -42,12 +42,12 @@ run "defaults_render_unverified_ssl_disabled_env" {
   command = plan
 
   assert {
-    condition     = length(local.n8n_postgres_ssl_env) == 1
+    condition     = length(keys(local.n8n_postgres_ssl_env)) == 1
     error_message = "db_postgresdb_ssl_enabled defaults to false and must render exactly one env entry."
   }
 
   assert {
-    condition     = one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_ENABLED"]) == "false"
+    condition     = try(local.n8n_postgres_ssl_env["DB_POSTGRESDB_SSL_ENABLED"], null) == "false"
     error_message = "DB_POSTGRESDB_SSL_ENABLED must default to \"false\"."
   }
 
@@ -65,17 +65,17 @@ run "ssl_enabled_without_verification_matches_previous_hardcoded_behavior" {
   }
 
   assert {
-    condition     = length(local.n8n_postgres_ssl_env) == 2
+    condition     = length(keys(local.n8n_postgres_ssl_env)) == 2
     error_message = "db_postgresdb_ssl_enabled = true must render exactly two env entries when reject_unauthorized stays at its default."
   }
 
   assert {
-    condition     = one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_ENABLED"]) == "true"
+    condition     = try(local.n8n_postgres_ssl_env["DB_POSTGRESDB_SSL_ENABLED"], null) == "true"
     error_message = "DB_POSTGRESDB_SSL_ENABLED must be \"true\" when db_postgresdb_ssl_enabled = true."
   }
 
   assert {
-    condition     = one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"]) == "false"
+    condition     = try(local.n8n_postgres_ssl_env["DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"], null) == "false"
     error_message = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED must stay \"false\" (matching the previously hardcoded value) when db_postgresdb_ssl_reject_unauthorized is left at its default, so existing callers see no plan diff."
   }
 }
@@ -122,7 +122,7 @@ run "reject_unauthorized_allowed_on_external_path_without_ca" {
   }
 
   assert {
-    condition     = one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"]) == "true"
+    condition     = try(local.n8n_postgres_ssl_env["DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"], null) == "true"
     error_message = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED must be \"true\" once enabled on the external path."
   }
 
@@ -132,7 +132,7 @@ run "reject_unauthorized_allowed_on_external_path_without_ca" {
   }
 
   assert {
-    condition     = length(local.n8n_postgres_ssl_env) == 2
+    condition     = length(keys(local.n8n_postgres_ssl_env)) == 2
     error_message = "Verification without a CA must render only DB_POSTGRESDB_SSL_ENABLED and DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED."
   }
 }
@@ -168,8 +168,8 @@ run "reject_unauthorized_with_ca_pem_renders_chart_database_ssl" {
   }
 
   assert {
-    condition     = length(local.n8n_postgres_ssl_env) == 2 && one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"]) == "true"
-    error_message = "The module's extraEnv must keep exactly DB_POSTGRESDB_SSL_ENABLED and DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED; the CA travels through the chart, not extraEnv."
+    condition     = length(keys(local.n8n_postgres_ssl_env)) == 1 && try(local.n8n_postgres_ssl_env["DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED"], null) == "true"
+    error_message = "On the CA path, the module's env.shared fragment must omit DB_POSTGRESDB_SSL_ENABLED (the chart owns it via database.ssl.enabled) and keep only DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED; the CA itself travels through database.ssl, not env.shared."
   }
 }
 

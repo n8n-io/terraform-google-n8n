@@ -255,6 +255,43 @@ this project adheres to the stability contract in
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#terraform-cli-floor-raised-to--111)
   (Ports
   [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
+- **Breaking:** default `n8n_chart_version` moves to `2.0.0`, tracking
+  n8n-hosting's chart 2.0
+  ([n8n-hosting#250](https://github.com/n8n-io/n8n-hosting/pull/250), still
+  unreleased as of this entry). This module drops chart 1.x support with
+  this release: there is no dual 1.x/2.x code path, and a chart pinned
+  below `2.0.0` is unsupported. Internally the module now folds
+  `n8n_extra_env`, `n8n_worker_extra_env`, and
+  `n8n_worker_pools[*].extra_env` into the chart's per-component `env.shared`/
+  `env.worker` maps instead of `config.extraEnv`/`queueMode.workerExtraEnv`;
+  these module inputs keep the same `{ name, value }` shape, so this is an
+  internal rendering change, not an interface change. The module-managed
+  core Secret now needs, and the chart now reads, only
+  `N8N_ENCRYPTION_KEY`; `N8N_HOST`, `N8N_PORT`, and `N8N_PROTOCOL` are no
+  longer read from it (the module already sets explicit public URLs, so
+  this changes nothing observable). Every n8n pod rolls once on this
+  upgrade because its environment moves into the chart's new
+  per-component ConfigMaps. See
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#moving-from-chart-1x-to-20)
+  for the full contract. Nothing here has been applied to a live
+  deployment; this is a code and documentation change against the open
+  upstream PR.
+
+### Removed
+
+- **Breaking:** `n8n_worker_concurrency` is removed, along with
+  `n8n_worker_pools[*].concurrency`. Chart 2.0 fails the render if
+  `queueMode.workerConcurrency` is set together with
+  `executions.concurrency.productionLimit` in queue mode, which this module
+  always runs, and n8n applies `productionLimit` as each worker's
+  concurrency directly in that case, making a separate `--concurrency` flag
+  redundant as well as rejected. `n8n_execution_concurrency_limit` is now
+  the sole concurrency knob and is the effective per-worker concurrency. If
+  you previously set `n8n_worker_concurrency` to a value other than
+  `n8n_execution_concurrency_limit`, remove it and set
+  `n8n_execution_concurrency_limit` to the concurrency you actually want.
+  See
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#n8n_worker_concurrency-is-removed).
 
 ### Fixed
 

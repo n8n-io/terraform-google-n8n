@@ -1360,7 +1360,7 @@ if [[ -n "$main_pod" ]]; then
     info "n8n_credentials_overwrite_secret_ref not configured (CREDENTIALS_OVERWRITE_DATA_FILE unset)"
   fi
 
-  # Since chart 1.13.0 the task-runner sidecar (and its launcher-config
+  # The task-runner sidecar (and its launcher-config
   # volume) renders on worker pods only in queue mode.
   runner_cfg_pod=$(kubectl get pods -n "$NAMESPACE" \
     -l "app.kubernetes.io/component=worker" \

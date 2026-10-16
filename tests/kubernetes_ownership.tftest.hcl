@@ -397,13 +397,12 @@ run "workload_identity_uses_effective_pool_for_existing_gke" {
 }
 
 # ── Canonical editor and webhook URLs (section 19) ──────────────────────────
-# The rendered config.extraEnv N8N_WEBHOOK_URL/WEBHOOK_URL/N8N_EDITOR_BASE_URL
-# entries live inside helm_release.n8n.values (unknown at plan time under the
-# mock provider - see AGENTS.md's known mock-provider limitations), so these
-# assert directly on local.effective_webhook_url, on
-# local.n8n_webhook_url_env (the exact webhook list n8n.tf's extraEnv block
-# splices in), and on n8n_fqdn/n8n_webhook_url themselves. End-to-end wiring
-# is covered by tests/scripts/check-n8n-chart.sh.
+# N8N_WEBHOOK_URL/editor.url live inside helm_release.n8n.values (unknown at
+# plan time under the mock provider - see AGENTS.md's known mock-provider
+# limitations), so these assert directly on local.effective_webhook_url, on
+# local.n8n_legacy_webhook_url_env (the only env.shared fragment the module
+# still sends directly), and on n8n_fqdn/n8n_webhook_url/n8n_editor_url
+# themselves. End-to-end wiring is covered by tests/scripts/check-n8n-chart.sh.
 
 run "webhook_url_defaults_to_canonical_fqdn" {
   command = plan
@@ -491,9 +490,9 @@ run "webhook_url_accepts_path" {
 # added N8N_WEBHOOK_URL. Older images build webhook URLs from it, so the module
 # drops the legacy name only when the tags prove the image is current and sends
 # it whenever they cannot (local.n8n_needs_legacy_webhook_url_env). Ported from
-# terraform-aws-n8n#160. List assertions compare a joined string, not the list
-# itself, because a list/object `==` between differently typed expressions
-# fails silently (see AGENTS.md).
+# terraform-aws-n8n#160. Map-key assertions, not list ones: the chart renders
+# N8N_WEBHOOK_URL itself from webhook.url, so the map is empty unless the
+# image needs the legacy name.
 
 run "legacy_webhook_url_omitted_for_chart_default_image" {
   command = plan
@@ -504,8 +503,8 @@ run "legacy_webhook_url_omitted_for_chart_default_image" {
   }
 
   assert {
-    condition     = join(",", [for e in local.n8n_webhook_url_env : "${e.name}=${e.value}"]) == "N8N_WEBHOOK_URL=https://n8n.test.example.com"
-    error_message = "At the defaults, config.extraEnv must carry N8N_WEBHOOK_URL alone."
+    condition     = length(keys(local.n8n_legacy_webhook_url_env)) == 0
+    error_message = "At the defaults, the legacy env fragment must be empty; the chart renders N8N_WEBHOOK_URL from webhook.url."
   }
 }
 
@@ -536,8 +535,8 @@ run "legacy_webhook_url_emitted_before_2_30_0" {
   }
 
   assert {
-    condition     = join(",", [for e in local.n8n_webhook_url_env : "${e.name}=${e.value}"]) == "N8N_WEBHOOK_URL=https://hooks.example.com,WEBHOOK_URL=https://hooks.example.com"
-    error_message = "For a pre-2.30.0 image, config.extraEnv must carry WEBHOOK_URL with the same value as N8N_WEBHOOK_URL."
+    condition     = length(keys(local.n8n_legacy_webhook_url_env)) == 1 && local.n8n_legacy_webhook_url_env["WEBHOOK_URL"] == "https://hooks.example.com"
+    error_message = "For a pre-2.30.0 image, the legacy env fragment must carry WEBHOOK_URL with the effective webhook URL."
   }
 }
 

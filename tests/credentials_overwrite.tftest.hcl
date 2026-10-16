@@ -3,7 +3,7 @@
 #
 # helm_release.n8n.values is a JSON-encoded string, unknown at plan time under
 # the mock provider (see AGENTS.md's known mock-provider limitations), so the
-# rendered extraVolumes/extraVolumeMounts/extraEnv shape is asserted against
+# rendered extraVolumes/extraVolumeMounts/env.shared shape is asserted against
 # local.n8n_credentials_overwrite_volume/n8n_credentials_overwrite_mount
 # directly (permitted per AGENTS.md: "A terraform test assert condition can
 # reference module local.* values directly"), and everything else is

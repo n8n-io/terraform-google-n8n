@@ -42,7 +42,7 @@ run "managed_hpa_min_one_selects_single_main" {
   }
 
   assert {
-    condition     = local.n8n_single_main && !local.n8n_main_leader_election_enabled && length(local.n8n_main_election_staging_env) == 0
+    condition     = local.n8n_single_main && !local.n8n_main_leader_election_enabled && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "n8n_main_hpa_min_replicas=1 must select single-main with election disabled by default."
   }
 
@@ -168,7 +168,7 @@ run "defaults_remain_multi_main" {
   command = plan
 
   assert {
-    condition     = var.n8n_main_leader_election_enabled == null && local.n8n_main_leader_election_enabled && !local.n8n_single_main && length(local.n8n_main_election_staging_env) == 0
+    condition     = var.n8n_main_leader_election_enabled == null && local.n8n_main_leader_election_enabled && !local.n8n_single_main && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "Unmodified defaults must retain inferred multi-main election at two replicas."
   }
 }
@@ -184,12 +184,12 @@ run "stage_election_with_managed_hpa" {
   }
 
   assert {
-    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && length(local.n8n_main_election_staging_env) == 1
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && length(keys(local.n8n_main_election_staging_env)) == 1
     error_message = "Stage one must enable election without raising the selected count (ignoring fixed replicas while HPA is enabled)."
   }
 
   assert {
-    condition     = try(local.n8n_main_election_staging_env[0].name, null) == "N8N_MULTI_MAIN_SETUP_ENABLED" && try(local.n8n_main_election_staging_env[0].value, null) == "true"
+    condition     = try(local.n8n_main_election_staging_env["N8N_MULTI_MAIN_SETUP_ENABLED"], null) == "true"
     error_message = "Staging must emit a literal runtime election flag while chart multiMain remains disabled at one replica."
   }
 
@@ -214,7 +214,7 @@ run "stage_election_with_fixed_replicas" {
   }
 
   assert {
-    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && local.capacity_main_max_replicas == 1 && length(local.n8n_main_election_staging_env) == 1
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && local.capacity_main_max_replicas == 1 && length(keys(local.n8n_main_election_staging_env)) == 1
     error_message = "Fixed staging must enable election at one replica, ignoring the HPA minimum of two."
   }
 
@@ -232,7 +232,7 @@ run "stage_two_retains_explicit_election" {
   }
 
   assert {
-    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 2 && local.n8n_effective_main_hpa_max_replicas == 20 && length(local.n8n_main_election_staging_env) == 0
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 2 && local.n8n_effective_main_hpa_max_replicas == 20 && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "Stage two must keep election enabled while restoring the default HPA limits."
   }
 
@@ -251,7 +251,7 @@ run "explicit_election_disabled_at_one" {
   }
 
   assert {
-    condition     = !local.n8n_main_leader_election_enabled && local.n8n_effective_main_hpa_max_replicas == 1 && length(local.n8n_main_election_staging_env) == 0
+    condition     = !local.n8n_main_leader_election_enabled && local.n8n_effective_main_hpa_max_replicas == 1 && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "Explicit false must remain supported at one replica with a clamped HPA."
   }
 }

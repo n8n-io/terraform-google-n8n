@@ -218,11 +218,11 @@ namespace local regardless of ownership.
 Typed existing-Secret references cover every credential family:
 
 - `existing_n8n_core_secret_name`: the chart's core-Secret contract
-  (`N8N_ENCRYPTION_KEY`, `N8N_HOST`, `N8N_PORT`, `N8N_PROTOCOL`). When set,
-  the module creates no core Secret and generates no encryption key, and
-  `n8n_license_key_secret_ref` becomes required (the chart's core-Secret
-  contract requires the license from a separate Secret, not
-  `n8n_license_key`).
+  (`N8N_ENCRYPTION_KEY` only; chart 2.0 no longer reads `N8N_HOST`,
+  `N8N_PORT`, or `N8N_PROTOCOL` from it). When set, the module creates no
+  core Secret and generates no encryption key, and `n8n_license_key_secret_ref`
+  becomes required (the chart's core-Secret contract requires the license
+  from a separate Secret, not `n8n_license_key`).
 - `n8n_license_key_secret_ref`: the n8n Enterprise license, independent of
   the core-Secret decision.
 - `n8n_database_password_secret_ref`, `redis_password_secret_ref`: as

@@ -4,10 +4,11 @@
 # shutdown default, and the n8n_extra_env reserved-name expansion that comes
 # with them.
 #
-# config.extraEnv's actual rendered content lives inside helm_release.n8n.values
-# (a JSON-encoded string, unknown at plan time under the mock provider because
-# it depends on kubernetes_namespace - see AGENTS.md's known mock-provider
-# limitations), so most of this is asserted at the variable-contract layer,
+# env.shared/env.worker's actual rendered content lives inside
+# helm_release.n8n.values (a JSON-encoded string, unknown at plan time under
+# the mock provider because it depends on kubernetes_namespace - see
+# AGENTS.md's known mock-provider limitations), so most of this is asserted
+# at the variable-contract layer,
 # mirroring the existing OpenTelemetry/log-streaming/External-Secrets test
 # pattern. To verify the Helm values end-to-end: run `terraform plan` from
 # examples/small/ with these variables set and inspect the helm_release.n8n

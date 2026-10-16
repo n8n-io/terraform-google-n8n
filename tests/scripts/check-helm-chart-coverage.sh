@@ -8,6 +8,12 @@
 #
 # Requires: helm on PATH. No credentials: pulls the pinned chart from the
 # public OCI registry this module already uses by default.
+#
+# N8N_CHART_DIR=/path/to/n8n-hosting/charts/n8n: reads that local chart
+# checkout's values.yaml instead of pulling the pinned OCI chart. Chart 2.0
+# is unreleased at the time this script targets it (n8n-io/n8n-hosting#250);
+# point this at a local clone during development. The declared-version-vs-
+# variables.tf guard below still runs either way.
 
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
@@ -51,9 +57,17 @@ chart_repository="$(tf_var_default variables.tf n8n_chart_repository)" || chart_
 
 values_file="$(mktemp)"
 trap 'rm -f "$values_file"' EXIT
-if ! helm show values "${chart_repository}/n8n" --version "$pinned_version" >"$values_file" 2>/dev/null; then
-  echo "check-helm-chart-coverage.sh: helm show values failed for ${chart_repository}/n8n --version ${pinned_version}" >&2
-  exit 1
+if [ -n "${N8N_CHART_DIR:-}" ]; then
+  echo "NOTICE: N8N_CHART_DIR=${N8N_CHART_DIR} is set; reading that local chart checkout's values.yaml instead of pulling ${chart_repository}/n8n:${pinned_version} from the registry." >&2
+  if ! helm show values "${N8N_CHART_DIR}" >"$values_file" 2>/dev/null; then
+    echo "check-helm-chart-coverage.sh: helm show values failed for local chart dir ${N8N_CHART_DIR}" >&2
+    exit 1
+  fi
+else
+  if ! helm show values "${chart_repository}/n8n" --version "$pinned_version" >"$values_file" 2>/dev/null; then
+    echo "check-helm-chart-coverage.sh: helm show values failed for ${chart_repository}/n8n --version ${pinned_version}" >&2
+    exit 1
+  fi
 fi
 
 # Top-level keys are lines with no leading whitespace, a colon, and not a

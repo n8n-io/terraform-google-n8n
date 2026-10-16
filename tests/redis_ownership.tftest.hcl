@@ -431,9 +431,10 @@ run "redis_key_prefix_null_plans_cleanly" {
 }
 
 # A caller-supplied n8n_extra_env entry named N8N_REDIS_KEY_PREFIX must be
-# rejected: config.extraEnv is appended last (Kubernetes last-wins) and would
-# otherwise silently override the module's own N8N_REDIS_KEY_PREFIX value
-# whenever redis_key_prefix is set.
+# rejected: env.shared is chart-owned for this name once redis_key_prefix is
+# set, and a duplicate in var.n8n_extra_env's map would fail the chart's own
+# render (n8n.validateEnv) rather than silently overriding the module's own
+# N8N_REDIS_KEY_PREFIX value
 run "extra_env_rejects_n8n_redis_key_prefix_name" {
   command = plan
 

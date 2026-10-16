@@ -18,6 +18,103 @@ or start a fresh `terraform apply` against new state. See
 chart, and CI-toolchain pin this module makes and which bump tier each falls
 into.
 
+## Moving from chart 1.x to 2.0
+
+**Breaking module release.** The default `n8n_chart_version` moves to
+`2.0.0`, tracking n8n-hosting's chart 2.0
+([n8n-hosting#250](https://github.com/n8n-io/n8n-hosting/pull/250)). This
+module drops chart 1.x support with this release: there is no dual 1.x/2.x
+code path, and a chart pinned below `2.0.0` is no longer supported.
+
+Chart 2.0 was still unreleased when this section was written; it is grounded
+in the open PR above, not a tagged release. Re-read the chart's own
+[`UPGRADING.md`](https://github.com/n8n-io/n8n-hosting/blob/main/charts/n8n/UPGRADING.md)
+against the version you actually pin once `2.0.0` ships, in case anything
+changes before release.
+
+### Environment variables move to per-component maps internally
+
+Chart 2.0 removes the `extraEnv`/`extraEnvFrom` lists the module previously
+injected its environment through (`config.extraEnv`,
+`queueMode.workerExtraEnv`, and friends) and replaces them with one flat
+map per component (`env.shared`, `env.main`, `env.worker`,
+`env.webhookProcessor`, `env.taskRunner`; see the chart's
+[decision 0012](https://github.com/n8n-io/n8n-hosting/blob/main/charts/n8n/decisions/0012-env-as-per-component-maps.md)).
+A render fails outright, naming the key, if any retired list still has
+entries
+([decision 0020](https://github.com/n8n-io/n8n-hosting/blob/main/charts/n8n/decisions/0020-retired-values-keys-fail-the-render.md)),
+so there is no silent drop.
+
+**This module's own input interface for environment variables does not
+change.** `n8n_extra_env`, `n8n_worker_extra_env`, and each
+`n8n_worker_pools[*].extra_env` entry still take the same
+`{ name, value }` object list; the module now folds those lists into the
+chart's `env.shared`/`env.worker` maps instead of `config.extraEnv`/
+`queueMode.workerExtraEnv` internally. `env.shared` reaches main, worker,
+and webhook-processor pods, but not the task-runner sidecar, matching the
+reach `config.extraEnv` already had.
+
+### Core Secret now carries only the encryption key
+
+The chart's core Secret (`secretRefs.existingSecret`,
+`existing_n8n_core_secret_name`) now needs only `N8N_ENCRYPTION_KEY`.
+`N8N_HOST`, `N8N_PORT`, and `N8N_PROTOCOL` are no longer read from it; the
+port comes from `service.port`, and the public URLs come from `editor.url`/
+`webhook.url` (see the next section). If you supply
+`existing_n8n_core_secret_name`, a Secret that still carries the three
+retired keys still renders without error; n8n simply stops reading them.
+You do not need to remove them, but you may once you confirm
+`editor.url`/`webhook.url` cover your public URLs.
+
+### Public URLs must be explicit
+
+In chart 1.x, n8n fell back to building its public URLs from `N8N_HOST`/
+`N8N_PROTOCOL` when no `editor.url`, `webhook.url`, or ingress host was set.
+This module already sets `n8n_webhook_url` (`N8N_WEBHOOK_URL`) and the
+editor base URL explicitly (see
+[Corrected canonical URLs](#corrected-canonical-urls) below), so an
+existing deployment on this module is not relying on the old fallback.
+Without those, chart 2.0 builds URLs from `localhost` instead, so the
+webhook and OAuth callback URLs n8n reports would point at `localhost`.
+
+### `n8n_worker_concurrency` is removed
+
+Chart 2.0 fails the render if `queueMode.workerConcurrency` is set together
+with `executions.concurrency.productionLimit` (or
+`N8N_CONCURRENCY_PRODUCTION_LIMIT` in `env.shared`/`env.worker`) in queue
+mode, which this module always runs. n8n applies `productionLimit` as each
+worker's concurrency directly in that case, so a separate `--concurrency`
+flag is redundant as well as rejected; `queueMode.workerConcurrency` now
+defaults to empty upstream, and this module never sets it.
+
+Accordingly, **`n8n_worker_concurrency` is removed.** `n8n_worker_pools[*].concurrency`
+is removed with it (workers in a pool shared the same worker template as the
+default worker Deployment). `n8n_execution_concurrency_limit`
+(`N8N_CONCURRENCY_PRODUCTION_LIMIT` / `executions.concurrency.productionLimit`)
+is now the sole concurrency knob and is the effective per-worker concurrency,
+with no separate flag in play. If you previously set `n8n_worker_concurrency`
+to a value different from `n8n_execution_concurrency_limit` expecting the
+flag to win, remove it and set `n8n_execution_concurrency_limit` to the
+concurrency you actually want each worker to run at instead.
+
+### Every pod rolls once
+
+Every n8n pod restarts once on the upgrade apply, because its environment
+moves into the new per-component ConfigMaps. This is in addition to, not a
+replacement for, the chart's existing
+[replica-floor reset on every Helm upgrade](#replica-floor-reset-on-every-helm-upgrade):
+expect main and webhook-processor replicas to drop back to their configured
+floor on this apply too, and KEDA-owned worker replicas to be unaffected by
+either effect.
+
+### Render before you upgrade
+
+Chart 2.0's own values validation reports every retired key in one render
+instead of failing on the first. Before running `terraform apply` against
+the new chart version, render this module's effective values with
+`helm template` against the pinned chart and work through every reported
+key, rather than discovering them one `apply` at a time.
+
 ## Moving from chart 1.13.0 to 1.14.0
 
 The default `n8n_chart_version` moved from `1.13.0` to `1.14.0`

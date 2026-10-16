@@ -34,7 +34,7 @@ variable "n8n_license_key" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's own default tag: its appVersion (2.41.4 at chart 1.14.0), which only moves when the module's n8n_chart_version does. Pin a concrete version (for example \"2.39.7\") to upgrade n8n independently of the chart."
+  description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's own default tag: its appVersion, which only moves when the module's n8n_chart_version does. Pin a concrete version (for example \"2.39.7\") to upgrade n8n independently of the chart."
   type        = string
   default     = null
 }
@@ -122,14 +122,8 @@ variable "gke_node_disk_type" {
   default     = "pd-balanced"
 }
 
-variable "n8n_worker_concurrency" {
-  description = "Concurrent executions per worker pod."
-  type        = number
-  default     = 20
-}
-
 variable "db_postgresdb_pool_size" {
-  description = "Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10, which already covers this tier's rule-of-thumb floor of n8n_worker_concurrency / 4 (20 / 4 = 5); raise it only after a load test shows pool exhaustion."
+  description = "Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10; raise it only after a load test shows pool exhaustion against this tier's n8n_execution_concurrency_limit (400)."
   type        = number
   default     = 10
 }

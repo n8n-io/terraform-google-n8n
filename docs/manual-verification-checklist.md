@@ -97,7 +97,8 @@ harmless test schedule; other submissions and queues must remain idle.
    replacement starts, exactly one election-enabled main becomes Ready, strategy
    remains `Recreate`, PDB minimum remains 0, and a managed main HPA remains
    min/max 1/1. Chart `multiMain.enabled` stays false; the literal election flag
-   comes from module-owned `config.extraEnv` on all three n8n roles. Verify
+   comes from `local.n8n_main_election_staging_env`, merged into the chart's
+   `env.shared` map, which reaches all three n8n roles. Verify
    worker/webhook health and role behavior, the license, queue execution, and
    convergence. Above one replica, verify that the staging literal disappears
    and the chart's main-only ConfigMap election reference takes over.
@@ -123,7 +124,8 @@ both ownership paths (managed HPA 1/1 to 2/20, and fixed replicas 1 to 2 with
 the HPA disabled). In every run the old election-disabled process exited before
 its replacement started, exactly one election-enabled main became Ready at stage
 one (all three roles rolled once because the literal flag is emitted through
-`config.extraEnv`), and no election-disabled pod existed during the scale-up.
+`local.n8n_main_election_staging_env`/`env.shared`), and no election-disabled
+pod existed during the scale-up.
 Observed detail worth knowing: during the stage-two scale-up Kubernetes first
 scaled the *previous* ReplicaSet (the stage-one, election-enabled template) to
 two before the new ReplicaSet took over. That controller behaviour is exactly
@@ -421,7 +423,8 @@ cleanup of the workflow and its executions.
    `cooldownPeriod` only governs scale-to-zero).
 4. Note whether the additional workers processed any jobs. With the defaults
    they will not: effective worker concurrency is 100 (see
-   `n8n_worker_concurrency`), so one worker absorbs the whole test load.
+   `n8n_execution_concurrency_limit`), so one worker absorbs the whole test
+   load.
 5. Delete the workflow and its executions and verify both are absent.
 
 **Status: passed** on a disposable deployment with n8n 2.38.7: 13 jobs drove
