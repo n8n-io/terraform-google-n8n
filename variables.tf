@@ -1624,6 +1624,13 @@ variable "n8n_webhook_hpa_scale_up_stabilization_window_seconds" {
   }
 }
 
+variable "n8n_webhook_pdb_enabled" {
+  description = "When true (the default), the module creates a PodDisruptionBudget with maxUnavailable = 1 for the webhook processor Deployment, so a node drain (GKE node-pool upgrade, cluster autoscaler scale-down, kubectl drain) evicts at most one webhook processor at a time. The n8n chart renders a budget for the main pods only (checked on 1.16.0), so without this every webhook processor can be stopped at once. maxUnavailable rather than minAvailable, so a drain is never blocked outright: with a single webhook processor the budget permits evicting it and protects nothing. Applies whether or not n8n_webhook_hpa_enabled is set. Set to false to manage your own budget. Voluntary-disruption guard only: GKE still evicts after its one-hour node-pool upgrade drain timeout."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 # ── License shutdown behavior ─────────────────────────────────────────────────
 
 variable "n8n_license_detach_floating_on_shutdown" {
@@ -1899,6 +1906,13 @@ variable "n8n_worker_keda_paused_replica_count" {
     condition     = var.n8n_worker_keda_paused_replica_count == null ? true : (var.n8n_worker_keda_paused_replica_count >= 0 && floor(var.n8n_worker_keda_paused_replica_count) == var.n8n_worker_keda_paused_replica_count)
     error_message = "n8n_worker_keda_paused_replica_count must be a whole number of at least 0 (0 scales the paused workers to zero), or null to hold the current count."
   }
+}
+
+variable "n8n_worker_pdb_enabled" {
+  description = "When true (the default), the module creates a PodDisruptionBudget with maxUnavailable = 1 for the default worker Deployment, so a node drain evicts at most one worker at a time. The n8n chart renders a budget for the main pods only (checked on 1.16.0). maxUnavailable rather than minAvailable, because minAvailable = 1 on a one-replica Deployment blocks every voluntary eviction and stalls drains: at the default n8n_worker_keda_min_replicas = 1 the budget therefore protects nothing until two or more workers run. Evicted workers still receive SIGTERM and get n8n_termination_grace_period to finish in-flight executions. Does not cover n8n_worker_pools Deployments. Set to false to manage your own budget. Voluntary-disruption guard only: GKE still evicts after its one-hour node-pool upgrade drain timeout."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "n8n_worker_keda_jobs_per_replica" {

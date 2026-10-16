@@ -9,6 +9,17 @@ this project adheres to the stability contract in
 
 ### Added
 
+- `n8n_webhook_pdb_enabled` and `n8n_worker_pdb_enabled` (both default
+  `true`) create PodDisruptionBudgets with `maxUnavailable = 1` for the
+  webhook processor and default worker Deployments. The n8n chart renders a
+  budget for the main pods only, so a GKE node-pool upgrade or other drain
+  could stop every webhook processor and every worker at once. Uses
+  `maxUnavailable` rather than `minAvailable` so a one-replica worker never
+  blocks a drain, which also means the worker budget protects nothing until
+  two or more workers run. `n8n_worker_pools` Deployments are not covered.
+  Existing deployments gain both budgets on the next apply (two new
+  resources). Ports terraform-aws-n8n#205.
+
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services
