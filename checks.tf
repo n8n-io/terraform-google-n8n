@@ -457,20 +457,9 @@ locals {
   # an empty list (mirrors capacity.tf's capacity_pool_peak_* pattern).
   n8n_worker_pools_max_replicas_sum = sum(concat([0], [for p in var.n8n_worker_pools : p.max_replicas]))
 
-  # While n8n_worker_keda_pause is true, KEDA holds the worker Deployment at
-  # n8n_worker_keda_paused_replica_count, which may exceed the KEDA maximum.
-  # Pause only applies while the module manages the worker ScaledObject
-  # (n8n_worker_keda_enabled = true). A null count freezes workers at their
-  # current count, which the model assumes is within the maximum. Same model
-  # as terraform-azurerm-n8n.
-  n8n_postgres_worker_modeled_max_replicas = (var.n8n_worker_keda_enabled && var.n8n_worker_keda_pause) ? max(
-    local.capacity_worker_max_replicas,
-    coalesce(var.n8n_worker_keda_paused_replica_count, 0),
-  ) : local.capacity_worker_max_replicas
-
   n8n_postgres_peak_connections = var.db_postgresdb_pool_size * (
     local.capacity_main_max_replicas +
-    local.n8n_postgres_worker_modeled_max_replicas +
+    local.capacity_worker_modeled_max_replicas +
     local.capacity_webhook_max_replicas +
     local.n8n_worker_pools_max_replicas_sum
   )
@@ -483,7 +472,7 @@ check "postgres_pool_size_fits_known_max_connections" {
     ) : true
     error_message = join("", [
       "db_postgresdb_pool_size (${var.db_postgresdb_pool_size}) times the modeled pod ceiling (main ",
-      "${local.capacity_main_max_replicas} + worker ${local.n8n_postgres_worker_modeled_max_replicas} + webhook ",
+      "${local.capacity_main_max_replicas} + worker ${local.capacity_worker_modeled_max_replicas} + webhook ",
       tostring(local.capacity_webhook_max_replicas),
       local.n8n_worker_pools_max_replicas_sum > 0 ? " + worker pools ${local.n8n_worker_pools_max_replicas_sum}" : "",
       ") demands up to ${local.n8n_postgres_peak_connections} connections at full scale-out, more than the ",
