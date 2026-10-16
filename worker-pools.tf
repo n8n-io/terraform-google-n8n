@@ -103,8 +103,19 @@ locals {
       name     = p.name
       poolName = p.name
 
-      concurrency = coalesce(p.concurrency, var.n8n_worker_concurrency)
-      extraEnv    = p.extra_env
+      # EARLY ALPHA, speculative: queueMode.workerGroups does not exist in any
+      # released chart yet (n8n-io/n8n-hosting#189 is merged only to the
+      # preview/worker-pools branch, entirely separate from the #250 chart 2.0
+      # restructuring this file was adapted for), so there is no template to
+      # verify this key against. Following decision 0012's chart-wide
+      # extraEnv-list -> env-map convention (every other component's extraEnv
+      # was removed the same way) rather than keeping the retired `extraEnv`
+      # list shape. This path is inert by default: n8n_chart_renders_worker_pools
+      # below gates it behind an explicit preview build or
+      # n8n_worker_pools_chart_verified attestation, so no released chart ever
+      # evaluates this key. Re-verify the exact shape once the feature merges
+      # to a numbered release.
+      env = { for e in p.extra_env : e.name => e.value }
 
       resources = {
         requests = {

@@ -27,15 +27,13 @@ locals {
   # settings only while one of its workers is registered. See the itop entry
   # below.
   worker_pools = [
-    # Heavier executions, given more CPU and memory and a lower concurrency so
-    # each worker takes fewer jobs at once. Still CPU-only: this example runs
-    # the same node pool as small and sets no node placement, so "heavy" means
-    # bigger requests, not different hardware.
+    # Heavier executions, given more CPU and memory. Still CPU-only: this
+    # example runs the same node pool as small and sets no node placement, so
+    # "heavy" means bigger requests, not different hardware.
     {
       name           = "heavy"
       min_replicas   = 1
       max_replicas   = 4
-      concurrency    = 5
       cpu_request    = "1"
       cpu_limit      = "2"
       memory_request = "2Gi"

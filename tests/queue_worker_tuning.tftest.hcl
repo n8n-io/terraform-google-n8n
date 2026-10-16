@@ -72,7 +72,7 @@ run "queue_worker_tuning_combined_values_retain_all_four_siblings" {
       local.n8n_queue_worker_chart_overrides.stalledInterval == 45000 &&
       local.n8n_queue_worker_chart_overrides.timeout == 45
     )
-    error_message = "Setting all four queue lock/stall/timeout tuning values must retain all four together in the nested redis.worker override map, with no duplicate or competing environment entry (these are chart values, not config.extraEnv)."
+    error_message = "Setting all four queue lock/stall/timeout tuning values must retain all four together in the nested redis.worker override map, with no duplicate or competing environment entry (these are chart values, not env.shared/env.worker)."
   }
 }
 
@@ -481,9 +481,9 @@ run "graceful_shutdown_timeout_null_default_check_skips_a_custom_chart_repositor
 run "graceful_shutdown_timeout_null_default_warns_on_an_older_upstream_chart_pin" {
   command = plan
 
-  # Every published upstream chart (1.0.0 through 1.14.0) defaults
-  # redis.worker.timeout to 30, so the check is not gated on the chart
-  # version: 30 + 31 = 61 must still warn on an older upstream pin.
+  # Every published upstream chart through 2.0.0 (n8n-io/n8n-hosting#250)
+  # defaults redis.worker.timeout to 30, so the check is not gated on the
+  # chart version: 30 + 31 = 61 must still warn on an older upstream pin.
   variables {
     n8n_chart_version = "1.12.0"
     n8n_prestop_sleep = 31
@@ -507,9 +507,10 @@ run "graceful_shutdown_timeout_explicit_value_is_validated_on_a_custom_chart_rep
 
 # ── Regression guard: N8N_GRACEFUL_SHUTDOWN_TIMEOUT is reserved ──────────────
 # terraform-aws-n8n issue #147, fixed upstream by terraform-aws-n8n#148.
-# Chart 1.13.0 renders this ConfigMap key unconditionally on every n8n
-# container from redis.worker.timeout, and config.extraEnv is appended after
-# it, so a caller duplicate must be rejected at plan time rather than
+# Every published upstream chart through 2.0.0 renders this ConfigMap key
+# unconditionally on every n8n container from redis.worker.timeout, and a
+# caller-supplied env.shared/env.worker duplicate would fail the chart's own
+# render (n8n.validateEnv), so it must be rejected at plan time rather than
 # silently overriding the chart's real value at apply.
 
 run "extra_env_rejects_graceful_shutdown_timeout_name" {

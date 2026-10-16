@@ -8,29 +8,43 @@ locals {
   name_prefix = "${var.friendly_name_prefix}-n8n"
   n8n_fqdn    = var.n8n_fqdn
 
-  # One effective webhook base URL (task 19.1): explicit n8n_webhook_url,
-  # otherwise https://<n8n_fqdn>. Shared by N8N_WEBHOOK_URL and, on images
-  # that may predate n8n 2.30.0, the legacy WEBHOOK_URL
-  # (local.n8n_webhook_url_env), so the two never drift apart.
+  # One effective webhook base URL: explicit n8n_webhook_url, otherwise
+  # https://<n8n_fqdn>. Passed to the chart as webhook.url (n8n.tf), which the
+  # chart renders as N8N_WEBHOOK_URL on main, worker, and webhook-processor
+  # pods (templates/_env.tpl). Also backs the legacy WEBHOOK_URL env var the
+  # module still sends directly (local.n8n_legacy_webhook_url_env below) for
+  # images that may predate n8n 2.30.0, so the two never drift apart.
   effective_webhook_url = coalesce(var.n8n_webhook_url, "https://${local.n8n_fqdn}")
+
+  # Public editor/OAuth base URL: always the canonical n8n_fqdn host, never
+  # the webhook host above, even when n8n_webhook_url splits webhooks to a
+  # different host. Passed to the chart as editor.url (n8n.tf), which the
+  # chart renders as N8N_EDITOR_BASE_URL on main, worker, and webhook-processor
+  # pods (templates/_env.tpl).
+  n8n_editor_url = "https://${local.n8n_fqdn}"
 
   # (GCP labels live in local.gcp_labels, network.tf.)
 
   # ── n8n_extra_env collision guard ──────────────────────────────────────────
-  # config.extraEnv is appended LAST in every n8n container's env list (see the
-  # n8n Helm chart's deployment-*.yaml templates), and Kubernetes resolves
-  # duplicate env names last-wins. So any name a caller passes via
-  # var.n8n_extra_env overrides the value the module or chart set for it. These
-  # two lists are the reserved surface the escape hatch must not touch:
-  # connection, identity, storage, license, and topology vars whose override
-  # would silently break or hijack the deployment.
+  # The chart (2.0+) delivers environment variables as flat per-component maps
+  # (env.shared/env.worker/etc, decisions/0012-env-as-per-component-maps.md in
+  # n8n-io/n8n-hosting), merged with later maps and the caller's own map
+  # winning on a repeated name within one merge. var.n8n_extra_env feeds
+  # env.shared (n8n.tf), so any name it sets overrides the module's own value
+  # for that name within the module's own merge, and the chart independently
+  # fails the whole render if a name collides with one the chart itself
+  # computes (n8n.validateEnv). These two lists are the reserved surface the
+  # escape hatch must not touch: connection, identity, storage, license, and
+  # topology vars whose override would silently break or hijack the
+  # deployment (names the chart does not already guard against on its own).
   #
-  # Exact names: set by the module in config.extraEnv / the n8n secret, plus the
+  # Exact names: set by the module in env.shared / the n8n secret, plus the
   # chart-rendered identity/topology/storage/license vars not covered by a
-  # prefix below. Keep in sync with the extraEnv block in n8n.tf and the chart
-  # values the module sets (database/redis/s3/multiMain/license/secretRefs).
+  # prefix below. Keep in sync with the env.shared merge in n8n.tf and the
+  # chart values the module sets (database/redis/s3/multiMain/license/
+  # secretRefs/editor/webhook).
   n8n_managed_env_names = [
-    # Set by the module in config.extraEnv or the n8n secret.
+    # Set by the module in env.shared or the n8n secret.
     "N8N_ENCRYPTION_KEY",
     "N8N_LOG_LEVEL",
     "N8N_LOG_OUTPUT",
@@ -61,11 +75,11 @@ locals {
     # Redis command-channel prefix (task 7.1), synchronized with the chart's
     # redis.prefix (Bull queue keys, set unconditionally as "" or the
     # supplied value in n8n.tf) via var.redis_key_prefix. Emitted only when
-    # var.redis_key_prefix is non-null (see the extraEnv block in n8n.tf).
+    # var.redis_key_prefix is non-null (see the env.shared merge in n8n.tf).
     "N8N_REDIS_KEY_PREFIX",
     # Community registry and security-related runtime controls (task 15),
     # emitted only when their respective input is non-null (see the
-    # extraEnv block in n8n.tf).
+    # env.shared merge in n8n.tf).
     "N8N_COMMUNITY_PACKAGES_REGISTRY",
     "N8N_UNVERIFIED_PACKAGES_ENABLED",
     "N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES",
@@ -73,7 +87,7 @@ locals {
     # Rendered by the chart from executions.data (n8n_executions_data_save_*
     # in variables.tf via local.n8n_executions_data). Reserved even though
     # the module already sets a value for each (rather than leaving them
-    # unset when at their default), since config.extraEnv would otherwise
+    # unset when at their default), since env.shared would otherwise
     # silently override the caller's chosen save policy.
     "EXECUTIONS_DATA_SAVE_ON_SUCCESS",
     "EXECUTIONS_DATA_SAVE_ON_ERROR",
@@ -82,25 +96,32 @@ locals {
     # Chart-rendered from redis.worker.timeout (values.yaml), gated only on
     # queueMode.enabled (always set here) with no per-setting guard, unlike
     # the three lockDuration/lockRenewTime/stalledInterval names covered by
-    # the QUEUE_ prefix below: this key always renders, so a config.extraEnv
-    # duplicate would silently override it (Kubernetes last-wins) with no
-    # plan- or apply-time warning. n8n_graceful_shutdown_timeout is the
+    # the QUEUE_ prefix below: this key always renders, so an env.shared
+    # duplicate would fail the chart's own render (n8n.validateEnv) rather
+    # than silently override it. n8n_graceful_shutdown_timeout is the
     # supported way to change this value.
     "N8N_GRACEFUL_SHUTDOWN_TIMEOUT",
     # Rendered by the chart from module values (identity, topology, storage,
-    # license). DB_*, QUEUE_*, N8N_RUNNERS_*, N8N_EXTERNAL_STORAGE_S3_*,
-    # N8N_MULTI_MAIN_*, and AWS_* are covered by n8n_managed_env_prefixes.
+    # license, editor/webhook URLs). DB_*, QUEUE_*, N8N_RUNNERS_*,
+    # N8N_EXTERNAL_STORAGE_S3_*, N8N_MULTI_MAIN_*, and AWS_* are covered by
+    # n8n_managed_env_prefixes. N8N_HOST/N8N_PORT/N8N_PROTOCOL are not
+    # reserved here: chart 2.0 no longer reads N8N_HOST/N8N_PROTOCOL at all
+    # (n8n builds its public URLs from editor.url/webhook.url instead, both
+    # always set by this module), and N8N_PORT is covered by the N8N_PORT
+    # entry below.
     "EXECUTIONS_MODE",
     "OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS",
     "N8N_DEFAULT_BINARY_DATA_MODE",
     "N8N_LICENSE_ACTIVATION_KEY",
-    "N8N_HOST",
+    # Always chart-rendered from service.port (templates/_env.tpl), on every
+    # n8n process including workers (chart 2.0, n8n-hosting#250).
     "N8N_PORT",
-    "N8N_PROTOCOL",
+    # Always chart-rendered from editor.url (n8n.tf always sets it); see
+    # n8n_editor_url above.
     "N8N_EDITOR_BASE_URL",
     "N8N_DISABLE_PRODUCTION_MAIN_PROCESS",
     "N8N_NATIVE_PYTHON_RUNNER",
-    # Set by the module in config.extraEnv (n8n.tf, all pods) once
+    # Set by the module in env.shared (n8n.tf, all pods) once
     # n8n_worker_pools is non-empty; N8N_WORKER_POOL_NAME is stamped by the
     # chart itself per rendered pool container (worker-pools.tf).
     "N8N_WORKER_POOLS_ENABLED",
@@ -146,22 +167,6 @@ locals {
   n8n_disabled_modules = join(",", compact([
     var.n8n_external_secrets_enabled ? "" : "external-secrets",
   ]))
-
-  # ── n8n Kubernetes ServiceAccount ownership ────────────────────────────────
-  # The chart creating its own ServiceAccount is the arrangement we want, with
-  # one exception: the pinned chart version renders imagePullSecrets nowhere,
-  # not on the pod spec and not on the ServiceAccount, so a private registry
-  # has no way in through chart values. Attaching the secrets to the account
-  # the pods already run as is the remaining lever, and the chart supports it
-  # (serviceAccount.create = false with an externally managed name).
-  #
-  # The module-managed account uses a different name than the chart's default
-  # (var.n8n_kube_svc_account) so enabling n8n_image_pull_secrets on an
-  # already-applied stack does not collide with the account Helm still owns;
-  # the Workload Identity binding (workload_identity.tf) targets whichever name
-  # is effective.
-  n8n_manages_service_account = length(var.n8n_image_pull_secrets) > 0
-  n8n_service_account_name    = local.n8n_manages_service_account ? "${var.n8n_kube_svc_account}-pull" : var.n8n_kube_svc_account
 }
 
 # ── Ownership-neutral effective coordinates ──────────────────────────────────
@@ -254,21 +259,34 @@ locals {
     }
   } : {}
 
-  # DB_POSTGRESDB_SSL_* env fragment for helm_release.n8n's config.extraEnv
+  # DB_POSTGRESDB_SSL_* env fragment for helm_release.n8n's env.shared
   # (n8n.tf). Kept as a named local so its shape is directly assertable under
   # the mock provider, where helm_release.values is unknown at plan time
-  # (AGENTS.md's known mock-provider limitations). The
-  # db_postgresdb_ssl_enabled = false branch is unchanged from before this
-  # change; the true branch only adds DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
-  # (tostring(false) renders the same literal "false" the module hardcoded
-  # previously, so a caller who never sets db_postgresdb_ssl_reject_unauthorized
-  # sees no plan diff).
-  n8n_postgres_ssl_env = var.db_postgresdb_ssl_enabled ? [
-    { name = "DB_POSTGRESDB_SSL_ENABLED", value = "true" },
-    { name = "DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED", value = tostring(var.db_postgresdb_ssl_reject_unauthorized) },
-    ] : [
-    { name = "DB_POSTGRESDB_SSL_ENABLED", value = "false" },
-  ]
+  # (AGENTS.md's known mock-provider limitations).
+  #
+  # Chart 2.0 renders DB_POSTGRESDB_SSL_ENABLED itself, unconditionally,
+  # whenever database.ssl.enabled is true (templates/_env.tpl), and fails the
+  # render on a second source for the same name (n8n.validateEnv). database.ssl
+  # is only ever set to {enabled: true, ...} on the CA path
+  # (local.n8n_database_ssl_values above, gated on postgres_ssl_ca_active), so
+  # DB_POSTGRESDB_SSL_ENABLED is omitted from this map on that path and the
+  # chart is the sole source for it; on every other path (SSL on with no CA,
+  # or SSL off) database.ssl.enabled stays at the chart's own default (false)
+  # and this module remains the sole source. DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED
+  # never collides: the chart only renders it (as "false") when
+  # database.ssl.rejectUnauthorized is false, and the CA path always sets that
+  # to true, so the module's own "true" here (tostring(false) renders the same
+  # literal "false" the module hardcoded previously, so a caller who never
+  # sets db_postgresdb_ssl_reject_unauthorized sees no plan diff) is never a
+  # second source for that name either.
+  n8n_postgres_ssl_env = merge(
+    local.postgres_ssl_ca_active ? {} : {
+      DB_POSTGRESDB_SSL_ENABLED = var.db_postgresdb_ssl_enabled ? "true" : "false"
+    },
+    var.db_postgresdb_ssl_enabled ? {
+      DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED = tostring(var.db_postgresdb_ssl_reject_unauthorized)
+    } : {},
+  )
 
   # Namespace: the name is the same whether the module creates it or not.
   effective_namespace = var.n8n_kube_namespace
@@ -358,7 +376,7 @@ locals {
   )
 
   # The chart's values.yaml default for redis.worker.timeout, in seconds, as of
-  # the pinned n8n_chart_version (1.14.0). Used only by
+  # the pinned n8n_chart_version (2.0.0). Used only by
   # check.graceful_shutdown_fits_grace_period (checks.tf) for callers who leave
   # n8n_graceful_shutdown_timeout null. tests/scripts/check-n8n-chart.sh reads
   # this line and fails if the rendered chart default differs, so a chart bump
@@ -368,14 +386,14 @@ locals {
   # True only when that default is known to be what the pods run: the input is
   # unset and the chart comes from the upstream repository. A custom
   # n8n_chart_repository may carry a different default, so the check stays
-  # quiet there rather than warn on a number it cannot verify (same reasoning
-  # as local.n8n_worker_keda_pause_supported in scaling.tf). Deliberately not
+  # quiet there rather than warn on a number it cannot verify. Deliberately not
   # gated on n8n_chart_version: every published upstream chart, 1.0.0 through
-  # 1.14.0 including 1.11.0-preview.workerpools.1, defaults redis.worker.timeout
-  # to 30 and renders it unconditionally (verified by pulling each tag), so an
-  # exact-version gate would only silence a correct warning on older pins. A
-  # future chart that moves the default fails check-n8n-chart.sh once the
-  # module's pin reaches it; matches terraform-aws-n8n#148.
+  # 2.0.0 (n8n-io/n8n-hosting#250) including 1.11.0-preview.workerpools.1,
+  # defaults redis.worker.timeout to 30 and renders it unconditionally
+  # (verified by pulling each tag), so an exact-version gate would only
+  # silence a correct warning on older pins. A future chart that moves the
+  # default fails check-n8n-chart.sh once the module's pin reaches it;
+  # matches terraform-aws-n8n#148.
   n8n_graceful_shutdown_default_applies = (
     var.n8n_graceful_shutdown_timeout == null &&
     var.n8n_chart_repository == "oci://ghcr.io/n8n-io/n8n-helm-chart"
@@ -437,8 +455,8 @@ locals {
   n8n_effective_webhook_replica_count = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
 
   # ── Single-main / multi-main topology (main-topology capability) ──────────
-  # This count-based flag owns rollout, PDB, and scaling safeguards, not the
-  # election override. Staging election at one replica must retain all three.
+  # This count-based flag owns rollout and scaling safeguards, not the
+  # election override. Staging election at one replica must retain both.
   n8n_single_main = local.n8n_effective_main_replica_count == 1
 
   # Enable election before increasing replicas in a separate apply. Null
@@ -446,13 +464,17 @@ locals {
   # by the input validation; never scale an election-disabled old revision.
   n8n_main_leader_election_enabled = var.n8n_main_leader_election_enabled == null ? !local.n8n_single_main : var.n8n_main_leader_election_enabled
 
-  # Chart 1.10.1 requires >=2 replicas for multiMain.enabled. Stage runtime
-  # election through the module-owned environment instead, retaining the
-  # chart's one-replica layout and validation. config.extraEnv reaches all
-  # n8n roles, so staging also rolls workers and webhook processors.
-  n8n_main_election_staging_env = local.n8n_single_main && local.n8n_main_leader_election_enabled ? [
-    { name = "N8N_MULTI_MAIN_SETUP_ENABLED", value = "true" },
-  ] : []
+  # Chart requires >=2 replicas for multiMain.enabled (n8n.validate). Stage
+  # runtime election through the module-owned environment instead, retaining
+  # the chart's one-replica layout and validation. env.shared reaches all
+  # n8n roles (main, worker, webhook processor), so staging also rolls
+  # workers and webhook processors. Chart 2.0 renders N8N_MULTI_MAIN_SETUP_ENABLED
+  # itself only while multiMain.enabled is true (templates/_env.tpl), which
+  # the module never sets while single-main, so this never collides with the
+  # chart's own value for the name.
+  n8n_main_election_staging_env = local.n8n_single_main && local.n8n_main_leader_election_enabled ? {
+    N8N_MULTI_MAIN_SETUP_ENABLED = "true"
+  } : {}
 
   # A module-owned main HPA never scales a single-main deployment past its
   # licensed ceiling of one main: single-main clamps the effective maximum to
@@ -467,11 +489,6 @@ locals {
   # {} (the chart's own default) leaves multi-main's existing rollout
   # behavior untouched; this does not change worker or webhook strategy.
   n8n_main_strategy = local.n8n_single_main ? { type = "Recreate" } : {}
-
-  # A single main's PDB must allow its own (only) replica to be evicted during
-  # a voluntary disruption (e.g. node drain); minAvailable=1 would block that
-  # eviction entirely. Multi-main keeps the existing minAvailable=1 floor.
-  n8n_main_pdb_min_available = local.n8n_single_main ? 0 : 1
 
   # Execution-save policy: the single place both the Helm release
   # (helm_release.n8n.values.executions.data in n8n.tf) and the
@@ -539,13 +556,30 @@ locals {
     )
   ) : !local.n8n_image_known_current
 
-  # The webhook env entries helm_release.n8n splices into config.extraEnv. A
-  # local so tests can assert the list: the release's values are unknown at
-  # plan under mocks (see AGENTS.md).
-  n8n_webhook_url_env = concat(
-    [{ name = "N8N_WEBHOOK_URL", value = local.effective_webhook_url }],
-    local.n8n_needs_legacy_webhook_url_env ? [{ name = "WEBHOOK_URL", value = local.effective_webhook_url }] : [],
-  )
+  # The legacy WEBHOOK_URL fallback the module sends directly in env.shared
+  # (n8n.tf) for images that may predate n8n 2.30.0. N8N_WEBHOOK_URL itself is
+  # no longer set here: chart 2.0 renders it from webhook.url
+  # (local.effective_webhook_url, set as a top-level chart value in n8n.tf),
+  # and a duplicate in env.shared would fail the chart's render
+  # (n8n.validateEnv). Kept as a named local (renamed from
+  # n8n_webhook_url_env) so tests can assert the fragment the module still
+  # owns directly; the release's values are unknown at plan under mocks (see
+  # AGENTS.md).
+  n8n_legacy_webhook_url_env = local.n8n_needs_legacy_webhook_url_env ? {
+    WEBHOOK_URL = local.effective_webhook_url
+  } : {}
+
+  # var.n8n_extra_env / var.n8n_worker_extra_env as the flat maps chart 2.0's
+  # env.shared / env.worker expect (n8n.tf), converted from the module's
+  # stable list(object({name,value})) input shape. merge() of a list of
+  # single-key maps, not a `for ... : k => v` map comprehension: the latter
+  # errors on a duplicate key unless grouped with `...`, but both variables'
+  # own validations already reject duplicate names outright, so last-wins via
+  # merge() is purely defensive here and never actually resolves a conflict
+  # the variable would have let through un-flagged. Named locals so tests can
+  # assert the converted shape under the mock provider (AGENTS.md).
+  n8n_extra_env_map        = merge([for e in var.n8n_extra_env : { (e.name) = e.value }]...)
+  n8n_worker_extra_env_map = merge([for e in var.n8n_worker_extra_env : { (e.name) = e.value }]...)
 
   # ── Caller-managed volumes (task 10) ───────────────────────────────────────
   # Transforms var.n8n_extra_volumes/n8n_extra_volume_mounts into the chart's

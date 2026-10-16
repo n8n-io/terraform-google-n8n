@@ -7,10 +7,10 @@
 # helm_release.n8n's values are unknown at plan time (see defaults.tftest.hcl
 # and AGENTS.md's "Known mock provider limitations"), so these assertions
 # target the Terraform locals the release reads from
-# (local.n8n_single_main / n8n_main_strategy / n8n_main_pdb_min_available /
+# (local.n8n_single_main / n8n_main_strategy /
 # n8n_effective_main_hpa_max_replicas), which are pure functions of the input
 # variables below and fully known at plan time. Chart-rendering proof that the
-# chart actually turns these fragments into Recreate/PDB/multiMain behavior
+# chart actually turns these fragments into Recreate/multiMain behavior
 # lives in tests/scripts/check-n8n-chart.sh (task 3.1's chart-rendering
 # verification).
 
@@ -42,7 +42,7 @@ run "managed_hpa_min_one_selects_single_main" {
   }
 
   assert {
-    condition     = local.n8n_single_main && !local.n8n_main_leader_election_enabled && length(local.n8n_main_election_staging_env) == 0
+    condition     = local.n8n_single_main && !local.n8n_main_leader_election_enabled && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "n8n_main_hpa_min_replicas=1 must select single-main with election disabled by default."
   }
 
@@ -54,11 +54,6 @@ run "managed_hpa_min_one_selects_single_main" {
   assert {
     condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1
     error_message = "Single-main must render a Recreate main strategy."
-  }
-
-  assert {
-    condition     = local.n8n_main_pdb_min_available == 0
-    error_message = "Single-main's PDB must permit evicting its sole replica (minAvailable=0)."
   }
 }
 
@@ -84,11 +79,6 @@ run "managed_hpa_min_two_selects_multi_main" {
   assert {
     condition     = length(keys(local.n8n_main_strategy)) == 0
     error_message = "Multi-main must leave the main rollout strategy at the chart default ({})."
-  }
-
-  assert {
-    condition     = local.n8n_main_pdb_min_available == 1
-    error_message = "Multi-main must retain the existing PDB floor of minAvailable=1."
   }
 }
 
@@ -131,11 +121,6 @@ run "fixed_replicas_one_selects_single_main_without_hpa" {
     condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1
     error_message = "Single-main via a caller-fixed replica count must still render a Recreate main strategy."
   }
-
-  assert {
-    condition     = local.n8n_main_pdb_min_available == 0
-    error_message = "Single-main via a caller-fixed replica count must still set minAvailable=0."
-  }
 }
 
 run "fixed_replicas_two_selects_multi_main_without_hpa" {
@@ -155,11 +140,6 @@ run "fixed_replicas_two_selects_multi_main_without_hpa" {
     condition     = length(keys(local.n8n_main_strategy)) == 0
     error_message = "Multi-main via a caller-fixed replica count must leave the main strategy at the chart default."
   }
-
-  assert {
-    condition     = local.n8n_main_pdb_min_available == 1
-    error_message = "Multi-main via a caller-fixed replica count must retain minAvailable=1."
-  }
 }
 
 # ── Default remains multi-main ───────────────────────────────────────────────
@@ -168,7 +148,7 @@ run "defaults_remain_multi_main" {
   command = plan
 
   assert {
-    condition     = var.n8n_main_leader_election_enabled == null && local.n8n_main_leader_election_enabled && !local.n8n_single_main && length(local.n8n_main_election_staging_env) == 0
+    condition     = var.n8n_main_leader_election_enabled == null && local.n8n_main_leader_election_enabled && !local.n8n_single_main && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "Unmodified defaults must retain inferred multi-main election at two replicas."
   }
 }
@@ -184,12 +164,12 @@ run "stage_election_with_managed_hpa" {
   }
 
   assert {
-    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && length(local.n8n_main_election_staging_env) == 1
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && length(keys(local.n8n_main_election_staging_env)) == 1
     error_message = "Stage one must enable election without raising the selected count (ignoring fixed replicas while HPA is enabled)."
   }
 
   assert {
-    condition     = try(local.n8n_main_election_staging_env[0].name, null) == "N8N_MULTI_MAIN_SETUP_ENABLED" && try(local.n8n_main_election_staging_env[0].value, null) == "true"
+    condition     = try(local.n8n_main_election_staging_env["N8N_MULTI_MAIN_SETUP_ENABLED"], null) == "true"
     error_message = "Staging must emit a literal runtime election flag while chart multiMain remains disabled at one replica."
   }
 
@@ -199,8 +179,8 @@ run "stage_election_with_managed_hpa" {
   }
 
   assert {
-    condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1 && local.n8n_main_pdb_min_available == 0
-    error_message = "Election staging must retain Recreate and PDB minimum 0."
+    condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1
+    error_message = "Election staging must retain Recreate."
   }
 }
 
@@ -214,13 +194,13 @@ run "stage_election_with_fixed_replicas" {
   }
 
   assert {
-    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && local.capacity_main_max_replicas == 1 && length(local.n8n_main_election_staging_env) == 1
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 1 && local.capacity_main_max_replicas == 1 && length(keys(local.n8n_main_election_staging_env)) == 1
     error_message = "Fixed staging must enable election at one replica, ignoring the HPA minimum of two."
   }
 
   assert {
-    condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1 && local.n8n_main_pdb_min_available == 0
-    error_message = "Fixed staging must retain Recreate and PDB minimum 0."
+    condition     = try(local.n8n_main_strategy.type, null) == "Recreate" && length(keys(local.n8n_main_strategy)) == 1
+    error_message = "Fixed staging must retain Recreate."
   }
 }
 
@@ -232,13 +212,13 @@ run "stage_two_retains_explicit_election" {
   }
 
   assert {
-    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 2 && local.n8n_effective_main_hpa_max_replicas == 20 && length(local.n8n_main_election_staging_env) == 0
+    condition     = local.n8n_main_leader_election_enabled && local.n8n_effective_main_replica_count == 2 && local.n8n_effective_main_hpa_max_replicas == 20 && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "Stage two must keep election enabled while restoring the default HPA limits."
   }
 
   assert {
-    condition     = length(keys(local.n8n_main_strategy)) == 0 && local.n8n_main_pdb_min_available == 1
-    error_message = "Stage two must restore the chart strategy and PDB minimum 1."
+    condition     = length(keys(local.n8n_main_strategy)) == 0
+    error_message = "Stage two must restore the chart strategy."
   }
 }
 
@@ -251,7 +231,7 @@ run "explicit_election_disabled_at_one" {
   }
 
   assert {
-    condition     = !local.n8n_main_leader_election_enabled && local.n8n_effective_main_hpa_max_replicas == 1 && length(local.n8n_main_election_staging_env) == 0
+    condition     = !local.n8n_main_leader_election_enabled && local.n8n_effective_main_hpa_max_replicas == 1 && length(keys(local.n8n_main_election_staging_env)) == 0
     error_message = "Explicit false must remain supported at one replica with a clamped HPA."
   }
 }

@@ -14,7 +14,7 @@
 #     whose effect lands inside the n8n Helm release. The Helm values blob is a
 #     JSON-encoded string that depends on kubernetes_namespace (unknown at plan
 #     time under the mock provider), so those inputs are asserted at the
-#     variable layer; their wiring into config.extraEnv is covered by a real
+#     variable layer; their wiring into env.shared is covered by a real
 #     terraform plan from an example root.
 
 mock_provider "google" {}
@@ -96,6 +96,11 @@ run "defaults_produce_valid_plan" {
   assert {
     condition     = !strcontains(output.kubectl_config_command, "--internal-ip")
     error_message = "kubectl_config_command must not add --internal-ip by default (public control-plane endpoint)."
+  }
+
+  assert {
+    condition     = var.n8n_chart_version == "2.0.0"
+    error_message = "n8n_chart_version should default to 2.0.0 (chart 2.0's env.shared/env.worker values contract)."
   }
 }
 
@@ -449,7 +454,7 @@ run "custom_namespace_propagates_to_workload_identity" {
 # corrected defaults and the validators that prevent the regression. The Helm
 # values blob itself is unknown at plan time under the helm mock provider, so
 # we assert at the variable contract level - n8n.tf wires both vars through
-# verbatim into the extraEnv list.
+# verbatim into the env.shared map.
 
 run "log_defaults" {
   command = plan
@@ -506,7 +511,7 @@ run "log_output_accepts_console_and_file_combination" {
 # Both toggles map straight to n8n env vars and default to false so the env var
 # is omitted (n8n's own default applies). The Helm values blob is unknown at
 # plan time under the mock provider, so we assert at the variable contract
-# level; that the entries land in config.extraEnv is verified by a real
+# level; that the entries land in env.shared is verified by a real
 # terraform plan from an example root.
 
 run "community_package_toggles_default_false" {
@@ -545,8 +550,8 @@ run "community_package_toggles_accept_true" {
 # ── OpenTelemetry tracing toggles ─────────────────────────────────────────────
 # n8n_otel_enabled is the master switch (default false, contractually).
 # Each tuning variable defaults to null so that, when n8n_otel_enabled is
-# false, the whole config.extraEnv OTEL block collapses to []. The actual
-# extraEnv list lives inside helm_release.n8n.values (a JSON-encoded string)
+# false, the whole env.shared OTEL block collapses to omitted keys. The
+# actual env map lives inside helm_release.n8n.values (a JSON-encoded string)
 # and is awkward to inspect in plan-time tests; we assert at the variable
 # contract layer, plus we keep a regression guard that the master toggle's
 # default is false.
@@ -681,7 +686,7 @@ run "otel_tuning_set_with_master_on_plans_cleanly" {
 # Both toggles default to true (feature enabled, no env var set). When disabled
 # (false), they inject N8N_TEMPLATES_ENABLED=false or N8N_PERSONALIZATION_ENABLED=false.
 # The Helm values blob is unknown at plan time under the mock provider, so we
-# assert at the variable contract level; that the entries land in config.extraEnv
+# assert at the variable contract level; that the entries land in env.shared
 # is verified by a real terraform plan from an example root.
 
 run "feature_toggles_default_enabled" {
@@ -722,7 +727,7 @@ run "feature_toggles_accept_false" {
 # destinations list is typed `any` (webhook/syslog/sentry shapes differ) and is
 # JSON-encoded into N8N_LOG_STREAMING_DESTINATIONS only when the master switch
 # is on. The Helm values blob is unknown at plan time under the mock provider,
-# so we assert at the variable contract level; the wiring into config.extraEnv
+# so we assert at the variable contract level; the wiring into env.shared
 # is verified by a real terraform plan.
 
 run "log_streaming_defaults_off" {
@@ -822,7 +827,7 @@ run "log_streaming_full_opt_in_plans_cleanly" {
 # ── n8n_extra_env ────────────────────────────────────────────────────────────
 # Asserted at the variable-contract level: defaults, accepted shape, and the
 # validation guards (non-empty name, no duplicates, no collision with
-# module-managed env vars). End-to-end wiring into config.extraEnv can't be
+# module-managed env vars). End-to-end wiring into env.shared can't be
 # checked here: helm_release.values depends on kubernetes_namespace (unknown at
 # plan time). Verify the wiring with a real terraform plan.
 
@@ -858,6 +863,11 @@ run "extra_env_accepts_valid_entries" {
   assert {
     condition     = var.n8n_extra_env[0].value == "de"
     error_message = "n8n_extra_env entry value should propagate correctly."
+  }
+
+  assert {
+    condition     = length(keys(local.n8n_extra_env_map)) == 2 && lookup(local.n8n_extra_env_map, "N8N_DEFAULT_LOCALE", null) == "de" && lookup(local.n8n_extra_env_map, "N8N_PAYLOAD_SIZE_MAX", null) == "32"
+    error_message = "local.n8n_extra_env_map must merge n8n_extra_env entries into a name->value map for env.shared."
   }
 }
 
@@ -953,9 +963,9 @@ run "extra_env_rejects_log_streaming_managed_name" {
 }
 
 # Prefix-family guards: connection and license vars the chart renders from
-# module values must be rejected, because config.extraEnv is appended last and
-# Kubernetes resolves duplicate env names last-wins - an override here would
-# silently repoint the DB, the Redis queue, or disable Enterprise.
+# module values must be rejected, because the chart fails the render on a
+# name it already sets itself, and the module's own env.shared merge would
+# otherwise silently override these for the rest.
 run "extra_env_rejects_db_connection_name" {
   command = plan
 
@@ -1162,33 +1172,13 @@ run "common_labels_merge_into_resource_labels" {
   }
 }
 
-# ── Valid scaling inputs (main-topology: replicas, worker concurrency, ────────
-# scaler thresholds, GKE per-zone bounds, boot-disk size) ─────────────────────
+# ── Valid scaling inputs (main-topology: replicas, scaler thresholds, ───────
+# GKE per-zone bounds, boot-disk size) ──────────────────────────────────────
 # Every one of these variables is now non-null, whole-number, and (where an
 # upper/lower pair exists) ordered; see variables.tf / variables_gcp.tf for the
 # validation blocks. These tests exercise the negative/fractional/reversed
 # cases each validation exists to reject, plus one representative valid case
 # per variable to confirm the default/documented values still plan cleanly.
-
-run "worker_concurrency_rejects_fractional" {
-  command = plan
-
-  variables {
-    n8n_worker_concurrency = 2.5
-  }
-
-  expect_failures = [var.n8n_worker_concurrency]
-}
-
-run "worker_concurrency_rejects_zero" {
-  command = plan
-
-  variables {
-    n8n_worker_concurrency = 0
-  }
-
-  expect_failures = [var.n8n_worker_concurrency]
-}
 
 run "main_hpa_replicas_reject_fractional_bounds" {
   command = plan
@@ -1320,85 +1310,6 @@ run "worker_keda_paused_replica_count_warns_when_inert" {
   }
 
   expect_failures = [check.worker_keda_paused_replica_count_requires_pause]
-}
-
-# keda.worker.pause has no effect on a chart that predates 1.12.0
-# (n8n-hosting#177). examples/worker-pools pins exactly this shape.
-run "worker_keda_pause_warns_on_a_chart_that_predates_it" {
-  command = plan
-
-  variables {
-    n8n_chart_version     = "1.11.0-preview.workerpools.1"
-    n8n_worker_keda_pause = true
-  }
-
-  assert {
-    condition     = local.n8n_worker_keda_pause_supported == false
-    error_message = "A 1.11.x preview build must not count as pause-capable, even though its string sorts after 1.1x."
-  }
-
-  expect_failures = [check.worker_keda_pause_requires_a_supported_chart]
-}
-
-# Chart 1.12.0 reads keda.worker.pause but still renders the worker's
-# spec.replicas, so a later Helm upgrade while paused overrides the held count.
-run "worker_keda_pause_warns_on_chart_1_12_0" {
-  command = plan
-
-  variables {
-    n8n_chart_version     = "1.12.0"
-    n8n_worker_keda_pause = true
-  }
-
-  expect_failures = [check.worker_keda_pause_requires_a_supported_chart]
-}
-
-# A preview off the 1.13 line is new enough; the prerelease suffix is ignored.
-run "worker_keda_pause_allowed_on_a_1_13_preview" {
-  command = plan
-
-  variables {
-    n8n_chart_version     = "1.13.0-preview.1"
-    n8n_worker_keda_pause = true
-  }
-
-  assert {
-    condition     = local.n8n_worker_keda_pause_supported
-    error_message = "A 1.13.x prerelease must count as pause-capable."
-  }
-}
-
-# A future major is new enough without a minor >= 13.
-run "worker_keda_pause_allowed_on_a_future_major" {
-  command = plan
-
-  variables {
-    n8n_chart_version     = "2.0.0"
-    n8n_worker_keda_pause = true
-  }
-
-  assert {
-    condition     = local.n8n_worker_keda_pause_supported
-    error_message = "A chart major above 1 must count as pause-capable."
-  }
-}
-
-# A custom chart repository's version numbering is not verifiable against
-# upstream, so the guard stays silent there rather than guessing.
-run "worker_keda_pause_allowed_on_a_custom_chart_repository" {
-  command = plan
-
-  variables {
-    n8n_chart_repository  = "oci://registry.example.com/charts"
-    n8n_chart_version     = "1.11.0"
-    n8n_worker_keda_pause = true
-  }
-
-  # No expect_failures: this run must NOT warn.
-  assert {
-    condition     = local.n8n_worker_keda_pause_supported
-    error_message = "A custom chart repository must not trigger the chart-version pause guard."
-  }
 }
 
 # ── Capacity model: main sidecar allowance is chart-version-gated ──────────
@@ -1892,7 +1803,7 @@ run "worker_pools_with_prerelease_chart_plans_cleanly" {
   variables {
     n8n_chart_version = "1.11.0-preview.workerpools.1"
     n8n_worker_pools = [
-      { name = "heavy", min_replicas = 1, max_replicas = 4, concurrency = 5 },
+      { name = "heavy", min_replicas = 1, max_replicas = 4 },
     ]
   }
 
@@ -2031,6 +1942,22 @@ run "worker_pools_reject_unsupported_cpu_quantity" {
   }
 
   expect_failures = [var.n8n_worker_pools]
+}
+
+run "worker_extra_env_accepts_valid_entries" {
+  command = plan
+
+  variables {
+    n8n_worker_extra_env = [
+      { name = "N8N_DEFAULT_LOCALE", value = "de" },
+      { name = "N8N_PAYLOAD_SIZE_MAX", value = "32" },
+    ]
+  }
+
+  assert {
+    condition     = length(keys(local.n8n_worker_extra_env_map)) == 2 && lookup(local.n8n_worker_extra_env_map, "N8N_DEFAULT_LOCALE", null) == "de" && lookup(local.n8n_worker_extra_env_map, "N8N_PAYLOAD_SIZE_MAX", null) == "32"
+    error_message = "local.n8n_worker_extra_env_map must merge n8n_worker_extra_env entries into a name->value map for env.worker."
+  }
 }
 
 run "worker_extra_env_rejects_pool_name_var" {

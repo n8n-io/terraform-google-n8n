@@ -62,8 +62,9 @@ edition that supports single-main.
 2. Set `n8n_main_hpa_min_replicas = 1` (or `n8n_main_fixed_replicas = 1` with
    the HPA disabled) and `terraform apply`.
 3. **Expected result:** `n8n-main` scales to exactly 1 replica, rollout
-   strategy is `Recreate`, the main PodDisruptionBudget's `minAvailable` is
-   `0`, and `multiMain.enabled` is `false` (`kubectl get deployment n8n-main -o
+   strategy is `Recreate`, no main PodDisruptionBudget exists (the chart
+   renders none at one replica, decision 0004), and `multiMain.enabled` is
+   `false` (`kubectl get deployment n8n-main -o
    jsonpath='{.spec.strategy.type}'`, `kubectl get pdb -n <namespace>`).
 4. Trigger a rollout (e.g. `kubectl rollout restart deployment/n8n-main -n
    <namespace>`) and confirm the editor and REST API are briefly unreachable
@@ -72,8 +73,8 @@ edition that supports single-main.
    again.
 
 **Status: partial.** Steps 1 to 3 passed twice on a disposable deployment:
-once through `n8n_main_hpa_min_replicas = 1` (Recreate, PDB 0, HPA clamped to
-1/1) and once through `n8n_main_hpa_enabled = false` with
+once through `n8n_main_hpa_min_replicas = 1` (Recreate, no main PDB, HPA
+clamped to 1/1) and once through `n8n_main_hpa_enabled = false` with
 `n8n_main_fixed_replicas = 1` (no main HPA rendered). The Recreate swap
 produced about 22 to 36 seconds of editor/API unavailability in each run;
 worker and webhook-processor pods were unaffected when only the main template
@@ -95,16 +96,17 @@ harmless test schedule; other submissions and queues must remain idle.
 2. Stage one: set `n8n_main_leader_election_enabled = true` while holding the
    selected count at one. **Expected result:** old process exits before the
    replacement starts, exactly one election-enabled main becomes Ready, strategy
-   remains `Recreate`, PDB minimum remains 0, and a managed main HPA remains
-   min/max 1/1. Chart `multiMain.enabled` stays false; the literal election flag
-   comes from module-owned `config.extraEnv` on all three n8n roles. Verify
+   remains `Recreate`, no main PodDisruptionBudget exists, and a managed main HPA
+   remains min/max 1/1. Chart `multiMain.enabled` stays false; the literal election flag
+   comes from `local.n8n_main_election_staging_env`, merged into the chart's
+   `env.shared` map, which reaches all three n8n roles. Verify
    worker/webhook health and role behavior, the license, queue execution, and
    convergence. Above one replica, verify that the staging literal disappears
    and the chart's main-only ConfigMap election reference takes over.
 3. Stage two: keep election explicitly true and separately increase replicas.
    **Expected result:** no election-disabled pod exists before scaling begins;
-   every main started during scaling is election-enabled. PDB minimum returns
-   to 1, strategy returns to the chart default, and managed HPA limits return
+   every main started during scaling is election-enabled. The chart's main
+   PodDisruptionBudget (`minAvailable: 1`) now renders again, strategy returns to the chart default, and managed HPA limits return
    to their configured values. Both mains, workers, webhooks, and queue
    execution must recover; final Terraform plan must converge.
 4. In an approved scheduling regression, use one harmless schedule with a unique
@@ -123,7 +125,8 @@ both ownership paths (managed HPA 1/1 to 2/20, and fixed replicas 1 to 2 with
 the HPA disabled). In every run the old election-disabled process exited before
 its replacement started, exactly one election-enabled main became Ready at stage
 one (all three roles rolled once because the literal flag is emitted through
-`config.extraEnv`), and no election-disabled pod existed during the scale-up.
+`local.n8n_main_election_staging_env`/`env.shared`), and no election-disabled
+pod existed during the scale-up.
 Observed detail worth knowing: during the stage-two scale-up Kubernetes first
 scaled the *previous* ReplicaSet (the stage-one, election-enabled template) to
 two before the new ReplicaSet took over. That controller behaviour is exactly
@@ -421,7 +424,8 @@ cleanup of the workflow and its executions.
    `cooldownPeriod` only governs scale-to-zero).
 4. Note whether the additional workers processed any jobs. With the defaults
    they will not: effective worker concurrency is 100 (see
-   `n8n_worker_concurrency`), so one worker absorbs the whole test load.
+   `n8n_execution_concurrency_limit`), so one worker absorbs the whole test
+   load.
 5. Delete the workflow and its executions and verify both are absent.
 
 **Status: passed** on a disposable deployment with n8n 2.38.7: 13 jobs drove

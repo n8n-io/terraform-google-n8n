@@ -216,19 +216,6 @@ file. Use `command = plan` unless you specifically need apply semantics.
   counts/other plan-known attributes, or drop the assertion and note that it
   needs a real `apply`.
 
-- **The pinned n8n Helm chart renders `imagePullSecrets` nowhere** (not on the
-  pod spec, not on the ServiceAccount it creates), so a private image registry
-  has no way in through chart values alone. The fix is to take over the
-  ServiceAccount only when there is something to attach
-  (`length(var.n8n_image_pull_secrets) > 0`), under a **different name** than
-  the chart's own default, and flip the chart's `serviceAccount.create` to
-  `false` while pointing `serviceAccount.name` at the module-managed one. A
-  shared name would collide with the account Helm still owns on the apply
-  that first sets the pull secrets (`serviceaccounts "x" already exists`).
-  Carry over any annotation the chart's own account would have had (e.g. a
-  Workload Identity binding), since ownership moving off the chart also moves
-  responsibility for that annotation.
-
 - **A `dynamic` block whose label matches its own nested attribute name still
   resolves correctly with an explicit `iterator`.** E.g. `kubernetes_ingress_v1`
   `http` rule paths: the `path { path = ..., path_type = ..., backend {...} }`

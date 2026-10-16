@@ -11,9 +11,9 @@ cloud_dns_zone_name     = "my-cloud-dns-zone" # empty = manage the A-record your
 # Requires org-policy admin rights; otherwise leave false and disable it manually.
 # manage_sa_key_org_policy = true
 
-# Pin the n8n version. Unset, the chart's own default tag is used: its appVersion
-# (2.41.4 at chart 1.14.0), which only moves when the module's n8n_chart_version
-# does. Pin it to upgrade n8n independently of the chart.
+# Pin the n8n version. Unset, the chart's own default tag is used: its appVersion,
+# which only moves when the module's n8n_chart_version does. Pin it to upgrade
+# n8n independently of the chart.
 # n8n_image_tag = "2.39.7"
 
 # ── Sizing (large) , override any of these; defaults shown ────────────────────
@@ -28,7 +28,6 @@ cloud_dns_zone_name     = "my-cloud-dns-zone" # empty = manage the A-record your
 # gke_node_disk_size_gb           = 100
 # gke_node_disk_type              = "pd-balanced"
 # db_postgresdb_pool_size         = 10
-# n8n_worker_concurrency          = 20
 # n8n_worker_keda_min_replicas    = 3
 # n8n_worker_keda_max_replicas    = 80
 # n8n_main_hpa_min_replicas       = 3

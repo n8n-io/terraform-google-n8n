@@ -4,10 +4,11 @@
 # shutdown default, and the n8n_extra_env reserved-name expansion that comes
 # with them.
 #
-# config.extraEnv's actual rendered content lives inside helm_release.n8n.values
-# (a JSON-encoded string, unknown at plan time under the mock provider because
-# it depends on kubernetes_namespace - see AGENTS.md's known mock-provider
-# limitations), so most of this is asserted at the variable-contract layer,
+# env.shared/env.worker's actual rendered content lives inside
+# helm_release.n8n.values (a JSON-encoded string, unknown at plan time under
+# the mock provider because it depends on kubernetes_namespace - see
+# AGENTS.md's known mock-provider limitations), so most of this is asserted
+# at the variable-contract layer,
 # mirroring the existing OpenTelemetry/log-streaming/External-Secrets test
 # pattern. To verify the Helm values end-to-end: run `terraform plan` from
 # examples/small/ with these variables set and inspect the helm_release.n8n
@@ -135,23 +136,24 @@ run "image_pull_policy_rejects_invalid_value" {
   expect_failures = [var.n8n_image_pull_policy]
 }
 
-# ── Image pull Secrets and ServiceAccount ownership ───────────────────────────
+# ── Image pull Secrets ────────────────────────────────────────────────────────
+# Chart 2.0 renders imagePullSecrets natively (n8n-io/n8n-hosting#180), so the
+# module passes var.n8n_image_pull_secrets straight through as a chart value;
+# it no longer takes over the ServiceAccount from the chart. The Workload
+# Identity binding therefore targets var.n8n_kube_svc_account unconditionally,
+# whether or not pull secrets are set (asserted below instead of a
+# module-managed ServiceAccount resource, which no longer exists).
 
-run "image_pull_secrets_default_to_empty_and_chart_owns_service_account" {
+run "image_pull_secrets_defaults_to_empty" {
   command = plan
 
   assert {
     condition     = length(var.n8n_image_pull_secrets) == 0
     error_message = "n8n_image_pull_secrets should default to an empty list."
   }
-
-  assert {
-    condition     = length(kubernetes_service_account_v1.n8n) == 0
-    error_message = "No module-managed ServiceAccount should be created when n8n_image_pull_secrets is empty; the chart creates its own."
-  }
 }
 
-run "image_pull_secrets_move_service_account_ownership_to_module" {
+run "image_pull_secrets_does_not_move_service_account_ownership" {
   command = plan
 
   variables {
@@ -160,13 +162,8 @@ run "image_pull_secrets_move_service_account_ownership_to_module" {
   }
 
   assert {
-    condition     = length(kubernetes_service_account_v1.n8n) == 1
-    error_message = "A module-managed ServiceAccount should be created when n8n_image_pull_secrets is non-empty."
-  }
-
-  assert {
-    condition     = kubernetes_service_account_v1.n8n[0].metadata[0].name == "n8n-pull"
-    error_message = "The module-managed ServiceAccount should use a name distinct from the chart's default (n8n) to avoid a collision on an already-applied stack."
+    condition     = google_service_account_iam_member.n8n_workload_identity.member == "serviceAccount:test-project.svc.id.goog[n8n/n8n]"
+    error_message = "Setting n8n_image_pull_secrets must not change which ServiceAccount the Workload Identity binding targets; the chart always owns var.n8n_kube_svc_account."
   }
 }
 
@@ -223,7 +220,7 @@ run "image_pull_secrets_accepts_max_length_label" {
   }
 
   assert {
-    condition     = length(kubernetes_service_account_v1.n8n) == 1
+    condition     = length(var.n8n_image_pull_secrets) == 1
     error_message = "A 63-character label is valid and must be accepted."
   }
 }

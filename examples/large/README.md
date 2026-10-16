@@ -13,7 +13,6 @@ Sizing vs the module defaults (small):
 | Memorystore | BASIC, 1 GB | STANDARD_HA, 8 GB |
 | Node type | `e2-standard-4` | `e2-standard-16` |
 | Nodes / zone | 1 -> 2 | 3 -> 10 |
-| Worker concurrency | 10 | 20 |
 | KEDA workers | 1 -> 10 | 3 -> 80 |
 | Main HPA | 2 -> 20 | 3 -> 20 |
 | Webhook HPA | 2 -> 50 | 5 -> 80 |
@@ -150,7 +149,7 @@ See [`docs/destroy-cleanup.md`](../../docs/destroy-cleanup.md) for the full tear
 | Name | Description | Type | Default | Required |
 | ---- | ----------- | ---- | ------- | :------: |
 | <a name="input_cloud_dns_zone_name"></a> [cloud\_dns\_zone\_name](#input\_cloud\_dns\_zone\_name) | Google Cloud DNS managed-zone name for n8n\_fqdn. Empty means you manage the A-record yourself against the static\_ip output. | `string` | `""` | no |
-| <a name="input_db_postgresdb_pool_size"></a> [db\_postgresdb\_pool\_size](#input\_db\_postgresdb\_pool\_size) | Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10, which already covers this tier's rule-of-thumb floor of n8n\_worker\_concurrency / 4 (20 / 4 = 5); raise it only after a load test shows pool exhaustion. | `number` | `10` | no |
+| <a name="input_db_postgresdb_pool_size"></a> [db\_postgresdb\_pool\_size](#input\_db\_postgresdb\_pool\_size) | Maximum TypeORM connection pool slots per n8n pod, passed straight through to the module. Defaults to the module's own default of 10; raise it only after a load test shows pool exhaustion against this tier's n8n\_execution\_concurrency\_limit (400). | `number` | `10` | no |
 | <a name="input_friendly_name_prefix"></a> [friendly\_name\_prefix](#input\_friendly\_name\_prefix) | Prefix used to derive the name of every Google Cloud resource the module creates. | `string` | `"large"` | no |
 | <a name="input_gcp_region"></a> [gcp\_region](#input\_gcp\_region) | GCP region (e.g. us-east4, us-east1, europe-west1). | `string` | `"us-east4"` | no |
 | <a name="input_gcs_force_destroy"></a> [gcs\_force\_destroy](#input\_gcs\_force\_destroy) | Allow terraform destroy to delete the (non-empty) GCS bucket. | `bool` | `false` | no |
@@ -165,13 +164,12 @@ See [`docs/destroy-cleanup.md`](../../docs/destroy-cleanup.md) for the full tear
 | <a name="input_n8n_additional_domains"></a> [n8n\_additional\_domains](#input\_n8n\_additional\_domains) | Additional hostnames to give the full main/webhook route set alongside n8n\_fqdn. Passed straight through to the module's n8n\_additional\_domains. Default empty (no aliases). | `list(string)` | `[]` | no |
 | <a name="input_n8n_execution_concurrency_limit"></a> [n8n\_execution\_concurrency\_limit](#input\_n8n\_execution\_concurrency\_limit) | n8n production execution concurrency limit. | `number` | `400` | no |
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. | `string` | n/a | yes |
-| <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n image tag to deploy, passed straight through to the module's n8n\_image\_tag. Null (the default) keeps the chart's own default tag: its appVersion (2.41.4 at chart 1.14.0), which only moves when the module's n8n\_chart\_version does. Pin a concrete version (for example "2.39.7") to upgrade n8n independently of the chart. | `string` | `null` | no |
+| <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n image tag to deploy, passed straight through to the module's n8n\_image\_tag. Null (the default) keeps the chart's own default tag: its appVersion, which only moves when the module's n8n\_chart\_version does. Pin a concrete version (for example "2.39.7") to upgrade n8n independently of the chart. | `string` | `null` | no |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key (multi-main requires Enterprise). | `string` | `""` | no |
 | <a name="input_n8n_main_hpa_min_replicas"></a> [n8n\_main\_hpa\_min\_replicas](#input\_n8n\_main\_hpa\_min\_replicas) | Main-pod HPA floor. | `number` | `3` | no |
 | <a name="input_n8n_redis_timeout_threshold_ms"></a> [n8n\_redis\_timeout\_threshold\_ms](#input\_n8n\_redis\_timeout\_threshold\_ms) | Milliseconds n8n waits for a Redis response before treating the connection as failed. Must be at least 30000 (30s) when redis\_tier = STANDARD\_HA. | `number` | `30000` | no |
 | <a name="input_n8n_webhook_hpa_max_replicas"></a> [n8n\_webhook\_hpa\_max\_replicas](#input\_n8n\_webhook\_hpa\_max\_replicas) | Webhook-processor HPA ceiling. | `number` | `80` | no |
 | <a name="input_n8n_webhook_hpa_min_replicas"></a> [n8n\_webhook\_hpa\_min\_replicas](#input\_n8n\_webhook\_hpa\_min\_replicas) | Webhook-processor HPA floor. | `number` | `5` | no |
-| <a name="input_n8n_worker_concurrency"></a> [n8n\_worker\_concurrency](#input\_n8n\_worker\_concurrency) | Concurrent executions per worker pod. | `number` | `20` | no |
 | <a name="input_n8n_worker_keda_max_replicas"></a> [n8n\_worker\_keda\_max\_replicas](#input\_n8n\_worker\_keda\_max\_replicas) | KEDA worker ceiling (pair with gke\_node\_max\_per\_zone). | `number` | `80` | no |
 | <a name="input_n8n_worker_keda_min_replicas"></a> [n8n\_worker\_keda\_min\_replicas](#input\_n8n\_worker\_keda\_min\_replicas) | KEDA worker floor. | `number` | `3` | no |
 | <a name="input_postgres_availability_type"></a> [postgres\_availability\_type](#input\_postgres\_availability\_type) | REGIONAL (HA failover) or ZONAL. | `string` | `"REGIONAL"` | no |

@@ -7,6 +7,13 @@
 # Usage: tests/scripts/chart-values-diff.sh <candidate-version>
 #   e.g. tests/scripts/chart-values-diff.sh 1.12.0
 #
+# N8N_CHART_DIR=/path/to/n8n-hosting/charts/n8n: reads the candidate side
+# from that local chart checkout's values.yaml instead of pulling
+# <candidate-version> from the registry (chart 2.0 is unreleased at the time
+# this script targets it, n8n-io/n8n-hosting#250). <candidate-version> is
+# still required and used only to label the diff output in this mode. The
+# pinned side always comes from the registry.
+#
 # Exit codes:
 #   0  both `helm show values` calls succeeded and diff ran (regardless of
 #      whether a diff was found)
@@ -48,11 +55,21 @@ if ! helm show values "${chart_repository}/n8n" --version "$pinned_version" >"$p
   exit 1
 fi
 
-echo "==> helm show values ${chart_repository}/n8n --version ${candidate_version}"
-if ! helm show values "${chart_repository}/n8n" --version "$candidate_version" >"$candidate_file" 2>&1; then
-  echo "chart-values-diff.sh: helm show values failed for the candidate version (${candidate_version})" >&2
-  echo "  see output above (network issue, or that version does not exist)" >&2
-  exit 1
+if [ -n "${N8N_CHART_DIR:-}" ]; then
+  echo "NOTICE: N8N_CHART_DIR=${N8N_CHART_DIR} is set; reading the candidate side from that local chart checkout instead of pulling ${candidate_version} from the registry." >&2
+  echo "==> helm show values ${N8N_CHART_DIR}"
+  if ! helm show values "${N8N_CHART_DIR}" >"$candidate_file" 2>&1; then
+    echo "chart-values-diff.sh: helm show values failed for local chart dir ${N8N_CHART_DIR}" >&2
+    echo "  see output above" >&2
+    exit 1
+  fi
+else
+  echo "==> helm show values ${chart_repository}/n8n --version ${candidate_version}"
+  if ! helm show values "${chart_repository}/n8n" --version "$candidate_version" >"$candidate_file" 2>&1; then
+    echo "chart-values-diff.sh: helm show values failed for the candidate version (${candidate_version})" >&2
+    echo "  see output above (network issue, or that version does not exist)" >&2
+    exit 1
+  fi
 fi
 
 echo "==> diff: pinned (${pinned_version}) vs candidate (${candidate_version})"

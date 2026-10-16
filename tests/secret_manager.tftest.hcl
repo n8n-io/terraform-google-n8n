@@ -1,7 +1,7 @@
 # Plan-time tests for section 9: n8n's External Secrets master switch and
 # update interval, and Google Secret Manager access for the n8n Workload
 # Identity service account (secret-scoped IAM only, driven by a required,
-# wildcard-free allow-list). config.extraEnv's actual rendered content lives
+# wildcard-free allow-list). env.shared/env.worker's actual rendered content lives
 # inside helm_release.n8n.values (a JSON-encoded string, unknown at plan time
 # under the mock provider - see AGENTS.md's known mock-provider limitations),
 # so External Secrets env-var wiring is asserted at the variable contract
