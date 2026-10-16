@@ -258,6 +258,14 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- `check.gke_capacity_cpu_fits_requested_replicas` and
+  `check.gke_capacity_memory_fits_requested_replicas` now count
+  `n8n_worker_keda_paused_replica_count` while `n8n_worker_keda_pause` is true
+  (and the module manages the worker `ScaledObject`), via the shared
+  `local.capacity_worker_modeled_max_replicas` that the PostgreSQL
+  connection-budget check also uses. A paused count above
+  `n8n_worker_keda_max_replicas` no longer hides an over-capacity node pool.
+  Advisory checks only; plan and apply are unaffected.
 - Module-created Cloud KMS keys for Cloud SQL, Memorystore, and GCS
   (`google_kms_crypto_key.postgres`, `.redis`, and `.gcs`) now carry the
   module's standard labels (`local.gcp_labels`, including `common_labels`),
