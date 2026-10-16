@@ -1,8 +1,9 @@
 # Plan-time tests for the section 8 namespace, Kubernetes Secret, and
 # Workload Identity ownership: count-gating the namespace (create_namespace),
-# every existing-Secret reference (license, core, PostgreSQL, Redis, GCS), the
-# core-Secret/separate-license-Secret contract, and the effective Workload
-# Identity binding for managed and existing GKE/namespace combinations.
+# every existing-Secret reference (license, core, PostgreSQL, Redis, GCS),
+# core-Secret and license-Secret ownership independence, and the effective
+# Workload Identity binding for managed and existing GKE/namespace
+# combinations.
 
 # mock_data "google_container_cluster" defaults to a compatible cluster
 # (VPC-native, Workload Identity enabled); the existing-GKE cross-project
@@ -203,7 +204,7 @@ run "existing_core_secret_creates_no_managed_secret_or_key" {
   }
 }
 
-run "existing_core_secret_without_license_secret_ref_fails_validation" {
+run "existing_core_secret_with_direct_license_key_plans_cleanly" {
   command = plan
 
   variables {
@@ -211,7 +212,20 @@ run "existing_core_secret_without_license_secret_ref_fails_validation" {
     # n8n_license_key_secret_ref intentionally unset; n8n_license_key (default var) still set.
   }
 
-  expect_failures = [var.existing_n8n_core_secret_name]
+  assert {
+    condition     = length(kubernetes_secret.n8n) == 0
+    error_message = "An existing core Secret must not create the module-managed core Secret."
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 1
+    error_message = "A direct n8n_license_key must still create its own managed license Secret when the caller owns the core Secret; the two are independent."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == "n8n-license-secret"
+    error_message = "The effective license Secret name must point at the managed Secret even with an existing core Secret."
+  }
 }
 
 # ── Direct encryption-key continuity ──────────────────────────────────────────

@@ -256,14 +256,14 @@ this project adheres to the stability contract in
   (Ports
   [n8n-io/terraform-azurerm-n8n#45](https://github.com/n8n-io/terraform-azurerm-n8n/pull/45)).
 - **Breaking:** default `n8n_chart_version` moves to `2.0.0`, tracking
-  n8n-hosting's chart 2.0
-  ([n8n-hosting#250](https://github.com/n8n-io/n8n-hosting/pull/250), still
-  unreleased as of this entry). This module drops chart 1.x support with
-  this release: there is no dual 1.x/2.x code path, and a chart pinned
-  below `2.0.0` is unsupported. Internally the module now folds
-  `n8n_extra_env`, `n8n_worker_extra_env`, and
-  `n8n_worker_pools[*].extra_env` into the chart's per-component `env.shared`/
-  `env.worker` maps instead of `config.extraEnv`/`queueMode.workerExtraEnv`;
+  n8n-hosting's chart 2.0 line (merged to `main`, still unreleased as of
+  this entry). This module drops chart 1.x support with this release:
+  there is no dual 1.x/2.x code path, and a chart pinned below `2.0.0` is
+  unsupported. Internally the module now folds `n8n_extra_env`,
+  `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` into the
+  chart's per-component `env.shared`/`env.worker` maps instead of
+  `config.extraEnv`/`queueMode.workerExtraEnv`
+  ([n8n-hosting#250](https://github.com/n8n-io/n8n-hosting/pull/250));
   these module inputs keep the same `{ name, value }` shape, so this is an
   internal rendering change, not an interface change. The module-managed
   core Secret now needs, and the chart now reads, only
@@ -271,11 +271,52 @@ this project adheres to the stability contract in
   longer read from it (the module already sets explicit public URLs, so
   this changes nothing observable). Every n8n pod rolls once on this
   upgrade because its environment moves into the chart's new
-  per-component ConfigMaps. See
+  per-component ConfigMaps. Also verified against every other chart-2.0
+  change merged alongside #250: native `imagePullSecrets` (#180, see the
+  next entry), workers/webhook processors starting through the image
+  entrypoint (#241), worker probes moving to the queue health endpoint
+  (#233), and the chart failing the render on a retired values key (#247);
+  this module's rendered values hit none of the retired keys. See
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#moving-from-chart-1x-to-20)
   for the full contract. Nothing here has been applied to a live
-  deployment; this is a code and documentation change against the open
-  upstream PR.
+  deployment; this is a code and documentation change against an
+  unreleased chart line.
+- **Breaking:** the module no longer sets `pdb.enabled`/`pdb.minAvailable` on
+  the chart's main Helm values; chart 2.0 gates its own main
+  `PodDisruptionBudget` on whether main can run more than one pod
+  ([decision 0004](https://github.com/n8n-io/n8n-hosting/blob/main/charts/n8n/decisions/0004-pdb-needs-a-second-main-pod.md)),
+  so the chart's default (`pdb.enabled: true`, `pdb.minAvailable: 1`) now
+  achieves natively what the module previously set
+  `pdb.minAvailable = 0` for: at one main replica the chart renders no PDB
+  at all, so a node drain can still evict the sole main pod; multi-main
+  keeps the chart's `minAvailable: 1` floor unchanged. No module action is
+  needed in either topology. See
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#main-poddisruptionbudget-follows-the-chart).
+- **Breaking:** `n8n_image_pull_secrets` now maps directly to the chart's
+  native `imagePullSecrets` value (chart 2.0,
+  [n8n-hosting#180](https://github.com/n8n-io/n8n-hosting/pull/180)) instead
+  of moving ownership of the n8n Kubernetes ServiceAccount from the chart to
+  the module. That takeover was the only way in under chart 1.x (which
+  rendered `imagePullSecrets` nowhere); chart 2.0 makes it unnecessary. The
+  module no longer creates `kubernetes_service_account_v1.n8n`; the chart's
+  own ServiceAccount (`var.n8n_kube_svc_account`) stays annotated for
+  Workload Identity either way. If a previous apply set
+  `n8n_image_pull_secrets`, this upgrade destroys the module-managed
+  `<n8n_kube_svc_account>-pull` account and the chart creates
+  `n8n_kube_svc_account` in its place; no pod spec or Workload Identity
+  behavior changes. See
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#image-pull-secrets-attach-through-a-chart-native-value-now).
+- `existing_n8n_core_secret_name` no longer requires
+  `n8n_license_key_secret_ref`. That requirement was a module-invented rule,
+  not a chart one: the chart's only license/Secret-name rule is that
+  `license.activationKey` and `secretRefs.existingSecret` must not name the
+  same Secret, and this module never sets `license.activationKey` (a direct
+  `n8n_license_key` always wraps into the module's own
+  `kubernetes_secret.n8n_license`, read via `license.existingSecret`).
+  `existing_n8n_core_secret_name` and a direct `n8n_license_key` now plan
+  cleanly together; `n8n_license_key` and `n8n_license_key_secret_ref`
+  remain mutually exclusive. See
+  [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#license-no-longer-requires-its-own-secret-alongside-an-existing-core-secret).
 
 ### Removed
 
@@ -292,6 +333,9 @@ this project adheres to the stability contract in
   `n8n_execution_concurrency_limit` to the concurrency you actually want.
   See
   [`docs/upgrading-n8n.md`](./docs/upgrading-n8n.md#n8n_worker_concurrency-is-removed).
+- **Breaking:** `kubernetes_service_account_v1.n8n` (the module-managed
+  ServiceAccount takeover for `n8n_image_pull_secrets`) is removed; see the
+  matching "Changed" entry for `n8n_image_pull_secrets` above.
 
 ### Fixed
 

@@ -10,8 +10,9 @@
 # right fragment (that is covered by the mocked plan-time `terraform test`
 # suite) and it is not a live Helm upgrade or a proof of runtime behavior.
 #
-# Chart 2.0 (n8n-io/n8n-hosting#250) replaced the nine `extraEnv`/
-# `extraEnvFrom` lists with one flat `env.<component>` map per component,
+# Chart 2.0 is the unreleased n8n-hosting `main` line (past the latest tag,
+# v1.16.0). It replaced the nine `extraEnv`/`extraEnvFrom` lists with one
+# flat `env.<component>` map per component (n8n-io/n8n-hosting#250),
 # rendered into per-component ConfigMaps that every container loads with
 # `envFrom`. Only `env`/`chartEnvOverrides` references (a value with
 # `secretKeyRef`/`configMapKeyRef`/etc.) and the chart's own Secret-sourced
@@ -41,6 +42,10 @@
 #     productionLimit conflict all fail the render with the documented
 #     replacement named, so the module cannot accidentally ship a 1.x-shaped
 #     value that the chart would now silently ignore (decision 0020).
+#   - Image pull Secrets (n8n-io/n8n-hosting#180) render natively on every
+#     n8n pod via the top-level imagePullSecrets value, and the chart's own
+#     ServiceAccount keeps its Workload Identity annotation; the module
+#     takes over no ServiceAccount from the chart.
 #   - The self-check below proves an intentionally wrong expected value is
 #     actually caught (a real assertion failure), not a check that always
 #     passes.
@@ -49,10 +54,11 @@
 #   N8N_CHART_DIR=/path/to/n8n-hosting/charts/n8n tests/scripts/check-n8n-chart.sh
 #     renders that local chart checkout instead of pulling
 #     CHART_REPOSITORY/CHART_NAME:CHART_VERSION from the OCI registry. Chart
-#     2.0 is unreleased at the time this script targets it
-#     (n8n-io/n8n-hosting#250); point this at a local clone during
-#     development. The CHART_VERSION == variables.tf guard below still runs
-#     either way; only the chart *source* changes.
+#     2.0 is unreleased at the time this script targets it (the current
+#     state of n8n-hosting `main`, past the latest tag); point this at a
+#     local clone of that branch during development. The CHART_VERSION ==
+#     variables.tf guard below still runs either way; only the chart
+#     *source* changes.
 # Requires: helm (any version able to pull OCI charts) and python3 (used by
 # tests/scripts/lib/tf-defaults.sh to read the module's chart pins).
 
@@ -411,10 +417,14 @@ assert_render_fails_with "$WORKDIR/fixture-concurrency-conflict.yaml" \
 
 # ── Single-main topology (task 3.1/3.3) ─────────────────────────────────────
 # A second render with the default fragments locals.tf computes for single-main
-# (n8n_single_main=true, election override null): multiMain.enabled=false, replicaCount=1,
-# strategy={type: Recreate}, and pdb.minAvailable=0. Proves the chart actually
-# turns those fragments into a Recreate main Deployment and a permissive main
-# PDB, and leaves worker/webhook replicas and strategy untouched.
+# (n8n_single_main=true, election override null): multiMain.enabled=false,
+# replicaCount=1, strategy={type: Recreate}. The module sets no pdb value at
+# all (decision 0004: the chart gates its own main PodDisruptionBudget on
+# effective main replica count / hpa.main.minReplicas); this fixture's
+# hpa.main.minReplicas=1 exercises the chart's own no-PDB-at-one-replica path.
+# Proves the chart actually turns these fragments into a Recreate main
+# Deployment with no PodDisruptionBudget, and leaves worker/webhook replicas
+# and strategy untouched.
 cat >"$WORKDIR/fixture-single-main.yaml" <<'EOF'
 multiMain:
   enabled: false
@@ -454,9 +464,6 @@ hpa:
     minReplicas: 1
     maxReplicas: 1
     targetCPUUtilizationPercentage: 60
-pdb:
-  enabled: true
-  minAvailable: 0
 secretRefs:
   existingSecret: synthetic-core-secret
 license:
@@ -509,21 +516,20 @@ else
   }
 
   # assert_pdb_absent <file>
-  # OUT-OF-SCOPE-RENDER-FINDING: templates/pdb.yaml on this branch only
-  # renders the main PodDisruptionBudget when main replicas > 1 OR
-  # hpa.main.minReplicas > 1 (a change unrelated to #250's env/Secret/URL/
-  # concurrency work, not fixed here). At one main replica with
-  # hpa.main.minReplicas=1 (this fixture's single-main/election-staging
-  # shape) the chart renders no PodDisruptionBudget at all, instead of 1.x's
-  # permissive `minAvailable: 0` PDB. Both are functionally equivalent (full
-  # eviction allowed), so this is re-expressed as an absence check rather
-  # than fixed or worked around.
+  # decisions/0004-pdb-needs-a-second-main-pod.md: templates/pdb.yaml
+  # intentionally renders the main PodDisruptionBudget only when main can
+  # run more than one pod (effective replicas > 1, or hpa.main enabled with
+  # minReplicas > 1). At one main replica with hpa.main.minReplicas=1 (this
+  # fixture's single-main/election-staging shape) the chart renders no
+  # PodDisruptionBudget at all, so a node drain can evict the sole main
+  # pod without the module setting anything; this is the intended
+  # chart-native replacement for the module's old pdb.minAvailable=0 value.
   assert_pdb_absent() {
     local file="$1"
     if grep -q '^kind: PodDisruptionBudget$' "$file"; then
       fail "PodDisruptionBudget: expected none (main replicas/hpa min both 1), found one"
     else
-      pass "no PodDisruptionBudget rendered (main replicas/hpa min both 1; functionally equivalent to 1.x's permissive minAvailable: 0)"
+      pass "no PodDisruptionBudget rendered (main replicas/hpa min both 1; chart-native drain-friendly single-main, decision 0004)"
     fi
   }
 
@@ -623,6 +629,26 @@ assert_deployment_strategy_absent_in_default() {
   fi
 }
 assert_deployment_strategy_absent_in_default
+
+# decisions/0004-pdb-needs-a-second-main-pod.md: with the module's default
+# multi-main shape (effective main replicas = 2 > 1), the chart renders
+# exactly one main PodDisruptionBudget at its own default minAvailable: 1
+# (the module sets no pdb value at all; see helm-chart-coverage.md's pdb row).
+assert_pdb_min_available() {
+  local file="$1" name="$2" expected="$3" count actual
+  count="$(grep -c '^kind: PodDisruptionBudget$' "$file" || true)"
+  if [ "$count" != "1" ]; then
+    fail "PodDisruptionBudget: expected exactly 1 rendered, found ${count}"
+    return
+  fi
+  actual="$(manifest_block "$file" PodDisruptionBudget "$name" | sed -nE 's/^  minAvailable: (.*)$/\1/p' | head -1)"
+  if [ "$actual" = "$expected" ]; then
+    pass "PodDisruptionBudget/${name} minAvailable == ${expected}"
+  else
+    fail "PodDisruptionBudget/${name} minAvailable: expected ${expected}, got '${actual:-<not found>}'"
+  fi
+}
+assert_pdb_min_available "$RENDERED" "n8n-main" "1"
 
 # ── Redis command/Bull prefix synchronization (task 7.1) ───────────────────
 # A third render with redis.prefix set (the chart's Bull-queue prefix) and
@@ -1139,6 +1165,41 @@ else
     fail "task runners: Deployment/n8n-webhook-processor renders a task-runner sidecar"
   else
     pass "task runners: Deployment/n8n-webhook-processor renders no task-runner sidecar"
+  fi
+fi
+
+# ── Image pull Secrets render natively, ServiceAccount stays chart-owned
+# (n8n-hosting#180, chart >= 2.0.0) ─────────────────────────────────────────
+# Chart 2.0 renders imagePullSecrets straight onto every n8n pod and the
+# Helm test pod; the module passes var.n8n_image_pull_secrets through as that
+# top-level value and no longer takes over the chart's own ServiceAccount
+# (no kubernetes_service_account_v1.n8n resource; see n8n.tf/AGENTS.md). This
+# proves the chart still creates and Workload-Identity-annotates its own
+# ServiceAccount under the module's default name while pull secrets are set.
+cat >"$WORKDIR/fixture-image-pull-secrets.yaml" <<'EOF'
+imagePullSecrets:
+  - name: ar-pull-creds
+serviceAccount:
+  create: true
+  name: n8n
+  annotations:
+    iam.gke.io/gcp-service-account: n8n-wi@test-project.iam.gserviceaccount.com
+EOF
+echo "==> helm template (image-pull-secrets fixture) ${CHART_DISPLAY}"
+if ! render_chart "$WORKDIR/rendered-image-pull-secrets.yaml" "$WORKDIR/helm-stderr-image-pull-secrets.log" n8n-chart-check -f "$WORKDIR/fixture-values.yaml" -f "$WORKDIR/fixture-image-pull-secrets.yaml"; then
+  fail "helm template (image-pull-secrets fixture) failed: $(cat "$WORKDIR/helm-stderr-image-pull-secrets.log")"
+else
+  for role in n8n-main n8n-worker n8n-webhook-processor; do
+    if manifest_block "$WORKDIR/rendered-image-pull-secrets.yaml" Deployment "$role" | grep -qF -- "- name: ar-pull-creds"; then
+      pass "image pull secrets: Deployment/${role} carries imagePullSecrets"
+    else
+      fail "image pull secrets: Deployment/${role} has no imagePullSecrets entry with n8n_image_pull_secrets set"
+    fi
+  done
+  if manifest_block "$WORKDIR/rendered-image-pull-secrets.yaml" ServiceAccount "n8n" | grep -qF "iam.gke.io/gcp-service-account: n8n-wi@test-project.iam.gserviceaccount.com"; then
+    pass "image pull secrets: the chart's own ServiceAccount/n8n keeps its Workload Identity annotation"
+  else
+    fail "image pull secrets: ServiceAccount/n8n is missing its Workload Identity annotation; the module must not take over ServiceAccount ownership (chart 2.0 owns it via serviceAccount.create=true)"
   fi
 fi
 

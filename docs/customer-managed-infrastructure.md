@@ -220,11 +220,11 @@ Typed existing-Secret references cover every credential family:
 - `existing_n8n_core_secret_name`: the chart's core-Secret contract
   (`N8N_ENCRYPTION_KEY` only; chart 2.0 no longer reads `N8N_HOST`,
   `N8N_PORT`, or `N8N_PROTOCOL` from it). When set, the module creates no
-  core Secret and generates no encryption key, and `n8n_license_key_secret_ref`
-  becomes required (the chart's core-Secret contract requires the license
-  from a separate Secret, not `n8n_license_key`).
+  core Secret and generates no encryption key.
 - `n8n_license_key_secret_ref`: the n8n Enterprise license, independent of
-  the core-Secret decision.
+  the core-Secret decision. A direct `n8n_license_key` works the same way
+  regardless of core-Secret ownership: the module always wraps it in its
+  own dedicated Secret rather than relying on the core Secret for it.
 - `n8n_database_password_secret_ref`, `redis_password_secret_ref`: as
   described above.
 - `gcs_hmac_secret_name`: the GCS HMAC secret, in BYO HMAC mode.
@@ -279,11 +279,10 @@ a substitute for the add-on's grant.
 `n8n_image_repository`/`n8n_image_tag`, `n8n_task_runner_image_repository`/
 `n8n_task_runner_image_tag`, and `n8n_chart_repository` let you point at a
 private mirror or a custom image (for example one with community packages
-baked in via `n8n_custom_extensions_path`). `n8n_image_pull_secrets` moves
-ownership of the n8n Kubernetes ServiceAccount from the Helm chart to the
-module (the pinned chart renders `imagePullSecrets` nowhere else), under a
-different name than the chart's own default; the module carries over the
-Workload Identity annotation onto the account it now owns.
+baked in via `n8n_custom_extensions_path`). `n8n_image_pull_secrets` passes
+straight through to the chart's native `imagePullSecrets` value (chart 2.0,
+n8n-io/n8n-hosting#180), attached to every n8n pod and the chart's own
+ServiceAccount; the module does not take over ServiceAccount ownership.
 
 `n8n_execution_data_storage_mode = "s3"` reuses the effective GCS bucket,
 HMAC identity, and Secret contract this module already configures for binary

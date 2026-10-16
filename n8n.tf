@@ -186,39 +186,6 @@ resource "kubernetes_secret" "n8n_s3" {
   depends_on = [kubernetes_namespace.n8n]
 }
 
-# ── n8n Kubernetes ServiceAccount (image-pull-secrets ownership) ─────────────
-# Only created when var.n8n_image_pull_secrets is non-empty; otherwise the
-# chart creates the account under its own name and this resource does not
-# exist. See local.n8n_manages_service_account for why the module ever takes
-# ownership over from the chart. Annotated for Workload Identity so the pods
-# keep authenticating to GCP APIs the same way regardless of which side
-# created the account.
-resource "kubernetes_service_account_v1" "n8n" {
-  count = local.n8n_manages_service_account ? 1 : 0
-
-  metadata {
-    name      = local.n8n_service_account_name
-    namespace = local.effective_namespace
-    annotations = {
-      "iam.gke.io/gcp-service-account" = google_service_account.n8n.email
-    }
-  }
-
-  automount_service_account_token = true
-
-  dynamic "image_pull_secret" {
-    for_each = var.n8n_image_pull_secrets
-    content {
-      name = image_pull_secret.value
-    }
-  }
-
-  depends_on = [
-    google_container_node_pool.n8n,
-    kubernetes_namespace.n8n,
-  ]
-}
-
 # ── Helm release ──────────────────────────────────────────────────────────────
 
 resource "helm_release" "n8n" {
@@ -412,13 +379,13 @@ resource "helm_release" "n8n" {
     # The n8n pods run as this KSA, annotated for Workload Identity so
     # the workload authenticates to GCP APIs (e.g. Cloud SQL) with no static key.
     # (GCS is the exception: it uses the HMAC key above, not Workload Identity.)
-    # create is false once n8n_image_pull_secrets moves ownership of the
-    # account to kubernetes_service_account_v1.n8n above (local.
-    # n8n_manages_service_account); the annotation is harmless to keep set on
-    # both branches since the chart only applies it when it creates the account.
+    # The chart always creates and annotates this account itself (chart 2.0,
+    # n8n-io/n8n-hosting#180); image-pull credentials attach via the
+    # top-level imagePullSecrets value below instead of a module-managed
+    # takeover, so there is only ever one owner of this ServiceAccount.
     serviceAccount = {
-      create = !local.n8n_manages_service_account
-      name   = local.n8n_service_account_name
+      create = true
+      name   = var.n8n_kube_svc_account
       annotations = {
         "iam.gke.io/gcp-service-account" = google_service_account.n8n.email
       }
@@ -816,14 +783,6 @@ resource "helm_release" "n8n" {
         }
     })
 
-    # ── Pod Disruption Budget ─────────────────────────────────────────────────
-    # Ensures at least one main pod stays running during node drains or
-    # rollouts, except single-main, where minAvailable=0 permits evicting the
-    # sole main replica (local.n8n_main_pdb_min_available).
-    pdb = {
-      enabled      = true
-      minAvailable = local.n8n_main_pdb_min_available
-    }
     },
     # Override the app image only where the caller asks for it; otherwise the
     # chart's own defaults apply untouched (docker.n8n.io/n8nio/n8n at the
@@ -838,6 +797,14 @@ resource "helm_release" "n8n" {
         var.n8n_image_tag == null ? {} : { tag = var.n8n_image_tag },
         var.n8n_image_pull_policy == null ? {} : { pullPolicy = var.n8n_image_pull_policy },
       )
+    },
+
+    # Image-pull credentials for a private registry (chart 2.0,
+    # n8n-io/n8n-hosting#180): the chart renders this straight onto the
+    # main, worker, webhook-processor, and Helm-test pod specs. Omitted
+    # entirely when empty so the chart's own default ([]) applies.
+    length(var.n8n_image_pull_secrets) == 0 ? {} : {
+      imagePullSecrets = [for name in var.n8n_image_pull_secrets : { name = name }]
     },
 
     # Pod DNS (task 13). Omitted entirely unless n8n_dns_config is set, so this
@@ -884,7 +851,6 @@ resource "helm_release" "n8n" {
     google_storage_hmac_key.n8n,
     google_service_account_iam_member.n8n_workload_identity,
     google_project_iam_member.n8n_cloudsql_client,
-    kubernetes_service_account_v1.n8n, # empty list unless the module owns the account
   ]
 }
 
@@ -1108,15 +1074,12 @@ check "execution_data_s3_requires_n8n_2_27" {
 }
 
 # Image pull Secrets attached with nothing that needs them: both the chart's
-# stock image and, with task runners on, its stock runner image are public and
-# need no credentials, so the secrets are attached and never used. The cost is
-# not zero: setting n8n_image_pull_secrets moves ownership of the
-# ServiceAccount from the chart to the module (see
-# local.n8n_manages_service_account).
+# stock image and, with task runners on, its stock runner image are public
+# and need no credentials, so the secrets would be attached and never used.
 check "image_pull_secrets_need_a_custom_image" {
   assert {
     condition     = length(var.n8n_image_pull_secrets) > 0 ? var.n8n_image_repository != null : true
-    error_message = "n8n_image_pull_secrets is set but n8n_image_repository is null, so every image the pods pull comes from a public registry. Neither needs credentials, so the secrets are attached and never used. The cost is not zero: setting this input moves ownership of the ServiceAccount from the chart to the module. Clear it to hand the account back, or set n8n_image_repository to the private image these credentials are for."
+    error_message = "n8n_image_pull_secrets is set but n8n_image_repository is null, so every image the pods pull comes from a public registry. Neither needs credentials, so the secrets would be attached and never used. Clear n8n_image_pull_secrets, or set n8n_image_repository to the private image these credentials are for."
   }
 }
 

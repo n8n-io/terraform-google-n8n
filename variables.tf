@@ -95,7 +95,7 @@ variable "n8n_license_key" {
 # rather than being duplicated on both, per the acyclicity rationale documented
 # on n8n_database_password_secret_ref.
 variable "n8n_license_key_secret_ref" {
-  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n_license_key. key defaults to \"license-key\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Exactly one of n8n_license_key or n8n_license_key_secret_ref is required. Also required (instead of n8n_license_key) when existing_n8n_core_secret_name is set (see existing_n8n_core_secret_name)."
+  description = "Reference to an existing Kubernetes Secret (in the n8n namespace) holding the n8n Enterprise license activation key, instead of passing the value directly through n8n_license_key. key defaults to \"license-key\" when omitted. The module never reads the referenced Secret's value; it only passes the reference through to the n8n Helm chart's license.existingSecret. Exactly one of n8n_license_key or n8n_license_key_secret_ref is required."
   type = object({
     name = string
     key  = optional(string, "license-key")
@@ -191,14 +191,9 @@ variable "n8n_encryption_key" {
 }
 
 variable "existing_n8n_core_secret_name" {
-  description = "Name of an existing Kubernetes Secret (in n8n_kube_namespace) holding N8N_ENCRYPTION_KEY - the n8n Helm chart's secretRefs.existingSecret contract. Chart 2.0 reads only this one key from that Secret: N8N_HOST, N8N_PORT, and N8N_PROTOCOL are no longer read at all (N8N_PORT comes from service.port, and n8n builds its public URLs from editor.url/webhook.url instead), so an existing Secret that still carries those three keys works unchanged; they are simply ignored. When set, the module creates no core Secret and generates no encryption key; n8n_license_key_secret_ref must then be set, because this module requires the license to come from a separate Secret, not n8n_license_key, when the caller owns the core Secret. Leave null (the default) for the module to generate the encryption key and create the core Secret itself."
+  description = "Name of an existing Kubernetes Secret (in n8n_kube_namespace) holding N8N_ENCRYPTION_KEY - the n8n Helm chart's secretRefs.existingSecret contract. Chart 2.0 reads only this one key from that Secret: N8N_HOST, N8N_PORT, and N8N_PROTOCOL are no longer read at all (N8N_PORT comes from service.port, and n8n builds its public URLs from editor.url/webhook.url instead), so an existing Secret that still carries those three keys works unchanged; they are simply ignored. When set, the module creates no core Secret and generates no encryption key. The license still works through either n8n_license_key (the module wraps it in its own dedicated Secret) or n8n_license_key_secret_ref, independent of this setting. Leave null (the default) for the module to generate the encryption key and create the core Secret itself."
   type        = string
   default     = null
-
-  validation {
-    condition     = var.existing_n8n_core_secret_name == null || var.n8n_license_key_secret_ref != null
-    error_message = "n8n_license_key_secret_ref is required when existing_n8n_core_secret_name is set; the chart's core-Secret contract requires the license to come from a separate Secret reference, not n8n_license_key."
-  }
 }
 
 # ── Ingress ownership ──────────────────────────────────────────────────────────
@@ -340,7 +335,7 @@ variable "n8n_image_pull_policy" {
 }
 
 variable "n8n_image_pull_secrets" {
-  description = "Names of existing Kubernetes Secrets of type kubernetes.io/dockerconfigjson, in the n8n namespace, that the pods authenticate to their image registry with. Leave empty (the default) unless n8n_image_repository points somewhere the node pool's default credentials cannot already reach: a public registry and Artifact Registry/Container Registry in this project both pull without credentials. Setting this moves ownership of the n8n Kubernetes ServiceAccount from the Helm chart to the module (the pinned chart renders imagePullSecrets nowhere, on the pod spec or on the ServiceAccount, so attaching the secrets to the account the pods already run as is the only way in), and the module keeps the Workload Identity annotation on the account it creates instead. Create and rotate the Secrets yourself; the module takes names, not credentials, so none of them land in Terraform state."
+  description = "Names of existing Kubernetes Secrets of type kubernetes.io/dockerconfigjson, in the n8n namespace, that the pods authenticate to their image registry with. Leave empty (the default) unless n8n_image_repository points somewhere the node pool's default credentials cannot already reach: a public registry and Artifact Registry/Container Registry in this project both pull without credentials. Maps straight to the n8n Helm chart's imagePullSecrets value (chart 2.0, n8n-io/n8n-hosting#180), attached to every n8n pod and the chart's own ServiceAccount. Create and rotate the Secrets yourself; the module takes names, not credentials, so none of them land in Terraform state."
   type        = list(string)
   default     = []
   nullable    = false
@@ -1398,7 +1393,7 @@ variable "n8n_execution_data_storage_mode" {
 # ── HPA: main pods ────────────────────────────────────────────────────────────
 
 variable "n8n_main_leader_election_enabled" {
-  description = "Override runtime main leader election (N8N_MULTI_MAIN_SETUP_ENABLED). Null preserves count-based selection: disabled at one selected replica, enabled above one. Set true while holding the selected count at one to stage a single-main to multi-main conversion; Recreate, PDB minimum 0, and the managed HPA maximum of 1 remain in effect. Apply and verify that every election-disabled main has exited before separately increasing replicas. False is accepted only at one selected replica. At one replica, the chart keeps multiMain.enabled=false because it requires at least two replicas; the module instead injects the election flag through env.shared on all n8n roles, rolling mains, workers, and webhook processors. Above one, the chart supplies its normal main-only election reference. Requires a license supporting multi-main when true. This input does not enforce ordering across applies; see docs/upgrading-n8n.md#returning-to-multi-main."
+  description = "Override runtime main leader election (N8N_MULTI_MAIN_SETUP_ENABLED). Null preserves count-based selection: disabled at one selected replica, enabled above one. Set true while holding the selected count at one to stage a single-main to multi-main conversion; Recreate and the managed HPA maximum of 1 remain in effect, and the chart renders no main PodDisruptionBudget at one replica, so drains are not blocked. Apply and verify that every election-disabled main has exited before separately increasing replicas. False is accepted only at one selected replica. At one replica, the chart keeps multiMain.enabled=false because it requires at least two replicas; the module instead injects the election flag through env.shared on all n8n roles, rolling mains, workers, and webhook processors. Above one, the chart supplies its normal main-only election reference. Requires a license supporting multi-main when true. This input does not enforce ordering across applies; see docs/upgrading-n8n.md#returning-to-multi-main."
   type        = bool
   default     = null
 
@@ -1418,7 +1413,7 @@ variable "n8n_main_hpa_enabled" {
 }
 
 variable "n8n_main_fixed_replicas" {
-  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled. A value of 1 selects single-main topology by default; n8n_main_leader_election_enabled can stage election at this count without changing Recreate or PDB behavior. See n8n_main_hpa_enabled for licensing and maintenance implications."
+  description = "Fixed replica count for n8n main pods when n8n_main_hpa_enabled = false. Ignored while the HPA is enabled. A value of 1 selects single-main topology by default; n8n_main_leader_election_enabled can stage election at this count without changing Recreate behavior or the chart's PDB gate. See n8n_main_hpa_enabled for licensing and maintenance implications."
   type        = number
   default     = 2
 
@@ -1429,7 +1424,7 @@ variable "n8n_main_fixed_replicas" {
 }
 
 variable "n8n_main_hpa_min_replicas" {
-  description = "Minimum replicas for n8n main pods. HPA will not scale below this. A value of 1 selects single-main topology by default; n8n_main_leader_election_enabled can stage election at this count while retaining Recreate, PDB minimum 0, and HPA maximum 1. See n8n_main_hpa_enabled for licensing and maintenance implications."
+  description = "Minimum replicas for n8n main pods. HPA will not scale below this. A value of 1 selects single-main topology by default; n8n_main_leader_election_enabled can stage election at this count while retaining Recreate, the chart's no-PDB-at-one-replica behavior, and HPA maximum 1. See n8n_main_hpa_enabled for licensing and maintenance implications."
   type        = number
   default     = 2
   nullable    = false

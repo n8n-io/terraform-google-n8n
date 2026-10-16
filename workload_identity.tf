@@ -19,13 +19,13 @@ resource "google_service_account" "n8n" {
 # Uses the effective (managed or existing-cluster) Workload Identity pool and
 # namespace (locals.tf / D3, D4) so the binding is correct for a cross-project
 # existing GKE cluster and for an existing (create_namespace = false) namespace.
-# local.n8n_service_account_name (not var.n8n_kube_svc_account directly) so the
-# binding follows whichever KSA is effective when n8n_image_pull_secrets moves
-# ServiceAccount ownership from the chart to the module (see locals.tf).
+# The chart always creates and names this KSA var.n8n_kube_svc_account itself
+# (n8n.tf's serviceAccount value, chart 2.0); there is no module-managed
+# takeover of that account to track here.
 resource "google_service_account_iam_member" "n8n_workload_identity" {
   service_account_id = google_service_account.n8n.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = "serviceAccount:${local.effective_gke_workload_identity_pool}[${local.effective_namespace}/${local.n8n_service_account_name}]"
+  member             = "serviceAccount:${local.effective_gke_workload_identity_pool}[${local.effective_namespace}/${var.n8n_kube_svc_account}]"
 }
 
 # Cloud SQL client role so the workload can reach the database. Cloud-SQL-only

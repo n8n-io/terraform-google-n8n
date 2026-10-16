@@ -21,13 +21,25 @@ into.
 ## Moving from chart 1.x to 2.0
 
 **Breaking module release.** The default `n8n_chart_version` moves to
-`2.0.0`, tracking n8n-hosting's chart 2.0
-([n8n-hosting#250](https://github.com/n8n-io/n8n-hosting/pull/250)). This
-module drops chart 1.x support with this release: there is no dual 1.x/2.x
-code path, and a chart pinned below `2.0.0` is no longer supported.
+`2.0.0`, tracking n8n-hosting's chart 2.0 line. This module drops chart 1.x
+support with this release: there is no dual 1.x/2.x code path, and a chart
+pinned below `2.0.0` is no longer supported.
 
-Chart 2.0 was still unreleased when this section was written; it is grounded
-in the open PR above, not a tagged release. Re-read the chart's own
+Chart 2.0 is the current state of the n8n-hosting `main` branch, past the
+last tagged release (`v1.16.0`); it has not shipped a tagged release yet.
+This module's chart 2.0 support is verified against every chart-2.0-line
+change merged to `main` as of this writing, not only the env-maps change
+below:
+[#180](https://github.com/n8n-io/n8n-hosting/pull/180) (native
+`imagePullSecrets`),
+[#241](https://github.com/n8n-io/n8n-hosting/pull/241) (workers and webhook
+processors start through the image entrypoint),
+[#233](https://github.com/n8n-io/n8n-hosting/pull/233) (worker probes move
+to the queue health endpoint),
+[#247](https://github.com/n8n-io/n8n-hosting/pull/247) (the chart fails the
+render on a retired values key instead of silently ignoring it), and
+[#250](https://github.com/n8n-io/n8n-hosting/pull/250) (env delivered as
+per-component maps, below). Re-read the chart's own
 [`UPGRADING.md`](https://github.com/n8n-io/n8n-hosting/blob/main/charts/n8n/UPGRADING.md)
 against the version you actually pin once `2.0.0` ships, in case anything
 changes before release.
@@ -114,6 +126,82 @@ instead of failing on the first. Before running `terraform apply` against
 the new chart version, render this module's effective values with
 `helm template` against the pinned chart and work through every reported
 key, rather than discovering them one `apply` at a time.
+
+### Image pull Secrets attach through a chart-native value now
+
+Chart 2.0 renders `imagePullSecrets` on every n8n pod and the Helm test pod
+([n8n-hosting#180](https://github.com/n8n-io/n8n-hosting/pull/180)).
+`n8n_image_pull_secrets` now maps straight to that value; the module no
+longer takes over the n8n Kubernetes ServiceAccount to attach the secrets
+(there was no other way in under chart 1.x). If a previous apply set
+`n8n_image_pull_secrets`, this upgrade recreates the ServiceAccount under
+the chart's own name and ownership: the module-managed
+`<n8n_kube_svc_account>-pull` account is destroyed, and the chart creates
+`n8n_kube_svc_account` (annotated for Workload Identity, same as before).
+No pod spec or Workload Identity behavior changes; only which side owns the
+ServiceAccount object does.
+
+### Workers and webhook processors start through the image entrypoint
+
+Worker and webhook-processor containers no longer set `command: ["n8n"]`,
+so they start through the image's own entrypoint, the same way main always
+has
+([n8n-hosting#241](https://github.com/n8n-io/n8n-hosting/pull/241)). This
+module sets no container `command` of its own, so no module input changes.
+If you run a custom image (`n8n_image_repository`) that replaces the n8n
+image's `ENTRYPOINT` without passing its arguments on to `n8n`, worker and
+webhook-processor pods will not start their role after this upgrade; an
+image built `FROM n8nio/n8n` that keeps the inherited entrypoint is
+unaffected. Pods mounting `/opt/custom-certificates` (not something this
+module wires up directly) now trust it on every role, not just main.
+
+### Worker probes move to the queue health endpoint
+
+Worker liveness and readiness probes move from an exec check that always
+passed (`pgrep -f 'n8n worker'` matches the probe's own shell) to the n8n
+queue health HTTP endpoint on `redis.healthCheck.port`, plus a new startup
+probe on the same endpoint
+([n8n-hosting#233](https://github.com/n8n-io/n8n-hosting/pull/233)). This
+module sets no `probes.worker.*` or `redis.healthCheck.*` value, so it
+picks up the chart's new default. After this upgrade, a worker that has
+lost its database or Redis connection actually drops out of `Ready`
+(`/healthz/readiness` answers 503) instead of staying marked healthy
+forever; a worker whose health endpoint is not up within the startup
+budget (30 attempts, 10 seconds apart) is restarted. Expect a one-time
+worker rollout on this upgrade in addition to the one already called out
+in [Every pod rolls once](#every-pod-rolls-once).
+
+### License no longer requires its own Secret alongside an existing core Secret
+
+Earlier releases of this module required `n8n_license_key_secret_ref`
+whenever `existing_n8n_core_secret_name` was set, on the theory that the
+chart's core-Secret contract required it. It does not: the chart's only
+license/Secret-name rule is that `license.activationKey` and
+`secretRefs.existingSecret` must not name the same Secret, and this module
+never sets `license.activationKey` (a direct `n8n_license_key` always wraps
+into the module's own `kubernetes_secret.n8n_license`, read via
+`license.existingSecret`). That module-invented coupling is removed:
+`existing_n8n_core_secret_name` and a direct `n8n_license_key` now plan
+cleanly together. `n8n_license_key` and `n8n_license_key_secret_ref` remain
+mutually exclusive, independent of core-Secret ownership.
+
+### Main PodDisruptionBudget follows the chart
+
+The module no longer sets `pdb.enabled`/`pdb.minAvailable` at all; the
+chart's own default (`pdb.enabled: true`, `pdb.minAvailable: 1`) applies,
+gated by the chart's own render condition
+([decision 0004](https://github.com/n8n-io/n8n-hosting/blob/main/charts/n8n/decisions/0004-pdb-needs-a-second-main-pod.md)):
+a main `PodDisruptionBudget` renders only when main can run more than one
+pod (effective main replicas > 1, or `hpa.main` enabled with
+`minReplicas > 1`). Single-main no longer has any main PDB at all: Helm
+deletes the earlier `minAvailable: 0` PDB this module used to set on this
+upgrade, since the chart itself renders none at one replica; node-drain
+behavior for the single main pod is unchanged (drains could always evict
+it, now because no PDB exists instead of a permissive one). Multi-main is
+unchanged: the chart's `minAvailable: 1` floor still applies. Note the
+chart's own caveat that a main `hpa` with `minReplicas: 1` still follows
+`replicaCount` at render time, not the HPA's live replica count, so the
+PDB gate is evaluated against the values you pass, not cluster state.
 
 ## Moving from chart 1.13.0 to 1.14.0
 
@@ -240,8 +328,8 @@ default), otherwise `n8n_main_fixed_replicas`. A selected count of `1` is
 default. `n8n_main_leader_election_enabled` can override election independently:
 `null` preserves this inference, `true` enables election even at one replica,
 and `false` is rejected above one selected replica. At a selected count of one,
-`Recreate`, PDB minimum 0, and the managed HPA maximum of 1 remain in effect
-regardless of election mode.
+`Recreate` and the managed HPA maximum of 1 remain in effect regardless of
+election mode; the chart renders no main PodDisruptionBudget at one replica.
 
 Chart `1.10.1` rejects `multiMain.enabled = true` below two replicas. During
 staging, that chart setting stays false and the module injects the literal
@@ -262,9 +350,9 @@ and apply the plan during a quiet maintenance window. This:
   does not by itself grant External Secrets, log streaming, the custom
   package registry, or object-storage entitlements.
 - Disables `multiMain`, clamps the main HPA's effective maximum to 1
-  regardless of a higher configured `n8n_main_hpa_max_replicas`, switches the
-  main Deployment's rollout `strategy` to `Recreate`, and relaxes the main
-  PodDisruptionBudget to `minAvailable = 0`.
+  regardless of a higher configured `n8n_main_hpa_max_replicas`, and switches
+  the main Deployment's rollout `strategy` to `Recreate`; the chart itself
+  renders no main PodDisruptionBudget at one replica.
 - Interrupts the editor, REST API, and scheduled triggers during any
   maintenance or rollout, since there is exactly one main pod and `Recreate`
   tears it down before starting the replacement. `Recreate` does not
@@ -307,7 +395,7 @@ for every inspection.
    example's `terraform.tfvars`.
 
    Review the plan: election changes, but the main replica count remains one,
-   strategy remains `Recreate`, PDB minimum remains 0, and a managed main HPA
+   strategy remains `Recreate`, the chart still renders no main PDB, and a managed main HPA
    remains min/max 1/1 even if its configured maximum is higher. Apply only
    this stage. Expect editor/API downtime; the environment changes also roll
    workers and webhook processors.
@@ -324,7 +412,7 @@ for every inspection.
 3. **Increase replicas in a separately reviewed apply.** Keep
    `n8n_main_leader_election_enabled = true` and raise the selected minimum or
    fixed count to two or more. This restores the chart-default main rollout
-   strategy and PDB minimum 1; a managed HPA uses its configured maximum again.
+   strategy and the chart's `minAvailable: 1` PDB floor; a managed HPA uses its configured maximum again.
    Confirm all surviving and newly started mains have election enabled, one
    leader is active, HTTPS and queue execution work, and the final plan has no
    unexpected changes before resuming production work.

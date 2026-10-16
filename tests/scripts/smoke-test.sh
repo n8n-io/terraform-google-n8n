@@ -10,8 +10,9 @@
 # chart renders N8N_MULTI_MAIN_SETUP_ENABLED from its ConfigMap only for
 # multi-main, so its absence means single-main (one selected main replica,
 # local.n8n_single_main). Single-main then asserts the main HPA clamp (1/1),
-# the Recreate strategy, and PDB minAvailable=0 instead of the multi-main
-# leader-election checks.
+# the Recreate strategy, and the absence of the chart's main PDB (the chart
+# renders no main PodDisruptionBudget at one replica, decision 0004) instead
+# of the multi-main leader-election checks.
 #
 # It also runs a set of customer-managed infrastructure checks that apply
 # the same way regardless of which layers are module-managed vs
@@ -287,7 +288,7 @@ else
   if [[ "$staged_value" == "true" ]]; then
     main_election_staged=true
   fi
-  info "Single-main topology (no chart-rendered N8N_MULTI_MAIN_SETUP_ENABLED): expecting HPA 1/1, Recreate, PDB minAvailable=0"
+  info "Single-main topology (no chart-rendered N8N_MULTI_MAIN_SETUP_ENABLED): expecting HPA 1/1, Recreate, no main PDB"
   if [[ "$main_election_staged" == true ]]; then
     info "Leader election is staged at one replica (n8n_main_leader_election_enabled = true)"
   fi
@@ -417,8 +418,9 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
   # One main without chart multi-main: nothing may run a second main
   # (locals.tf: n8n_effective_main_hpa_max_replicas clamps a module-owned
   # HPA to 1), rollouts must use Recreate so two mains never overlap
-  # (n8n_main_strategy), and the PDB must let the only main be evicted
-  # during node maintenance (n8n_main_pdb_min_available = 0).
+  # (n8n_main_strategy), and the chart renders no main PodDisruptionBudget at
+  # one replica (decisions/0004-pdb-needs-a-second-main-pod.md), so node
+  # drains can evict the only main without the module setting anything.
   #
   # Runtime check in the pod, not the spec: this catches the flag from any
   # source. The command always exits 0 and prints a sentinel when the
@@ -494,14 +496,27 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
     fail "Main Deployment strategy is '${main_strategy:-<unset>}', expected Recreate for single-main"
   fi
 
-  pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
-  pdb_allowed=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.status.disruptionsAllowed}' 2>/dev/null || echo "")
-  if [[ "$pdb_min" == "0" ]]; then
-    pass "Main PDB minAvailable=0 (disruptionsAllowed=${pdb_allowed:-?}), node drains can evict the only main"
+  # The chart renders no main PodDisruptionBudget at one replica (decisions/
+  # 0004-pdb-needs-a-second-main-pod.md), so absence is the pass condition.
+  # Only NotFound means "no PDB"; any other error (RBAC, API timeout) must
+  # not be mistaken for the intended absence.
+  main_pdb_state=present
+  if ! main_pdb_err=$(kubectl get pdb n8n-main -n "$NAMESPACE" 2>&1 >/dev/null); then
+    if [[ "$main_pdb_err" == *"NotFound"* ]]; then
+      main_pdb_state=absent
+    else
+      main_pdb_state=unreadable
+    fi
+  fi
+  if [[ "$main_pdb_state" == unreadable ]]; then
+    fail "Cannot read PodDisruptionBudget n8n-main in namespace $NAMESPACE, single-main drain behavior unverified"
+    info "$main_pdb_err"
+  elif [[ "$main_pdb_state" == absent ]]; then
+    pass "No main PodDisruptionBudget rendered at one main replica (chart decision 0004), node drains can evict the only main"
   else
-    fail "Main PDB minAvailable is '${pdb_min:-<unset>}', expected 0, otherwise node drains stall on the single main"
+    pdb_min=$(kubectl get pdb n8n-main -n "$NAMESPACE" \
+      -o jsonpath='{.spec.minAvailable}' 2>/dev/null || echo "")
+    fail "Main PodDisruptionBudget n8n-main unexpectedly exists (minAvailable=${pdb_min:-<unset>}); the chart should render none at one main replica"
   fi
   info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
 

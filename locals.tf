@@ -167,22 +167,6 @@ locals {
   n8n_disabled_modules = join(",", compact([
     var.n8n_external_secrets_enabled ? "" : "external-secrets",
   ]))
-
-  # ── n8n Kubernetes ServiceAccount ownership ────────────────────────────────
-  # The chart creating its own ServiceAccount is the arrangement we want, with
-  # one exception: the pinned chart version renders imagePullSecrets nowhere,
-  # not on the pod spec and not on the ServiceAccount, so a private registry
-  # has no way in through chart values. Attaching the secrets to the account
-  # the pods already run as is the remaining lever, and the chart supports it
-  # (serviceAccount.create = false with an externally managed name).
-  #
-  # The module-managed account uses a different name than the chart's default
-  # (var.n8n_kube_svc_account) so enabling n8n_image_pull_secrets on an
-  # already-applied stack does not collide with the account Helm still owns;
-  # the Workload Identity binding (workload_identity.tf) targets whichever name
-  # is effective.
-  n8n_manages_service_account = length(var.n8n_image_pull_secrets) > 0
-  n8n_service_account_name    = local.n8n_manages_service_account ? "${var.n8n_kube_svc_account}-pull" : var.n8n_kube_svc_account
 }
 
 # ── Ownership-neutral effective coordinates ──────────────────────────────────
@@ -471,8 +455,8 @@ locals {
   n8n_effective_webhook_replica_count = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_min_replicas : var.n8n_webhook_fixed_replicas
 
   # ── Single-main / multi-main topology (main-topology capability) ──────────
-  # This count-based flag owns rollout, PDB, and scaling safeguards, not the
-  # election override. Staging election at one replica must retain all three.
+  # This count-based flag owns rollout and scaling safeguards, not the
+  # election override. Staging election at one replica must retain both.
   n8n_single_main = local.n8n_effective_main_replica_count == 1
 
   # Enable election before increasing replicas in a separate apply. Null
@@ -505,11 +489,6 @@ locals {
   # {} (the chart's own default) leaves multi-main's existing rollout
   # behavior untouched; this does not change worker or webhook strategy.
   n8n_main_strategy = local.n8n_single_main ? { type = "Recreate" } : {}
-
-  # A single main's PDB must allow its own (only) replica to be evicted during
-  # a voluntary disruption (e.g. node drain); minAvailable=1 would block that
-  # eviction entirely. Multi-main keeps the existing minAvailable=1 floor.
-  n8n_main_pdb_min_available = local.n8n_single_main ? 0 : 1
 
   # Execution-save policy: the single place both the Helm release
   # (helm_release.n8n.values.executions.data in n8n.tf) and the

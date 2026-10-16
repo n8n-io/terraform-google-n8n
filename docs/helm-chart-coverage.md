@@ -8,19 +8,30 @@ declared chart version disagrees with `variables.tf`'s `n8n_chart_version`
 default, or when the pinned chart's `values.yaml` has gained a top-level key
 this table never mentions.
 
-Chart 2.0 (n8n-io/n8n-hosting#250) replaced the nine `extraEnv`/
-`extraEnvFrom` lists with one flat `env.<component>` map per component
-(`env.shared`, `env.main`, `env.worker`, `env.webhookProcessor`,
-`env.taskRunner`), rendered into per-component ConfigMaps and loaded with
-`envFrom`. It also added `editor.url`/`webhook.url` as the chart-native
-source of `N8N_EDITOR_BASE_URL`/`N8N_WEBHOOK_URL`, and dropped
-`secretRefs.env.N8N_HOST`/`N8N_PORT`/`N8N_PROTOCOL` and `webhook.timeout`.
-See `UPGRADING.md` in the chart repo and [`docs/upgrading-n8n.md`](./upgrading-n8n.md).
+Chart 2.0 is the unreleased line on the n8n-hosting `main` branch (latest
+tag: `v1.16.0`; `n8n_chart_version` default: **2.0.0**, built from a local
+chart checkout via `N8N_CHART_DIR` until a tagged release exists). Besides
+`imagePullSecrets` (below), it folds in: env delivered as per-component maps
+via `envFrom` instead of nine `extraEnv`/`extraEnvFrom` lists
+(n8n-io/n8n-hosting#250); `editor.url`/`webhook.url` as the chart-native
+source of `N8N_EDITOR_BASE_URL`/`N8N_WEBHOOK_URL`, dropping
+`secretRefs.env.N8N_HOST`/`N8N_PORT`/`N8N_PROTOCOL` and `webhook.timeout`
+(#250); worker liveness/readiness/startup probes moving from an always-true
+`pgrep` exec check to the queue health HTTP endpoint (#233, no module
+action: the module sets no `probes.worker.*`/`redis.healthCheck.*` value);
+workers and webhook processors starting through the image entrypoint instead
+of a bare `command: ["n8n"]`, so they now trust
+`/opt/custom-certificates` the same way main does (#241, no module action:
+the module sets no container `command`); and the chart failing the render on
+any values key it retired, naming the replacement (#247, verified against
+this module's own rendered values; none hit a retired key). See
+`UPGRADING.md` in the chart repo and
+[`docs/upgrading-n8n.md`](./upgrading-n8n.md).
 
 | Chart key | Module surface | Notes |
 | --- | --- | --- |
 | `image` | `n8n_image_repository`, `n8n_image_tag` | |
-| `imagePullSecrets` | `n8n_image_pull_secrets` | New top-level key in chart 2.0; the image-pull-secret wiring the module already had under `serviceAccount`-adjacent inputs moved here |
+| `imagePullSecrets` | `n8n_image_pull_secrets` | New top-level key in chart 2.0 (#180); the module passes the list straight through, attached to every n8n pod and the chart's own ServiceAccount. No module-managed ServiceAccount takeover |
 | `nameOverride` | Not surfaced | No caller need identified; the module's own naming (`friendly_name_prefix`) already scopes resource names |
 | `fullnameOverride` | Not surfaced | Same as `nameOverride` |
 | `commonLabels` | Not surfaced directly | The module sets its own label set on the resources it creates; chart-level `commonLabels` would duplicate that without a documented gap |
@@ -52,13 +63,13 @@ See `UPGRADING.md` in the chart repo and [`docs/upgrading-n8n.md`](./upgrading-n
 | `podSecurityContext` | Not surfaced (chart default retained) | New top-level key in chart 2.0; the chart's own default pod security context is not currently overridden |
 | `containerSecurityContext` | Not surfaced (chart default retained) | New top-level key in chart 2.0; same as `podSecurityContext` |
 | `rbac` | Not surfaced | Chart defaults retained |
-| `serviceAccount` | `n8n_image_pull_secrets` (indirectly, via ownership transfer) | The module takes over `serviceAccount.create`/`name` only when pull secrets are set; otherwise the chart's own default account is used |
+| `serviceAccount` | Derived (annotated for Workload Identity, `var.n8n_kube_svc_account` for the name) | The chart always creates and owns this account; `n8n_image_pull_secrets` attaches through the top-level `imagePullSecrets` value above, not through a serviceAccount override |
 | `networkPolicy` | Not surfaced | No `NetworkPolicy` resource is created by this module |
-| `probes` | Not surfaced (chart defaults retained) | |
+| `probes` | Not surfaced (chart defaults retained) | Worker liveness/readiness/startup default to the queue health HTTP endpoint since #233 (previously an always-true `pgrep` exec check); the module sets no `probes.worker.*` override |
 | `lifecycle` | `n8n_termination_grace_period` (main preStop only) | |
 | `hpa` | `n8n_main_hpa_*`, standalone webhook HPA | |
 | `keda` | `n8n_worker_keda_enabled`, worker KEDA tuning inputs, `n8n_worker_keda_pause`/`n8n_worker_keda_paused_replica_count` | `keda.webhookProcessor.*` (including its `pause`) is not surfaced: webhook processors are scaled by the module's own external HPA (`scaling.tf`), so no chart `ScaledObject` exists for it |
-| `pdb` | Derived (`local.n8n_main_pdb_min_available`) | Always enabled; `minAvailable` is 0 for single-main, 1 otherwise |
+| `pdb` | Not set by the module; chart default (`pdb.enabled: true`, `pdb.minAvailable: 1`) | Chart-gated (decision 0004): renders a main PodDisruptionBudget only when main can run more than one pod (effective replicas > 1, or `hpa.main` enabled with `minReplicas` > 1); at one main replica the chart renders no PDB, so node drains are not blocked |
 | `webhook` | `n8n_webhook_url` (via `webhook.url`); see `webhookProcessor` for the replica/resource surface | Chart 2.0 renders `N8N_WEBHOOK_URL` from `webhook.url` itself (decision 0012); the module no longer emits that variable as a literal. `webhook.timeout` was retired in 2.0 (never read by n8n) and is not set |
 | `editor` | `n8n_fqdn` (via `editor.url`) | New top-level key in chart 2.0. The module always sets `editor.url = "https://<n8n_fqdn>"`, so the chart renders `N8N_EDITOR_BASE_URL` itself; the module no longer emits that variable as a literal |
 | `executions` | `n8n_execution_timeout`, `n8n_execution_timeout_max`, `n8n_execution_concurrency_limit`, `n8n_executions_data_save_*` | |
@@ -69,7 +80,7 @@ See `UPGRADING.md` in the chart repo and [`docs/upgrading-n8n.md`](./upgrading-n
 | `license` | `n8n_license_key`, `n8n_license_key_secret_ref` | |
 | `secretRefs` | Derived (`local.effective_core_secret_name`) | The chart's Secret now holds only `N8N_ENCRYPTION_KEY`/`N8N_LICENSE_ACTIVATION_KEY`; `secretRefs.env.N8N_HOST`/`N8N_PORT`/`N8N_PROTOCOL` were retired in chart 2.0 (`N8N_PORT` now comes from `service.port`, host/protocol from `editor.url`/`webhook.url`) and the module never sets them |
 | `database` | `postgres_*` inputs, `n8n_database_*` external-database inputs, `db_postgresdb_ssl_ca_pem` (`database.ssl.*`) | `database.ssl` is set only while a PostgreSQL CA is delivered (`enabled = true`, `rejectUnauthorized = true`, `ca`); chart 2.0 renders `DB_POSTGRESDB_SSL_ENABLED`/`DB_POSTGRESDB_SSL_CA` from those chart-native keys itself, so the module emits no `DB_POSTGRESDB_SSL_*` literal on that path (doing so would collide with the chart's own value and fail the render, decision 0012). On the non-CA `db_postgresdb_ssl_enabled = true` path, `database.ssl.enabled` stays `false` and the module still sets `DB_POSTGRESDB_SSL_ENABLED`/`DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED` directly in `env.shared`, since the chart does not own those names there. `database.ssl.cert`/`key` (client certificates) are not surfaced. See [`docs/postgresql-tls.md`](./postgresql-tls.md) |
-| `redis` | `redis_*` inputs, KEDA/queue wiring, `n8n_queue_worker_lock_duration`/`n8n_queue_worker_lock_renew_time`/`n8n_queue_worker_stalled_interval`/`n8n_graceful_shutdown_timeout` (`redis.worker.*`) | `redis.worker.maxStalledCount` is not surfaced |
+| `redis` | `redis_*` inputs, KEDA/queue wiring, `n8n_queue_worker_lock_duration`/`n8n_queue_worker_lock_renew_time`/`n8n_queue_worker_stalled_interval`/`n8n_graceful_shutdown_timeout` (`redis.worker.*`) | `redis.worker.maxStalledCount` is not surfaced. `redis.healthCheck.*` (new in #233, worker probe endpoint) is left at the chart's own default (enabled, port 5678) |
 | `s3` | `gcs_*` inputs (S3-compatible driver over GCS + HMAC) | |
 
 ## Verifying this table
@@ -87,5 +98,6 @@ above.
 `N8N_CHART_DIR=/path/to/n8n-hosting/charts/n8n tests/scripts/check-helm-chart-coverage.sh`
 reads that local chart checkout's `values.yaml` instead of pulling the
 pinned OCI chart. Chart 2.0 is unreleased at the time this file targets it
-(n8n-io/n8n-hosting#250); use this during development against a local clone.
+(it is the current state of n8n-hosting `main`, past the latest tag);
+use this during development against a local clone of that branch.
 The declared-version-vs-`variables.tf` guard still runs either way.
