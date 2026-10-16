@@ -223,7 +223,7 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       format("%.1f", local.capacity_requested_max_cpu_millicores / 1000), " cores). This is a non-blocking, ",
       "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster ",
       "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
-      "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
+      "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
       "n8n_worker_pools max_replicas or n8n_worker_keda_paused_replica_count) to silence this warning.",
     ])
   }
