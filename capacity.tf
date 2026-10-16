@@ -114,6 +114,17 @@ locals {
   capacity_worker_max_replicas  = var.n8n_worker_keda_enabled ? var.n8n_worker_keda_max_replicas : var.n8n_worker_fixed_replicas
   capacity_webhook_max_replicas = var.n8n_webhook_hpa_enabled ? var.n8n_webhook_hpa_max_replicas : var.n8n_webhook_fixed_replicas
 
+  # While n8n_worker_keda_pause is true, KEDA holds the worker Deployment at
+  # n8n_worker_keda_paused_replica_count, which may exceed the KEDA maximum.
+  # Pause only applies while the module manages the worker ScaledObject
+  # (n8n_worker_keda_enabled = true). A null count freezes workers at their
+  # current count, which the model assumes is within the maximum. Shared by
+  # the capacity and PostgreSQL connection-budget checks.
+  capacity_worker_modeled_max_replicas = (var.n8n_worker_keda_enabled && var.n8n_worker_keda_pause) ? max(
+    local.capacity_worker_max_replicas,
+    coalesce(var.n8n_worker_keda_paused_replica_count, 0),
+  ) : local.capacity_worker_max_replicas
+
   # Task runners run as a sidecar container inside every worker pod (n8n.tf
   # taskRunners block), never webhook-processor pods. Whether main also gets
   # one depends on the pinned chart: n8n-hosting#179 (n8n.mainTaskRunnersEnabled)
@@ -177,7 +188,7 @@ locals {
 
   capacity_requested_max_cpu_millicores = (
     local.capacity_main_max_replicas * (local.capacity_cpu_millicores_by_role.main + local.capacity_main_task_runner_cpu_millis) +
-    local.capacity_worker_max_replicas * (local.capacity_cpu_millicores_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
+    local.capacity_worker_modeled_max_replicas * (local.capacity_cpu_millicores_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_cpu_millicores_by_role.task_runner : 0)) +
     local.capacity_webhook_max_replicas * local.capacity_cpu_millicores_by_role.webhook +
     local.capacity_exporter_cpu_millicores +
     local.capacity_pool_peak_cpu_millicores
@@ -185,7 +196,7 @@ locals {
 
   capacity_requested_max_memory_mib = (
     local.capacity_main_max_replicas * (local.capacity_memory_mib_by_role.main + local.capacity_main_task_runner_memory_mib) +
-    local.capacity_worker_max_replicas * (local.capacity_memory_mib_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
+    local.capacity_worker_modeled_max_replicas * (local.capacity_memory_mib_by_role.worker + (var.n8n_task_runners_enabled ? local.capacity_memory_mib_by_role.task_runner : 0)) +
     local.capacity_webhook_max_replicas * local.capacity_memory_mib_by_role.webhook +
     local.capacity_exporter_memory_mib +
     local.capacity_pool_peak_memory_mib
@@ -212,8 +223,8 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       format("%.1f", local.capacity_requested_max_cpu_millicores / 1000), " cores). This is a non-blocking, ",
       "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster ",
       "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
-      "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
-      "n8n_worker_pools max_replicas) to silence this warning.",
+      "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
+      "n8n_worker_pools max_replicas or n8n_worker_keda_paused_replica_count) to silence this warning.",
     ])
   }
 }
@@ -235,7 +246,7 @@ check "gke_capacity_memory_fits_requested_replicas" {
       "estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster autoscaler ",
       "never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go Pending. ",
       "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
-      "n8n_worker_pools max_replicas) to silence this warning.",
+      "n8n_worker_pools max_replicas or n8n_worker_keda_paused_replica_count) to silence this warning.",
     ])
   }
 }
