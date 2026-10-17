@@ -14,9 +14,10 @@ this project adheres to the stability contract in
   webhook processor and default worker Deployments. The n8n chart renders a
   budget for the main pods only, so a GKE node-pool upgrade or other drain
   could stop every webhook processor and every worker at once. Uses
-  `maxUnavailable` rather than `minAvailable` so a one-replica worker never
-  blocks a drain, which also means the worker budget protects nothing until
-  two or more workers run. `n8n_worker_pools` Deployments are not covered.
+  `maxUnavailable` rather than `minAvailable` so a one-replica Deployment
+  never blocks a drain, which also means each budget protects nothing until
+  its Deployment runs two or more pods. `n8n_worker_pools` Deployments are
+  not covered.
   Existing deployments gain both budgets on the next apply (two new
   resources). Ports terraform-aws-n8n#205.
 
