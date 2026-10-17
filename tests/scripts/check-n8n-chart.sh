@@ -41,7 +41,7 @@ cd "$(dirname "$0")/../.."
 
 CHART_REPOSITORY="oci://ghcr.io/n8n-io/n8n-helm-chart"
 CHART_NAME="n8n"
-CHART_VERSION="1.15.0"
+CHART_VERSION="1.16.0"
 
 # Fail fast if the pins above drift from the module's own chart defaults.
 # Several assertions below (e.g. the graceful shutdown timeout default compared
@@ -327,9 +327,12 @@ fi
 # ── Single-main topology (task 3.1/3.3) ─────────────────────────────────────
 # A second render with the default fragments locals.tf computes for single-main
 # (n8n_single_main=true, election override null): multiMain.enabled=false, replicaCount=1,
-# strategy={type: Recreate}, and pdb.minAvailable=0. Proves the chart actually
-# turns those fragments into a Recreate main Deployment and a permissive main
-# PDB, and leaves worker/webhook replicas and strategy untouched.
+# strategy={type: Recreate}, and pdb.minAvailable=0 in the module's own values.
+# Proves the chart actually turns those fragments into a Recreate main
+# Deployment, and that chart 1.16.0+ renders NO main PDB object at all here
+# (n8n-hosting#228: the chart omits the PDB while main does not exceed one
+# replica, regardless of the module's minAvailable=0), and leaves
+# worker/webhook replicas and strategy untouched.
 cat >"$WORKDIR/fixture-single-main.yaml" <<'EOF'
 multiMain:
   enabled: false
@@ -432,19 +435,17 @@ else
     fi
   }
 
-  # assert_pdb_min_available <expected>
-  # This chart renders exactly one PDB (main only), so no name filter is
-  # needed.
-  assert_pdb_min_available() {
-    local expected="$1" actual
-    actual="$(awk '
-      /^kind: PodDisruptionBudget$/ { in_pdb = 1; next }
-      in_pdb && /^  minAvailable:/ { print $2; exit }
-    ' "$SM_RENDERED")"
-    if [ "$actual" = "$expected" ]; then
-      pass "PodDisruptionBudget minAvailable == ${expected}"
+  # assert_no_main_pdb
+  # Chart 1.16.0+ renders NO PodDisruptionBudget object at all while main
+  # does not exceed one replica (n8n-hosting#228), regardless of the
+  # module's pdb.enabled=true/minAvailable=0 values. This fixture's hpa.main
+  # (minReplicas=1, maxReplicas=1) and replicaCount=1 both stay at one, so no
+  # `kind: PodDisruptionBudget` document should appear anywhere in the render.
+  assert_no_main_pdb() {
+    if grep -q '^kind: PodDisruptionBudget$' "$SM_RENDERED"; then
+      fail "A PodDisruptionBudget rendered at one main replica; chart 1.16.0+ must omit it entirely (n8n-hosting#228)"
     else
-      fail "PodDisruptionBudget minAvailable: expected ${expected}, got '${actual:-<not found>}'"
+      pass "No PodDisruptionBudget rendered at one main replica (chart 1.16.0+ omits it, n8n-hosting#228)"
     fi
   }
 
@@ -463,7 +464,7 @@ else
   assert_deployment_strategy "n8n-main" "Recreate"
   assert_deployment_strategy "n8n-worker" ""
   assert_deployment_strategy "n8n-webhook-processor" ""
-  assert_pdb_min_available "0"
+  assert_no_main_pdb
 
   # No disabled scalers: worker/webhook queue-mode Deployments and the
   # multi-main-only main HPA/Service still render at their configured
@@ -522,7 +523,7 @@ EOF
     assert_deployment_strategy "n8n-main" "Recreate"
     assert_deployment_strategy "n8n-worker" ""
     assert_deployment_strategy "n8n-webhook-processor" ""
-    assert_pdb_min_available "0"
+    assert_no_main_pdb
 
     STAGING_HPA="$(awk '
       /^kind: HorizontalPodAutoscaler$/ { in_hpa = 1; next }
@@ -1311,6 +1312,20 @@ deployment_has_container() {
     /^---$/ { in_dep = 0; found = 0 }
   ' "$1"
 }
+
+# container_liveness_probe_port <rendered-file> <deployment-name> <container-name>
+# Prints the named container's livenessProbe.httpGet.port, if it has one.
+container_liveness_probe_port() {
+  awk -v dep="$2" -v ctr="$3" '
+    /^kind: Deployment$/ { in_dep = 1; found = 0; in_ctr = 0; in_probe = 0; next }
+    in_dep && $0 == "  name: " dep { found = 1; next }
+    in_dep && found && $0 == "        - name: " ctr { in_ctr = 1; next }
+    in_ctr && /^        - name: / { in_ctr = 0 }
+    in_ctr && /^          livenessProbe:/ { in_probe = 1; next }
+    in_probe && /^              port:/ { print $2; exit }
+    /^---$/ { in_dep = 0; found = 0; in_ctr = 0; in_probe = 0 }
+  ' "$1"
+}
 cat >"$WORKDIR/fixture-task-runners.yaml" <<'EOF'
 taskRunners:
   enabled: true
@@ -1329,6 +1344,17 @@ else
   else
     fail "task runners: Deployment/n8n-worker has no task-runner sidecar with taskRunners.enabled=true"
   fi
+  # Chart 1.16.0 added a liveness probe against the launcher's own
+  # /healthz endpoint on the sidecar (taskRunners.probes.liveness,
+  # n8n-hosting#223). The module sets neither taskRunners.probes nor
+  # N8N_RUNNERS_LAUNCHER_HEALTH_CHECK_PORT, so the chart's default
+  # (enabled, port 5680) must apply unmodified.
+  TR_PROBE_PORT="$(container_liveness_probe_port "$WORKDIR/rendered-task-runners.yaml" "n8n-worker" "task-runner")"
+  if [ "$TR_PROBE_PORT" = "5680" ]; then
+    pass "task runners: Deployment/n8n-worker's task-runner sidecar carries a livenessProbe on port 5680 (chart 1.16.0, n8n-hosting#223)"
+  else
+    fail "task runners: Deployment/n8n-worker's task-runner sidecar livenessProbe port: expected 5680, got '${TR_PROBE_PORT:-<not found>}'"
+  fi
   if [ -n "$(deployment_has_container "$WORKDIR/rendered-task-runners.yaml" "n8n-main" "task-runner")" ]; then
     fail "task runners: Deployment/n8n-main renders a task-runner sidecar in queue mode; capacity.tf's main ceiling assumes none (chart #179)"
   else
@@ -1339,6 +1365,43 @@ else
   else
     pass "task runners: Deployment/n8n-webhook-processor renders no task-runner sidecar"
   fi
+fi
+
+# ── Multi-main guard (n8n-hosting#229, chart >= 1.16.0) ─────────────────────
+# The chart now refuses two combinations the module must never produce:
+# replicaCount/hpa.main.maxReplicas above 1 without multiMain.enabled=true,
+# and multiMain.enabled=true without license.enabled=true. The module always
+# derives multiMain.enabled from the same effective main-replica count it
+# sets replicaCount/hpa.main.maxReplicas from (n8n.tf), and always sets
+# license.enabled=true regardless of n8n_license_key, so it can never hit
+# either guard. These negative-fixture renders prove the guard exists and
+# trips on exactly the combinations the module avoids, rather than deploying
+# a real cluster to find out.
+if helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-values.yaml" \
+  --set multiMain.enabled=false \
+  --set replicaCount=2 \
+  >"$WORKDIR/rendered-negative-replicas.yaml" 2>"$WORKDIR/helm-stderr-negative-replicas.log"; then
+  fail "helm template (replicaCount=2, multiMain.enabled=false) succeeded; the chart's guard against ungated multi-main replicas is gone or was not reached"
+elif grep -q 'replicaCount > 1 requires multiMain.enabled=true' "$WORKDIR/helm-stderr-negative-replicas.log"; then
+  pass "chart rejects replicaCount=2 with multiMain.enabled=false (n8n-hosting#229), which the module's own derivation never produces"
+else
+  fail "helm template (replicaCount=2, multiMain.enabled=false) failed, but not with the expected guard message; see $WORKDIR/helm-stderr-negative-replicas.log"
+fi
+
+if helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "${CHART_VERSION}" \
+  --namespace n8n-chart-check \
+  -f "$WORKDIR/fixture-values.yaml" \
+  --set license.enabled=false \
+  >"$WORKDIR/rendered-negative-license.yaml" 2>"$WORKDIR/helm-stderr-negative-license.log"; then
+  fail "helm template (multiMain.enabled=true, license.enabled=false) succeeded; the chart's multi-main licence guard is gone or was not reached"
+elif grep -q 'multiMain.enabled=true requires license.enabled=true' "$WORKDIR/helm-stderr-negative-license.log"; then
+  pass "chart rejects multiMain.enabled=true with license.enabled=false (n8n-hosting#229); the module always sets license.enabled=true so this never happens"
+else
+  fail "helm template (multiMain.enabled=true, license.enabled=false) failed, but not with the expected guard message; see $WORKDIR/helm-stderr-negative-license.log"
 fi
 
 # ── Self-check: prove a wrong expected value is actually caught ─────────────

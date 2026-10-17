@@ -1403,7 +1403,7 @@ run "worker_keda_pause_allowed_on_a_custom_chart_repository" {
 
 # ── Capacity model: main sidecar allowance is chart-version-gated ──────────
 # n8n-hosting#179 renders the task-runner sidecar on main only in standalone
-# mode, shipped in chart 1.12.0 and unchanged through 1.15.0. At the
+# mode, shipped in chart 1.12.0 and unchanged through 1.16.0. At the
 # verified default pin, the main ceiling term must exclude the sidecar; the
 # worker term still adds it while n8n_task_runners_enabled. Same shape as
 # terraform-aws-n8n's/terraform-azurerm-n8n's own
@@ -2341,5 +2341,59 @@ run "worker_pools_with_external_tls_redis_plans_cleanly" {
   assert {
     condition     = length(keys(local.n8n_worker_pool_keda_auth)) == 0
     error_message = "no TriggerAuthentication reference must be rendered when neither a password Secret nor a managed CA exists (an empty ref name is invalid)."
+  }
+}
+
+# The chart renders a budget for main only; these two are module-owned. The
+# selectors must match the labels the chart puts on the pods or the budget
+# guards nothing, and mocks cannot catch a typo there, so pin them (checked
+# against `helm template` of chart 1.16.0).
+run "webhook_and_worker_pdbs_default_to_max_unavailable_one" {
+  command = plan
+
+  assert {
+    condition = (
+      kubernetes_pod_disruption_budget_v1.n8n_webhook[0].spec[0].max_unavailable == "1" &&
+      kubernetes_pod_disruption_budget_v1.n8n_webhook[0].spec[0].selector[0].match_labels["app.kubernetes.io/component"] == "webhook-processor" &&
+      kubernetes_pod_disruption_budget_v1.n8n_webhook[0].spec[0].selector[0].match_labels["app.kubernetes.io/name"] == "n8n" &&
+      kubernetes_pod_disruption_budget_v1.n8n_webhook[0].spec[0].selector[0].match_labels["app.kubernetes.io/instance"] == "n8n"
+    )
+    error_message = "The webhook processor budget must allow one unavailable pod and select the chart's webhook-processor pods."
+  }
+
+  assert {
+    condition = (
+      kubernetes_pod_disruption_budget_v1.n8n_worker[0].spec[0].max_unavailable == "1" &&
+      kubernetes_pod_disruption_budget_v1.n8n_worker[0].spec[0].selector[0].match_labels["app.kubernetes.io/component"] == "worker" &&
+      kubernetes_pod_disruption_budget_v1.n8n_worker[0].spec[0].selector[0].match_labels["app.kubernetes.io/name"] == "n8n" &&
+      kubernetes_pod_disruption_budget_v1.n8n_worker[0].spec[0].selector[0].match_labels["app.kubernetes.io/instance"] == "n8n"
+    )
+    error_message = "The worker budget must allow one unavailable pod and select the chart's default worker pods."
+  }
+}
+
+run "webhook_and_worker_pdbs_can_be_disabled_independently" {
+  command = plan
+
+  variables {
+    n8n_webhook_pdb_enabled = false
+  }
+
+  assert {
+    condition     = length(kubernetes_pod_disruption_budget_v1.n8n_webhook) == 0 && length(kubernetes_pod_disruption_budget_v1.n8n_worker) == 1
+    error_message = "n8n_webhook_pdb_enabled = false must drop only the webhook budget."
+  }
+}
+
+run "worker_pdb_can_be_disabled" {
+  command = plan
+
+  variables {
+    n8n_worker_pdb_enabled = false
+  }
+
+  assert {
+    condition     = length(kubernetes_pod_disruption_budget_v1.n8n_worker) == 0 && length(kubernetes_pod_disruption_budget_v1.n8n_webhook) == 1
+    error_message = "n8n_worker_pdb_enabled = false must drop only the worker budget."
   }
 }
