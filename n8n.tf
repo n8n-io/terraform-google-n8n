@@ -169,7 +169,7 @@ resource "kubernetes_secret" "n8n_redis_tls" {
 
 # Caller-supplied extra CA (n8n_extra_ca_pem), merged with the Memorystore CA
 # when that is managed, because Node honours only one NODE_EXTRA_CA_CERTS file.
-resource "kubernetes_secret" "n8n_ca_bundle" {
+resource "kubernetes_secret_v1" "n8n_ca_bundle" {
   count = local.n8n_extra_ca_enabled ? 1 : 0
 
   metadata {
@@ -910,6 +910,12 @@ resource "helm_release" "n8n" {
       )
     },
 
+    # Rolls main, worker, and webhook-processor pods when the CA bundle
+    # changes (the chart's top-level podAnnotations reach all three).
+    local.n8n_extra_ca_enabled ? {
+      podAnnotations = { "checksum/extra-ca" = local.n8n_ca_bundle_checksum }
+    } : {},
+
     # Pod DNS (task 13). Omitted entirely unless n8n_dns_config is set, so this
     # is a no-op by default. Applies to the main, worker, and
     # webhook-processor pods: the chart's top-level dnsConfig is rendered into
@@ -953,7 +959,7 @@ resource "helm_release" "n8n" {
     kubernetes_secret.n8n_redis,
     kubernetes_secret.n8n_redis_username,
     kubernetes_secret.n8n_redis_tls,
-    kubernetes_secret.n8n_ca_bundle,
+    kubernetes_secret_v1.n8n_ca_bundle,
     # The default worker's and every pool's ScaledObject reference this by
     # name; KEDA would only requeue until it exists, but creating it first
     # avoids a READY=False window on the first apply.

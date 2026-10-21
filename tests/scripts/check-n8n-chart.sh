@@ -1589,6 +1589,30 @@ else
   fail "helm template (multiMain.enabled=true, license.enabled=false) failed, but not with the expected guard message; see $WORKDIR/helm-stderr-negative-license.log"
 fi
 
+# ── Extra-CA pod roll annotation (n8n_extra_ca_pem) ─────────────────────────
+# The module sets the chart's top-level podAnnotations to checksum/extra-ca;
+# it must land on the pod template of all three Deployments.
+cat >"$WORKDIR/fixture-extra-ca.yaml" <<'EOF'
+podAnnotations:
+  checksum/extra-ca: synthetic-extra-ca-hash
+EOF
+echo "==> helm template (extra-ca fixture) ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
+if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
+  --version "$CHART_VERSION" \
+  --namespace n8n \
+  -f "$WORKDIR/fixture-values.yaml" \
+  -f "$WORKDIR/fixture-extra-ca.yaml" \
+  >"$WORKDIR/rendered-extra-ca.yaml" 2>"$WORKDIR/helm-stderr-extra-ca.log"; then
+  fail "helm template (extra-ca fixture) failed: $(cat "$WORKDIR/helm-stderr-extra-ca.log")"
+else
+  EXTRA_CA_COUNT="$(awk '/checksum\/extra-ca: synthetic-extra-ca-hash/ { n++ } END { print n + 0 }' "$WORKDIR/rendered-extra-ca.yaml")"
+  if [ "$EXTRA_CA_COUNT" = "3" ]; then
+    pass "extra CA: checksum/extra-ca pod annotation renders on main, worker, and webhook-processor"
+  else
+    fail "extra CA: checksum/extra-ca expected on 3 pod templates, found ${EXTRA_CA_COUNT}"
+  fi
+fi
+
 # ── Self-check: prove a wrong expected value is actually caught ─────────────
 # Runs one assertion with a deliberately wrong expected replica count in a
 # subshell (so its FAILURES increment does not pollute the real run) and

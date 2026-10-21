@@ -29,7 +29,7 @@ run "extra_ca_disabled_by_default" {
   }
 
   assert {
-    condition     = length(kubernetes_secret.n8n_ca_bundle) == 0
+    condition     = length(kubernetes_secret_v1.n8n_ca_bundle) == 0
     error_message = "No CA bundle Secret should be created by default."
   }
 }
@@ -42,7 +42,7 @@ run "extra_ca_creates_secret_and_mount" {
   }
 
   assert {
-    condition     = length(kubernetes_secret.n8n_ca_bundle) == 1
+    condition     = length(kubernetes_secret_v1.n8n_ca_bundle) == 1
     error_message = "A module-managed CA bundle Secret should be created."
   }
 
@@ -82,13 +82,18 @@ run "extra_ca_with_redis_tls_merges_both" {
   }
 
   assert {
-    condition     = local.manage_redis_tls_ca == true && length(kubernetes_secret.n8n_ca_bundle) == 1
+    condition     = local.manage_redis_tls_ca == true && length(kubernetes_secret_v1.n8n_ca_bundle) == 1
     error_message = "Redis TLS and the extra CA should coexist, with one bundle Secret."
   }
 
   assert {
     condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBredisca\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----"
     error_message = "The bundle must hold the Memorystore CA first, then the caller's PEM, each trimmed and newline-joined."
+  }
+
+  assert {
+    condition     = local.n8n_ca_bundle_checksum == sha256(local.n8n_ca_bundle_pem) && local.n8n_ca_bundle_checksum != sha256("-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----")
+    error_message = "The pod-roll checksum must hash the whole bundle, so a Memorystore CA change alone rolls the pods."
   }
 }
 

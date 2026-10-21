@@ -735,6 +735,10 @@ locals {
     trimspace(var.n8n_extra_ca_pem),
   ])) : null
 
+  # Hash of the whole bundle (Redis CA + caller PEM), so a Memorystore CA
+  # rotation also rolls the pods.
+  n8n_ca_bundle_checksum = local.n8n_extra_ca_enabled ? sha256(local.n8n_ca_bundle_pem) : null
+
   n8n_ca_bundle_volume = local.n8n_extra_ca_enabled ? {
     name = "ca-bundle"
     secret = {

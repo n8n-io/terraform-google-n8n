@@ -29,8 +29,9 @@ n8n_extra_env = [
 - Node reads one file, so with `redis_transit_encryption_enabled = true` the
   bundle is the Memorystore CA followed by your PEM. Do not add the Redis CA
   yourself.
-- Changing the PEM rewrites the Secret but does not restart pods. Restart
-  `n8n-main`, `n8n-worker`, and `n8n-webhook-processor` afterward.
+- Changing the PEM (or the Memorystore CA in the bundle) rolls the pods: the
+  module sets a `checksum/extra-ca` pod annotation (sha256 of the bundle) on
+  the main, worker, and webhook-processor pods.
 - Private keys are rejected at plan time; supply certificates only.
 - An authenticated proxy works by putting the credentials in the proxy URL
   (`http://user:password@proxy.corp.example:3128`). Without them n8n's outbound

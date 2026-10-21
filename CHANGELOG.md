@@ -86,8 +86,9 @@ this project adheres to the stability contract in
   one file, so when `redis_transit_encryption_enabled = true` the Secret holds
   the Memorystore CA followed by the supplied PEM. Proxy routing itself
   (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) stays in `n8n_extra_env`.
-  `NODE_EXTRA_CA_CERTS` remains reserved against `n8n_extra_env`. Changing the
-  PEM needs a manual restart of the three deployments. The task-runner sidecar
+  `NODE_EXTRA_CA_CERTS` remains reserved against `n8n_extra_env`. A
+  `checksum/extra-ca` pod annotation (sha256 of the bundle) rolls the three
+  deployments when the CA changes. The task-runner sidecar
   is not covered; see `docs/tls-proxy.md`.
 - `n8n_proxy_hops`: sets `N8N_PROXY_HOPS` on every role for an inbound
   reverse proxy, WAF, or CDN in front of the ingress (count every hop, including
