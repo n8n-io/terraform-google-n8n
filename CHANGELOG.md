@@ -338,6 +338,48 @@ this project adheres to the stability contract in
   `compute.globalAddresses.setLabels` in the project that owns each address.
   For the PSA range on a Shared VPC (`existing_network_project_id` set), that
   is the host project.
+- The prerequisite API lists in the README, the example READMEs, and
+  `scripts/preflight.sh` now include `cloudresourcemanager.googleapis.com`.
+  The module always reads the project (`data.google_project.n8n`) and the
+  Service Networking connection looks the project up through it, so `apply`
+  failed with `Cloud Resource Manager API has not been used in project ...`
+  in a project that had never enabled it. They also include
+  `storage.googleapis.com`, because the module always creates a bucket IAM
+  binding and, by default, the GCS buckets and HMAC key.
+- The README now names the project roles a deploying identity needs beyond
+  `roles/editor`, each qualified by the switch that creates the resource it
+  authorizes: `roles/servicenetworking.networksAdmin` (Service Networking
+  peering, `create_psa = true`), `roles/iam.serviceAccountAdmin` (the
+  Workload Identity binding, always), `roles/resourcemanager.projectIamAdmin`
+  (the module's project IAM bindings, `create_gke` or
+  `create_postgres_instance`), and `roles/container.admin` (the KEDA
+  release's cluster-scoped RBAC, `install_keda`). Each missing role failed a
+  live apply of `examples/small` (defaults). `scripts/preflight.sh` now also
+  checks `container.clusterRoles.create`, `container.clusterRoleBindings.create`,
+  `container.roles.create`, and `container.roleBindings.create`, gated on a new
+  `CHECK_KEDA_RBAC` toggle (default true, following `CHECK_CLOUD_DNS`'s pattern)
+  so it does not reject `install_keda = false` deployments. The README also
+  notes that `storage.buckets.setIamPolicy` on the n8n bucket is always
+  needed (`roles/editor` usually covers it on a bucket the module creates,
+  but not on an existing bucket), that Kubernetes RBAC can replace
+  `roles/container.admin` on an existing cluster, and that the preflight
+  script checks only a core set of permissions and does not read the
+  `create_*` switches, so it can pass while `apply` still fails, or report
+  missing permissions on customer-managed paths that `apply` does not need.
+  The README no longer lists `certificatemanager.googleapis.com` for
+  `tls_mode = "google_managed"`: the module uses a GKE `ManagedCertificate`,
+  not Certificate Manager. The API lists now also name the conditional
+  `dns` API (`cloud_dns_zone_name` set with `create_ingress = true`) and `orgpolicy` API
+  (`manage_sa_key_org_policy = true`) where the example exposes them.
+- `scripts/preflight.sh` reported the `iam.disableServiceAccountKeyCreation`
+  org policy as unreadable whenever `orgpolicy.googleapis.com` was enabled,
+  because `gcloud` prints the effective enforce value as `True`/`False` and
+  the script only matched `TRUE`/`FALSE`. A non-enforced policy now reports
+  `[ok]`, and an enforced one reports `[BLOCK]` instead of a warning. An
+  enforced policy now always sets the warning flag, even when the identity
+  holds `orgpolicy.policy.set`, so an otherwise passing run reports
+  `PASS with warnings`. With the default `manage_sa_key_org_policy = false`
+  and a module-created HMAC key, `apply` fails until the policy is relaxed.
 
 ## [0.1.0] - 2026-09-29
 

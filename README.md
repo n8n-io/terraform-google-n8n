@@ -17,17 +17,32 @@ This module is a port of the upstream EKS module ([`n8n-io/terraform-aws-n8n`](h
 ### 0. Preflight check (recommended)
 
 Run [`scripts/preflight.sh`](./scripts/preflight.sh) first, it verifies (read-only,
-via `testIamPermissions`) that your active identity has the APIs and IAM
+via `testIamPermissions`) that your active identity has the core APIs and IAM
 permissions this module needs, and reports whether the org policy below is
 currently blocking you, so you find out now, not at `apply` time:
 
 ```bash
 ./scripts/preflight.sh YOUR_PROJECT_ID
 # for the Cloudflare example (no Cloud DNS): CHECK_CLOUD_DNS=false ./scripts/preflight.sh YOUR_PROJECT_ID
+# with install_keda = false (skips only the KEDA RBAC check): CHECK_KEDA_RBAC=false ./scripts/preflight.sh YOUR_PROJECT_ID
 ```
 
 Requires `gcloud` (authenticated), `curl`, and `python3`. Exit code is non-zero if a
 required API or permission is missing, so it also works as a CI gate.
+
+The script checks a core set of APIs and permissions for the default, fully
+module-managed deployment, not every permission `apply` uses. For example, it
+does not check `compute.firewalls.create` or bucket IAM
+(`storage.buckets.setIamPolicy`), so `RESULT: PASS` does not guarantee that
+`apply` succeeds. [Authentication](#3-authentication) lists the permissions
+beyond `roles/editor`. Apart from the toggles above, it does not read the `create_*`
+switches. On a customer-managed path (for example
+`examples/customer-managed-everything`), it can report `[MISS]` and `RESULT: FAIL`
+for APIs and permissions behind a switch you turned off, such as
+`servicenetworking.services.addPeering` with `create_psa = false` or
+`resourcemanager.projects.setIamPolicy` with `create_gke = false` and
+`create_postgres_instance = false`. Check those lines against the switch list in
+[Authentication](#3-authentication) before acting on them.
 
 ### 1. Org policy: `iam.disableServiceAccountKeyCreation`
 
@@ -52,11 +67,26 @@ If neither is done, the apply fails when creating `google_storage_hmac_key`.
 
 ### 2. Enable APIs
 
-`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam` (and `orgpolicy` if using `manage_sa_key_org_policy`, `certificatemanager` for `google_managed` TLS).
+`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `dns` if using `cloud_dns_zone_name` with `create_ingress = true`, and `orgpolicy` if using `manage_sa_key_org_policy`). `cloudresourcemanager.googleapis.com` is needed because the module reads the project (`data.google_project.n8n`) and the Service Networking connection resource looks the project up through it; with the API disabled, `apply` fails with `Cloud Resource Manager API has not been used in project ... before or it is disabled`.
 
 ### 3. Authentication
 
 `gcloud auth application-default login`, or point `GOOGLE_APPLICATION_CREDENTIALS` at a key file.
+
+With `create_psa = true` (the default), the identity running `apply` also needs permission to create the Service Networking peering for Cloud SQL and Memorystore: `servicenetworking.services.addPeering`, carried by `roles/servicenetworking.networksAdmin`. `roles/editor` does not include it, and without it `apply` fails with `Permission denied to add peering for service 'servicenetworking.googleapis.com'`. [`scripts/preflight.sh`](./scripts/preflight.sh) checks for this permission. Grant it with:
+
+```bash
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+  --member="serviceAccount:YOUR_DEPLOYER@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/servicenetworking.networksAdmin"
+```
+
+The module also needs the permissions below, beyond `roles/editor`, for the operations it performs. Each item names the switch that triggers the operation and a role that grants the permission (`roles/owner` covers all of them). The module defaults need the first three. Every example except `examples/customer-managed-everything` keeps `create_postgres_instance` and `install_keda` on, so its `apply` fails without those permissions (subject to the Kubernetes RBAC alternative for KEDA):
+
+- `roles/iam.serviceAccountAdmin` (`iam.serviceAccounts.setIamPolicy`): always required. The module always creates a Workload Identity binding on the n8n service account (`google_service_account_iam_member.n8n_workload_identity`). Without it `apply` fails with `Error 403 ... Permission 'iam.serviceAccounts.setIamPolicy' denied`.
+- `roles/resourcemanager.projectIamAdmin` (`resourcemanager.projects.setIamPolicy`): required when `create_gke = true` (default; grants project roles to the GKE node service account, `google_project_iam_member.nodes`) or `create_postgres_instance = true` (default; grants `roles/cloudsql.client` to the n8n service account, `google_project_iam_member.n8n_cloudsql_client`). Not needed if both are `false` (fully customer-managed GKE and Postgres).
+- `roles/container.admin`: required when `install_keda = true` (default). The KEDA Helm release creates cluster-scoped RBAC, which GKE authorizes through `container.clusterRoles.create`, `container.clusterRoleBindings.create`, `container.roles.create` and `container.roleBindings.create`. Without it `helm_release.keda` fails with `clusterroles.rbac.authorization.k8s.io is forbidden`. Not needed when `install_keda = false`. On an existing cluster (`create_gke = false`), equivalent Kubernetes RBAC for the deploying identity (for example a `ClusterRoleBinding` to `cluster-admin`) also works, because GKE allows a request that either IAM or Kubernetes RBAC authorizes. Kubernetes only lets an identity create a role or binding that grants permissions the identity already holds (or with `escalate`/`bind` authorization), so verify that the deploying identity holds the permissions in the KEDA chart's roles. A verified `cluster-admin` binding is enough, but broad. `scripts/preflight.sh` checks only IAM, so in that case it reports the four permissions as missing; run it with `CHECK_KEDA_RBAC=false`. `kubectl auth can-i create clusterroles` is a quick first check, not proof that the KEDA install succeeds.
+- `storage.buckets.setIamPolicy` on the n8n bucket: always required. The module always grants the HMAC identity `roles/storage.objectAdmin` on the bucket (`google_storage_bucket_iam_member.storage`), including on a bucket it does not own. With `create_gcs_bucket = true` (default), `roles/editor` usually covers it: a new bucket's default IAM policy grants `roles/storage.legacyBucketOwner`, which can edit the bucket's IAM policy, to `projectEditor` (project Editors). With `create_gcs_bucket = false`, grant it on `existing_gcs_bucket_name` (for example `roles/storage.admin` on that bucket). A deployer with a custom role instead of `roles/editor` needs it on both paths.
 
 ### 4. Enterprise license
 

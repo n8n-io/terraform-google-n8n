@@ -11,7 +11,7 @@ A-record. TLS is a Google-managed certificate.
 
 ## Prerequisites
 
-- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`.
+- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `dns` if `cloud_dns_zone_name` is set, and `orgpolicy` if `manage_sa_key_org_policy = true`).
 - Org policy `iam.disableServiceAccountKeyCreation` OFF (GCS HMAC).
   Either disable it out-of-band, or set `manage_sa_key_org_policy = true` to have
   Terraform do it (needs `roles/orgpolicy.policyAdmin`).

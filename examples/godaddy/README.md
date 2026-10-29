@@ -30,6 +30,7 @@ resource for it in this file.
 ## Prerequisites
 
 - A domain registered with GoDaddy, and a [GoDaddy API key/secret](https://developer.godaddy.com/keys).
+- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `orgpolicy` if `manage_sa_key_org_policy = true`).
 - Application Default Credentials for GCP: `gcloud auth application-default login`.
 - An n8n Enterprise license key (multi-main requires Enterprise).
 
