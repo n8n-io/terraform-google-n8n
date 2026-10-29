@@ -13,13 +13,15 @@ variable "friendly_name_prefix" {
     error_message = "friendly_name_prefix must not contain 'n8n' - the module already appends it, and including it here produces redundant names like <prefix>-n8n-n8n-pg."
   }
 
-  # The module derives both GCS bucket names from this prefix, and Cloud
-  # Storage rejects any bucket name containing "google" at apply time, after
-  # most of the stack already exists. Rejected unconditionally, even when
-  # existing_gcs_bucket_name is used, to keep the contract simple.
+  # When create_gcs_bucket = true, the module derives both GCS bucket names
+  # from this prefix, and Cloud Storage rejects any bucket name containing
+  # "google" at apply time, after most of the stack already exists. Checked
+  # only on that path: with create_gcs_bucket = false no bucket name is built
+  # from the prefix, and rejecting it there would break existing deployments
+  # whose other resources are already named after it.
   validation {
-    condition     = !strcontains(var.friendly_name_prefix, "google")
-    error_message = "friendly_name_prefix must not contain 'google': the module uses it in GCS bucket names, and Cloud Storage rejects bucket names containing 'google'."
+    condition     = var.create_gcs_bucket ? !strcontains(var.friendly_name_prefix, "google") : true
+    error_message = "friendly_name_prefix must not contain 'google' when create_gcs_bucket = true: the module uses it in GCS bucket names, and Cloud Storage rejects bucket names containing 'google'."
   }
 
   # GCP resource names are RFC1035: fail at plan time instead of mid-apply.
@@ -1426,7 +1428,7 @@ variable "db_postgresdb_ssl_reject_unauthorized" {
 }
 
 variable "db_postgresdb_ssl_ca_pem" {
-  description = "PEM-encoded CA certificate bundle n8n trusts when db_postgresdb_ssl_reject_unauthorized = true. The module passes it, whitespace-trimmed, to the n8n Helm chart's database.ssl.ca value, which the chart renders into its own ConfigMap as DB_POSTGRESDB_SSL_CA for the main, worker, and webhook-processor pods. Because the CA is part of the Helm release, changing it rolls the pods (the chart's checksum/config annotation), and if a failed upgrade's atomic rollback succeeds, the previous CA is restored. Same input name as terraform-aws-n8n. A CA certificate is public, so it is not marked sensitive; it is stored in Terraform state and in the Helm release. Applies only to the external PostgreSQL path (create_postgres_instance = false) with db_postgresdb_ssl_reject_unauthorized = true; ignored, with a plan-time warning, otherwise. Leave null to fall back to the pod image's bundled trust store, which validates successfully only if the external server's certificate chains to a publicly trusted root CA; that fallback also follows Node's process-wide NODE_TLS_REJECT_UNAUTHORIZED setting. See docs/postgresql-tls.md."
+  description = "PEM-encoded CA certificate bundle n8n trusts when db_postgresdb_ssl_reject_unauthorized = true. The module passes it, whitespace-trimmed, to the n8n Helm chart's database.ssl.ca value, which the chart renders into its own ConfigMap as DB_POSTGRESDB_SSL_CA for the main, worker, and webhook-processor pods. Because the CA is part of the Helm release, changing it rolls the pods (the chart's checksum/config annotation), and if a failed upgrade's atomic rollback succeeds, the previous CA is restored. Same input name as terraform-aws-n8n. A CA certificate is public, so it is not marked sensitive; it is stored in Terraform state and in the Helm release. Applies only to the external PostgreSQL path (create_postgres_instance = false) with db_postgresdb_ssl_reject_unauthorized = true; ignored, with a plan-time warning, otherwise. Leave null to fall back to the pod image's bundled trust store, which validates successfully only if the external server's certificate chains to a publicly trusted root CA; that fallback also follows Node's process-wide NODE_TLS_REJECT_UNAUTHORIZED setting. The trimmed value must be at most 131050 bytes in UTF-8 (CRLF line endings count as two bytes per line break), because the chart passes it to every n8n container as one environment variable and Linux refuses to start a process whose single environment string exceeds 131072 bytes with 4 KiB pages. The limit is checked at plan time even when the CA is not delivered. See docs/postgresql-tls.md."
   type        = string
   default     = null
 
@@ -1441,21 +1443,23 @@ variable "db_postgresdb_ssl_ca_pem" {
     error_message = "db_postgresdb_ssl_ca_pem must be null or a PEM-encoded CA bundle (containing -----BEGIN CERTIFICATE----- / -----END CERTIFICATE----- delimiters)."
   }
 
-  # PEM is ASCII (RFC 7468), so this makes the length check below byte-accurate
-  # (length() counts characters, not bytes).
-  validation {
-    condition     = var.db_postgresdb_ssl_ca_pem == null ? true : can(regex("^[[:ascii:]]*$", var.db_postgresdb_ssl_ca_pem))
-    error_message = "db_postgresdb_ssl_ca_pem must contain only ASCII characters (PEM is ASCII per RFC 7468)."
-  }
-
   # The chart passes the value to every n8n container as the single environment
   # variable DB_POSTGRESDB_SSL_CA. Linux refuses to exec a process whose single
   # environment string (NAME=value plus the NUL) exceeds MAX_ARG_STRLEN, 131072
   # bytes with 4 KiB pages: 131072 - len("DB_POSTGRESDB_SSL_CA=") (21) - 1 = 131050.
   # Measure the trimmed value, because that is what reaches the chart.
+  #
+  # length() counts grapheme clusters, not bytes: a multibyte character counts
+  # once, and so does a CRLF line break, so length() under-counts a
+  # Windows-saved PEM. base64encode() encodes the UTF-8 bytes, so its length
+  # (always a multiple of 4) / 4 * 3, minus the "=" padding, is the exact byte
+  # count. Same calculation as terraform-azurerm-n8n's postgres_ssl_ca_pem.
   validation {
-    condition     = var.db_postgresdb_ssl_ca_pem == null ? true : length(trimspace(var.db_postgresdb_ssl_ca_pem)) <= 131050
-    error_message = "db_postgresdb_ssl_ca_pem is ${var.db_postgresdb_ssl_ca_pem == null ? 0 : length(trimspace(var.db_postgresdb_ssl_ca_pem))} characters after trimming; the maximum is 131050. n8n receives it as one environment variable (DB_POSTGRESDB_SSL_CA), and Linux refuses to start a container whose single environment string exceeds 131072 bytes ('argument list too long'). Use a smaller bundle, such as only the CA certificates that sign your database server."
+    condition = var.db_postgresdb_ssl_ca_pem == null ? true : (
+      length(base64encode(trimspace(var.db_postgresdb_ssl_ca_pem))) / 4 * 3 -
+      length(regex("=*$", base64encode(trimspace(var.db_postgresdb_ssl_ca_pem)))) <= 131050
+    )
+    error_message = "db_postgresdb_ssl_ca_pem is ${var.db_postgresdb_ssl_ca_pem == null ? 0 : length(base64encode(trimspace(var.db_postgresdb_ssl_ca_pem))) / 4 * 3 - length(regex("=*$", base64encode(trimspace(var.db_postgresdb_ssl_ca_pem))))} bytes in UTF-8 after trimming (CRLF line endings count two bytes each); the maximum is 131050. n8n receives it as one environment variable (DB_POSTGRESDB_SSL_CA), and Linux refuses to start a container whose single environment string exceeds 131072 bytes ('argument list too long'). Use a smaller bundle, such as only the CA certificates that sign your database server."
   }
 }
 

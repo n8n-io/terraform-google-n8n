@@ -239,23 +239,13 @@ run "ca_pem_rejects_blank_value" {
   expect_failures = [var.db_postgresdb_ssl_ca_pem]
 }
 
-run "ca_pem_rejects_non_ascii_value" {
-  command = plan
+# The size limit is 131050 bytes in UTF-8 after trimming (see the validation
+# comment in variables.tf). PEM framing is 54 bytes: 27 + 25 + two line breaks.
+# length() counts grapheme clusters, so "ő" (two bytes) and CRLF (two bytes)
+# each count once there; the runs below sit on each side of the byte limit.
 
-  variables {
-    create_postgres_instance              = false
-    n8n_database_host                     = "pg.external.example.com"
-    n8n_database_password                 = "external-db-password"
-    db_postgresdb_ssl_enabled             = true
-    db_postgresdb_ssl_reject_unauthorized = true
-    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\né\n-----END CERTIFICATE-----"
-  }
-
-  expect_failures = [var.db_postgresdb_ssl_ca_pem]
-}
-
-# 54 characters of framing (27 + 25 + two newlines) + 130996 body = 131050.
-run "ca_pem_accepts_exactly_131050_characters_after_trimming" {
+# 54 + 130996 ASCII body = 131050 bytes, with surrounding whitespace trimmed.
+run "ca_pem_accepts_exactly_131050_bytes_after_trimming" {
   command = plan
 
   variables {
@@ -268,12 +258,12 @@ run "ca_pem_accepts_exactly_131050_characters_after_trimming" {
   }
 
   assert {
-    condition     = local.postgres_ssl_ca_active == true
-    error_message = "A bundle of exactly 131050 characters after trimming must pass validation."
+    condition     = length(local.n8n_database_ssl_values.ssl.ca) == 131050
+    error_message = "An ASCII bundle of exactly 131050 bytes after trimming must pass validation and reach database.ssl.ca whole."
   }
 }
 
-run "ca_pem_rejects_131051_characters_after_trimming" {
+run "ca_pem_rejects_131051_bytes_after_trimming" {
   command = plan
 
   variables {
@@ -283,6 +273,98 @@ run "ca_pem_rejects_131051_characters_after_trimming" {
     db_postgresdb_ssl_enabled             = true
     db_postgresdb_ssl_reject_unauthorized = true
     db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\n${format("%0130997d", 0)}\n-----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
+}
+
+# 54 + "ő" (2 bytes) + 130994 = 131050 bytes, 131049 characters.
+run "ca_pem_accepts_non_ascii_bundle_at_byte_limit" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nő${format("%0130994d", 0)}\n-----END CERTIFICATE-----"
+  }
+
+  assert {
+    condition     = length(local.n8n_database_ssl_values.ssl.ca) == 131049
+    error_message = "A non-ASCII bundle of exactly 131050 bytes must pass validation and reach database.ssl.ca unchanged."
+  }
+}
+
+# 54 + "ő" (2 bytes) + 130995 = 131051 bytes, but only 131050 characters.
+run "ca_pem_rejects_multibyte_bundle_over_byte_limit" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nő${format("%0130995d", 0)}\n-----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
+}
+
+# RFC 7468 section 5.2 allows explanatory text outside the BEGIN/END lines,
+# and Node's tls.connect({ ca }) ignores it, so a non-ASCII label between two
+# certificates (as in Mozilla's CA list) must be accepted and delivered as-is.
+run "ca_pem_accepts_non_ascii_label_between_certificates" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----\nNetLock Arany (Class Gold) Főtanúsítvány\n-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUI=\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition     = local.n8n_database_ssl_values.ssl.ca == "-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUE=\n-----END CERTIFICATE-----\nNetLock Arany (Class Gold) Főtanúsítvány\n-----BEGIN CERTIFICATE-----\nU1lOVEhFVElDLUNBLUI=\n-----END CERTIFICATE-----"
+    error_message = "A bundle with a non-ASCII label between certificates must pass validation and reach database.ssl.ca unchanged (trimmed)."
+  }
+}
+
+# A realistic Windows-saved bundle: 2015 lines of 64 characters, each ending in
+# CRLF, inside the framing. 131028 characters after trimming, which a
+# length()-based rule would accept, but 133044 bytes. range() caps at 1024
+# values, so the body is built with replace() over a zero-padded string.
+run "ca_pem_rejects_windows_line_ending_bundle_over_byte_limit" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\r\n${replace(format("%02015d", 0), "0", "${format("%064d", 1)}\r\n")}-----END CERTIFICATE-----"
+  }
+
+  expect_failures = [var.db_postgresdb_ssl_ca_pem]
+}
+
+# One CRLF and one LF line break: 131051 bytes, but only 131050 characters,
+# because length() counts CRLF as a single grapheme cluster.
+run "ca_pem_rejects_crlf_bundle_over_byte_limit" {
+  command = plan
+
+  variables {
+    create_postgres_instance              = false
+    n8n_database_host                     = "pg.external.example.com"
+    n8n_database_password                 = "external-db-password"
+    db_postgresdb_ssl_enabled             = true
+    db_postgresdb_ssl_reject_unauthorized = true
+    db_postgresdb_ssl_ca_pem              = "-----BEGIN CERTIFICATE-----\r\n${format("%0130996d", 0)}\n-----END CERTIFICATE-----"
   }
 
   expect_failures = [var.db_postgresdb_ssl_ca_pem]

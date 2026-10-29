@@ -1214,6 +1214,24 @@ run "friendly_name_prefix_rejects_google_substring" {
   expect_failures = [var.friendly_name_prefix]
 }
 
+# With an existing bucket no bucket name is built from the prefix, so the
+# "google" restriction must not apply (it would break existing deployments
+# whose other resources are already named after the prefix).
+run "friendly_name_prefix_allows_google_substring_with_existing_bucket" {
+  command = plan
+
+  variables {
+    friendly_name_prefix     = "google-review"
+    create_gcs_bucket        = false
+    existing_gcs_bucket_name = "external-n8n-bucket"
+  }
+
+  assert {
+    condition     = local.name_prefix == "google-review-n8n" && length(google_storage_bucket.n8n) == 0
+    error_message = "A prefix containing 'google' must be accepted when create_gcs_bucket = false."
+  }
+}
+
 run "friendly_name_prefix_rejects_overlong_value" {
   command = plan
 
