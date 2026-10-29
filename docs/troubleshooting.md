@@ -235,8 +235,10 @@ A `*_secret_ref` input (`n8n_database_password_secret_ref`,
 `n8n_credentials_overwrite_secret_ref`) only passes a *reference* through to
 the chart; the module never creates, reads, or validates the referenced
 Secret's existence or contents. A typo in the name, a wrong key inside the
-Secret, or a Secret created in the wrong namespace all surface only once the
-chart tries to mount it.
+Secret, or a Secret created in the wrong namespace all surface only once
+Kubernetes resolves the reference while creating the pod's containers, either
+by mounting the Secret as a volume or by reading it into an environment
+variable through a `secretKeyRef`.
 
 **Fix**
 

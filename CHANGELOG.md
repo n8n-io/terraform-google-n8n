@@ -180,7 +180,13 @@ this project adheres to the stability contract in
   through, treating its empty `n8n_license_key` default as unset on this
   path. See ["Offline license
   activation"](./README.md#offline-license-activation), which also covers
-  matching the certificate to the instance ID and switching back to a key. Same design as
+  matching the certificate to the instance ID and switching back to a key.
+  The certificate covers initial activation only: a fully offline deployment
+  should set `N8N_LICENSE_AUTO_RENEW_ENABLED=false` through `n8n_extra_env`,
+  block egress to n8n's license server, and request a replacement
+  certificate before the current one expires (see ["Offline license
+  activation"](./docs/post-deployment.md#offline-license-activation) in
+  `docs/post-deployment.md`). Same design as
   [terraform-aws-n8n#171](https://github.com/n8n-io/terraform-aws-n8n/pull/171)
   and
   [terraform-azurerm-n8n#51](https://github.com/n8n-io/terraform-azurerm-n8n/pull/51).

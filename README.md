@@ -202,7 +202,11 @@ n8n's `N8N_LICENSE_AUTO_RENEW_ENABLED` defaults to `true`, and the module
 does not change it. On a cluster that should never contact n8n's license
 server, you can set it to `false` through `n8n_extra_env`. This setting alone
 does not guarantee that n8n makes no outbound calls, so also block egress to
-the license server at the network level.
+the license server at the network level. The certificate covers initial
+activation only. With auto-renewal off and egress blocked, n8n cannot renew
+the license itself, so request a replacement certificate from n8n before the
+current one expires, then update the Secret and restart the pods as
+described above.
 
 ### Match the certificate to the instance ID
 

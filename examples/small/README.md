@@ -33,6 +33,11 @@ For an air-gapped or egress-restricted cluster, set
 namespace and leave `n8n_license_key` unset (see the commented lines in
 `terraform.tfvars.example` and the root README's
 [Offline license activation](../../README.md#offline-license-activation)).
+The certificate covers initial activation only. For a fully offline
+deployment, also set `N8N_LICENSE_AUTO_RENEW_ENABLED=false` through the
+module's `n8n_extra_env` (this example does not pass it through, so add it to
+`main.tf`), block egress to n8n's license server, and request a replacement
+certificate before the current one expires.
 
 ## Production considerations
 
