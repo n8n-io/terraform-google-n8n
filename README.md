@@ -204,6 +204,63 @@ server, you can set it to `false` through `n8n_extra_env`. This setting alone
 does not guarantee that n8n makes no outbound calls, so also block egress to
 the license server at the network level.
 
+### Match the certificate to the instance ID
+
+An offline certificate is issued for one device fingerprint, and n8n uses
+its instance ID as that fingerprint. Every pod in a deployment shares the
+same instance ID. If the certificate was issued for a different ID, the
+license does not validate.
+
+In n8n 2.41.4 (the default chart's appVersion), n8n resolves the instance ID
+in this order: the `N8N_INSTANCE_ID` environment variable, then the
+`instance.id` row stored in the database, then a value derived from the
+encryption key. The first server process to start without either of the
+first two stores the derived value in the database, so later changes to the
+encryption key do not change the instance ID.
+
+- **Simplest path:** run
+  `kubectl -n <n8n_kube_namespace> exec deploy/n8n-main -- n8n license:info`
+  on the running deployment and request the certificate for the
+  `deviceFingerprint` it prints. No other setting is needed.
+- **Certificate already issued for another ID:** pin the instance ID with
+  `N8N_INSTANCE_ID` through `n8n_extra_env`. `config.extraEnv` is
+  chart-global, so the value reaches every pod role. The value must be at
+  least 32 characters. In n8n 2.41.4, a shorter value makes the license
+  client fall back to the encryption-key-derived ID and log a warning.
+
+```hcl
+n8n_extra_env = [
+  { name = "N8N_INSTANCE_ID", value = "<instance ID the certificate was issued for>" },
+]
+```
+
+Do not change the encryption key (`n8n_encryption_key` or
+`existing_n8n_core_secret_name`) to reach a particular instance ID. On an
+existing database, a different key makes every stored credential
+unreadable. Pinning `N8N_INSTANCE_ID` leaves the encryption key alone.
+Changing the instance ID of an existing deployment may affect other
+features that use it, which this module has not checked.
+
+### Switching back to a license key
+
+Keep the certificate Secret until the apply that switches back to
+`n8n_license_key` or `n8n_license_key_secret_ref` has finished and the pods
+have rolled. Delete the Secret in a later step. If you delete it in the same
+step, it can disappear before every pod has restarted, and a pod that starts
+in that window fails with `CreateContainerConfigError`.
+
+A license key needs the license server, so also reverse the offline setup in
+the same change: restore egress to n8n's license server, and remove
+`N8N_LICENSE_AUTO_RENEW_ENABLED=false` from `n8n_extra_env` if you set it.
+
+In n8n 2.41.4, a pod with an activation key skips activation at startup when
+the database already holds a license certificate, for example one saved by an
+earlier key activation before you switched to the offline certificate. n8n
+then keeps using that stored certificate. After the switch, check
+`kubectl -n <n8n_kube_namespace> exec deploy/n8n-main -- n8n license:info`
+and confirm the plan and entitlements you expect. If they do not match,
+activate the key from **Settings** > **License**.
+
 ---
 
 ## Key inputs

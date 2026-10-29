@@ -223,13 +223,15 @@ volume "credentials-overwrite"` with either `secret "<name>" not found` (the
 Secret itself is missing) or `references non-existent secret key` (the
 Secret exists but not the referenced `key`), because mounting a single Secret
 key as a file is a kubelet-level operation that happens before the n8n
-process ever starts.
+process ever starts. For `n8n_license_cert_secret_ref`, which reaches the
+pods as an environment variable `secretKeyRef`, a missing Secret or key
+leaves the pods in `CreateContainerConfigError` instead.
 
 **Cause**
 
 A `*_secret_ref` input (`n8n_database_password_secret_ref`,
 `redis_password_secret_ref`, `n8n_license_key_secret_ref`,
-`existing_n8n_core_secret_name`, `gcs_hmac_secret_name`,
+`n8n_license_cert_secret_ref`, `existing_n8n_core_secret_name`, `gcs_hmac_secret_name`,
 `n8n_credentials_overwrite_secret_ref`) only passes a *reference* through to
 the chart; the module never creates, reads, or validates the referenced
 Secret's existence or contents. A typo in the name, a wrong key inside the
@@ -241,7 +243,8 @@ chart tries to mount it.
 1. Confirm the Secret exists in the effective namespace:
    `kubectl get secret <name> -n <n8n_kube_namespace>`.
 2. Confirm the key matches what you referenced (default `password` for
-   database/Redis, `license-key` for the license, `accessSecret` for GCS
+   database/Redis, `license-key` for the license key, `cert` for the offline
+   license certificate, `accessSecret` for GCS
    HMAC; there is no default key for `n8n_credentials_overwrite_secret_ref`,
    both `name` and `key` are required):
    `kubectl get secret <name> -n <n8n_kube_namespace> -o jsonpath='{.data}'`.
