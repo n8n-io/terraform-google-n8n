@@ -376,9 +376,10 @@ this project adheres to the stability contract in
   because `gcloud` prints the effective enforce value as `True`/`False` and
   the script only matched `TRUE`/`FALSE`. A non-enforced policy now reports
   `[ok]`, and an enforced one reports `[BLOCK]` instead of a warning. An
-  enforced policy now always makes the summary `PASS with warnings`, even
-  when the identity holds `orgpolicy.policy.set`, because `apply` fails on the
-  HMAC key until the policy is relaxed.
+  enforced policy now always sets the warning flag, even when the identity
+  holds `orgpolicy.policy.set`, so an otherwise passing run reports
+  `PASS with warnings`. With the default `manage_sa_key_org_policy = false`
+  and a module-created HMAC key, `apply` fails until the policy is relaxed.
 
 ## [0.1.0] - 2026-09-29
 

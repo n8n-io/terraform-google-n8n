@@ -165,7 +165,8 @@ if [[ "${CHECK_ORG_POLICY}" == "true" ]]; then
     TRUE|True|true)
       echo "  [BLOCK] enforced -> HMAC key creation is blocked."
       # Always surface this in the summary: with the default
-      # manage_sa_key_org_policy = false, apply fails on the HMAC key.
+      # manage_sa_key_org_policy = false and a module-created HMAC key, apply
+      # fails on the HMAC key. A required-check failure still wins (FAIL).
       warn=1
       if grep -qxF "orgpolicy.policy.set" <<<"$(query_granted orgpolicy.policy.set)"; then
         echo "          You HAVE orgpolicy.policy.set: set manage_sa_key_org_policy = true, or disable out-of-band."
