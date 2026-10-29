@@ -72,6 +72,11 @@ run "defaults_create_managed_network_resources" {
   }
 
   assert {
+    condition     = google_compute_global_address.psa[0].labels["managed_by"] == "terraform" && google_compute_global_address.psa[0].labels["app"] == "n8n" && google_compute_global_address.psa[0].labels["cluster"] == "test-n8n"
+    error_message = "The module-created PSA range must carry the module's standard labels (local.gcp_labels)."
+  }
+
+  assert {
     condition     = length(google_service_networking_connection.psa) == 1
     error_message = "create_psa defaults to true and must create the PSA connection."
   }

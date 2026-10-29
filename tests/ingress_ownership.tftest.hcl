@@ -30,6 +30,19 @@ variables {
   n8n_license_key      = "test-license-key-not-real"
 }
 
+run "lb_address_carries_standard_labels" {
+  command = plan
+
+  variables {
+    common_labels = { team = "platform" }
+  }
+
+  assert {
+    condition     = google_compute_global_address.lb[0].labels["team"] == "platform" && google_compute_global_address.lb[0].labels["managed_by"] == "terraform" && google_compute_global_address.lb[0].labels["app"] == "n8n" && google_compute_global_address.lb[0].labels["cluster"] == "test-n8n"
+    error_message = "The module-created load balancer global address must carry the module's standard labels (local.gcp_labels, including common_labels)."
+  }
+}
+
 # ── Defaults create every managed ingress resource ────────────────────────────
 
 run "defaults_create_managed_ingress_resources" {

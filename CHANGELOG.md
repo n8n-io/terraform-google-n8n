@@ -314,6 +314,30 @@ this project adheres to the stability contract in
   (with 4 KiB pages), so an oversized bundle previously passed the plan and
   then failed every main, worker, and webhook-processor container with
   `argument list too long`.
+- The module-created load balancer static IP
+  (`google_compute_global_address.lb`) and Private Services Access range
+  (`google_compute_global_address.psa`) now carry the module's standard
+  labels (`local.gcp_labels`, including `common_labels`). Terraform plans this
+  as an in-place label update on each address (`labels` does not force
+  replacement). This was verified live on an existing `examples/small`
+  deployment with Cloud SQL and Memorystore using the PSA range: the plan
+  showed only the label updates on the two addresses, with no replacement of
+  either address, the network, `google_service_networking_connection.psa`,
+  Cloud SQL, or Memorystore. The apply succeeded, the static IP did not
+  change, and n8n kept serving traffic. Reverting the change removed the
+  labels in place the same way. The provider manages only the
+  label keys in the configuration, so labels added outside Terraform under
+  other keys are kept. A label under the same key as a module label
+  (`managed_by`, `app`, `cluster`, or a `common_labels` key) is overwritten,
+  whether it was added outside Terraform or through the provider's
+  `default_labels`. After reverting this change and applying, keys still set
+  in the provider's `default_labels` take those values again and the other
+  module label keys are removed. Overwritten values that were set outside
+  Terraform are not restored. The update calls the Compute Engine
+  `globalAddresses.setLabels` API, so the deploying identity needs
+  `compute.globalAddresses.setLabels` in the project that owns each address.
+  For the PSA range on a Shared VPC (`existing_network_project_id` set), that
+  is the host project.
 
 ## [0.1.0] - 2026-09-29
 
