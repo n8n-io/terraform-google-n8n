@@ -319,13 +319,13 @@ this project adheres to the stability contract in
   (`google_compute_global_address.psa`) now carry the module's standard
   labels (`local.gcp_labels`, including `common_labels`). Terraform plans this
   as an in-place label update on each address (`labels` does not force
-  replacement). For the PSA range this was checked live against an active
-  Service Networking peering: the saved plan showed only the label update,
-  with no replacement of the address, the network, or
-  `google_service_networking_connection.psa`, and the apply succeeded. That
-  check had no producer service on the range. The case this module normally
-  creates, with Cloud SQL or Memorystore using the range, was not tested live.
-  Review the plan before applying. The provider manages only the
+  replacement). This was verified live on an existing `examples/small`
+  deployment with Cloud SQL and Memorystore using the PSA range: the plan
+  showed only the label updates on the two addresses, with no replacement of
+  either address, the network, `google_service_networking_connection.psa`,
+  Cloud SQL, or Memorystore. The apply succeeded, the static IP did not
+  change, and n8n kept serving traffic. Reverting the change removed the
+  labels in place the same way. The provider manages only the
   label keys in the configuration, so labels added outside Terraform under
   other keys are kept. A label under the same key as a module label
   (`managed_by`, `app`, `cluster`, or a `common_labels` key) is overwritten,
