@@ -87,7 +87,7 @@ The ceilings set the webhook max to 80 and the worker max to 80. Keep
 
 ## Prerequisites
 
-- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`.
+- APIs: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage`.
 - Org policy `iam.disableServiceAccountKeyCreation` OFF (GCS HMAC).
   Either disable it out-of-band, or set `manage_sa_key_org_policy = true` to have
   Terraform do it (needs `roles/orgpolicy.policyAdmin`).

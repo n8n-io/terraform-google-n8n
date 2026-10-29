@@ -47,7 +47,7 @@ routing the same way it changes the module's built-in managed ingress.
 ## Prerequisites
 
 - Everything `examples/small` requires: APIs (`container`, `sqladmin`,
-  `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`), the
+  `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage`), the
   `iam.disableServiceAccountKeyCreation` org policy off (or
   `manage_sa_key_org_policy = true`), and
   `gcloud auth application-default login`.

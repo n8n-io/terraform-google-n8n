@@ -343,7 +343,9 @@ this project adheres to the stability contract in
   The module always reads the project (`data.google_project.n8n`) and the
   Service Networking connection looks the project up through it, so `apply`
   failed with `Cloud Resource Manager API has not been used in project ...`
-  in a project that had never enabled it.
+  in a project that had never enabled it. They also include
+  `storage.googleapis.com`, because the module always creates a bucket IAM
+  binding and, by default, the GCS buckets and HMAC key.
 - The README now names the project roles a deploying identity needs beyond
   `roles/editor`, each qualified by the switch that creates the resource it
   authorizes: `roles/servicenetworking.networksAdmin` (Service Networking
@@ -357,11 +359,16 @@ this project adheres to the stability contract in
   `container.roles.create`, and `container.roleBindings.create`, gated on a new
   `CHECK_KEDA_RBAC` toggle (default true, following `CHECK_CLOUD_DNS`'s pattern)
   so it does not reject `install_keda = false` deployments. The README also
-  notes that `storage.buckets.setIamPolicy` is needed on an existing bucket
-  (`create_gcs_bucket = false`), that Kubernetes RBAC can replace
+  notes that `storage.buckets.setIamPolicy` on the n8n bucket is always
+  needed (`roles/editor` usually covers it on a bucket the module creates,
+  but not on an existing bucket), that Kubernetes RBAC can replace
   `roles/container.admin` on an existing cluster, and that the preflight
-  script does not read the `create_*` switches, so it can report missing
-  permissions on customer-managed paths that `apply` does not need.
+  script checks only a core set of permissions and does not read the
+  `create_*` switches, so it can pass while `apply` still fails, or report
+  missing permissions on customer-managed paths that `apply` does not need.
+  The README no longer lists `certificatemanager.googleapis.com` for
+  `tls_mode = "google_managed"`: the module uses a GKE `ManagedCertificate`,
+  not Certificate Manager.
 
 ## [0.1.0] - 2026-09-29
 
