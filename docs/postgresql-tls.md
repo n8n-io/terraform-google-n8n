@@ -46,7 +46,11 @@ Because the CA is part of the Helm release:
 - A failed upgrade's atomic rollback (`helm_release.n8n` sets `atomic = true`) restores the previous CA together with the previous pod specification, as long as the rollback itself succeeds (see [When verification or a CA change fails](#when-verification-or-a-ca-change-fails)).
 - Removing the CA removes it in the same Helm upgrade. There is no separate Kubernetes object for Terraform to delete first.
 
-A CA certificate is public, so the input is not marked sensitive. It is stored in Terraform state and in the Helm release. You can commit the PEM file next to your Terraform configuration and pass it with `file()`. The module checks only that the value has PEM certificate framing (`-----BEGIN CERTIFICATE-----` / `-----END CERTIFICATE-----`); it does not parse the certificate. A bundle with more than one certificate is accepted.
+A CA certificate is public, so the input is not marked sensitive. It is stored in Terraform state and in the Helm release. You can commit the PEM file next to your Terraform configuration and pass it with `file()`. The module checks that the value has PEM certificate framing (`-----BEGIN CERTIFICATE-----` / `-----END CERTIFICATE-----`) and fits the size limit below; it does not parse the certificate. A bundle with more than one certificate is accepted.
+
+The trimmed bundle can be at most 131,050 bytes in UTF-8. CRLF line endings count as two bytes per line break. When the module delivers the CA (`db_postgresdb_ssl_reject_unauthorized = true`), the chart passes it to every n8n container as the single environment variable `DB_POSTGRESDB_SSL_CA`. Linux refuses to start a process whose single environment string exceeds 131,072 bytes with 4 KiB pages (the name, the value, and the terminating NUL), so a larger bundle would make every main, worker, and webhook-processor container fail with `argument list too long`.
+
+The module checks the limit at plan time whether or not it delivers the CA. A bundle you stage with verification off (see below) therefore cannot fail every pod later, when you turn verification on. If your bundle is too large, keep only the CA certificates that sign your database server's certificate chain.
 
 If you set `db_postgresdb_ssl_ca_pem` but leave `db_postgresdb_ssl_reject_unauthorized = false`, the module does not pass the CA to the chart, and the `postgres_ssl_ca_ignored_without_verification` check warns at plan time. You can stage the CA this way before you turn on verification.
 
