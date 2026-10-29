@@ -159,8 +159,10 @@ if [[ "${CHECK_ORG_POLICY}" == "true" ]]; then
     effective="false"
   fi
 
+  # gcloud prints the v2 enforce value as True/False; the v1 branch above
+  # normalizes to TRUE or "". Match both spellings.
   case "${eff}" in
-    TRUE)
+    TRUE|True|true)
       echo "  [BLOCK] enforced -> HMAC key creation is blocked."
       if grep -qxF "orgpolicy.policy.set" <<<"$(query_granted orgpolicy.policy.set)"; then
         echo "          You HAVE orgpolicy.policy.set: set manage_sa_key_org_policy = true, or disable out-of-band."
@@ -170,7 +172,7 @@ if [[ "${CHECK_ORG_POLICY}" == "true" ]]; then
         warn=1
       fi
       ;;
-    FALSE|"")
+    FALSE|False|false|"")
       if [[ "${effective}" == "true" ]]; then
         echo "  [ok]    not enforced (effective) -> HMAC key creation is allowed. Leave manage_sa_key_org_policy = false."
       else
