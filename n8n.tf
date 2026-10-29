@@ -1127,9 +1127,9 @@ check "external_secrets_update_interval_requires_master_switch" {
 # MAJOR.MINOR.<rest> is compared (covers "2.27.4" and "2.27.4-alpine");
 # anything else, including null (the chart's own default tag) and
 # pre-release/channel tags, is left alone rather than guessed at. Written as
-# nested ternaries because Terraform does not short-circuit && / || (see
-# AGENTS.md), so the numeric comparisons must sit on a branch that is only
-# taken once the regex has confirmed they are numbers.
+# nested ternaries so the numeric comparisons sit on a branch that is only
+# taken once the regex has confirmed they are numbers. Terraform before 1.12
+# did not short-circuit && / ||; the ternaries stay on the 1.13 floor.
 check "execution_data_s3_requires_n8n_2_27" {
   assert {
     condition = var.n8n_execution_data_storage_mode != "s3" ? true : (
