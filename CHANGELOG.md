@@ -321,7 +321,19 @@ this project adheres to the stability contract in
   in-place label update on each address. For the PSA range it was verified
   live against an active Service Networking peering: the saved plan showed
   only the label update, with no replacement of the address, the network, or
-  `google_service_networking_connection.psa`.
+  `google_service_networking_connection.psa`. The provider manages only the
+  label keys in the configuration, so labels added outside Terraform under
+  other keys are kept. A label under the same key as a module label
+  (`managed_by`, `app`, `cluster`, or a `common_labels` key) is overwritten,
+  whether it was added outside Terraform or through the provider's
+  `default_labels`. After reverting this change and applying, keys still set
+  in the provider's `default_labels` take those values again and the other
+  module label keys are removed. Overwritten values that were set outside
+  Terraform are not restored. The update calls the Compute Engine
+  `globalAddresses.setLabels` API, so the deploying identity needs
+  `compute.globalAddresses.setLabels` in the project that owns each address.
+  For the PSA range on a Shared VPC (`existing_network_project_id` set), that
+  is the host project.
 
 ## [0.1.0] - 2026-09-29
 
