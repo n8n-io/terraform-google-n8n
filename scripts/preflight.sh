@@ -164,12 +164,14 @@ if [[ "${CHECK_ORG_POLICY}" == "true" ]]; then
   case "${eff}" in
     TRUE|True|true)
       echo "  [BLOCK] enforced -> HMAC key creation is blocked."
+      # Always surface this in the summary: with the default
+      # manage_sa_key_org_policy = false, apply fails on the HMAC key.
+      warn=1
       if grep -qxF "orgpolicy.policy.set" <<<"$(query_granted orgpolicy.policy.set)"; then
         echo "          You HAVE orgpolicy.policy.set: set manage_sa_key_org_policy = true, or disable out-of-band."
       else
         echo "  [warn]  You lack orgpolicy.policy.set: an org/folder admin must disable it;"
         echo "          manage_sa_key_org_policy = true would FAIL for you."
-        warn=1
       fi
       ;;
     FALSE|False|false|"")

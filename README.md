@@ -67,7 +67,7 @@ If neither is done, the apply fails when creating `google_storage_hmac_key`.
 
 ### 2. Enable APIs
 
-`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `dns` if using `cloud_dns_zone_name`, and `orgpolicy` if using `manage_sa_key_org_policy`). `cloudresourcemanager.googleapis.com` is needed because the module reads the project (`data.google_project.n8n`) and the Service Networking connection resource looks the project up through it; with the API disabled, `apply` fails with `Cloud Resource Manager API has not been used in project ... before or it is disabled`.
+`container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `dns` if using `cloud_dns_zone_name` with `create_ingress = true`, and `orgpolicy` if using `manage_sa_key_org_policy`). `cloudresourcemanager.googleapis.com` is needed because the module reads the project (`data.google_project.n8n`) and the Service Networking connection resource looks the project up through it; with the API disabled, `apply` fails with `Cloud Resource Manager API has not been used in project ... before or it is disabled`.
 
 ### 3. Authentication
 
