@@ -116,6 +116,16 @@ run "direct_license_key_creates_managed_secret_no_literal_in_helm_values" {
     condition     = local.effective_license_secret_key == "license-key"
     error_message = "The managed license Secret's key must be license-key."
   }
+
+  assert {
+    condition = (
+      local.n8n_license_values.enabled == true &&
+      local.n8n_license_values.activationKey == "" &&
+      local.n8n_license_values.existingSecret.name == "n8n-license-secret" &&
+      local.n8n_license_values.existingSecret.key == "license-key"
+    )
+    error_message = "On the key path the chart's license values must enable the license and point existingSecret at the effective license Secret, with no literal activationKey."
+  }
 }
 
 run "license_key_secret_ref_wires_into_helm_values" {
@@ -148,6 +158,14 @@ run "license_key_secret_ref_wires_into_helm_values" {
     condition     = local.effective_license_secret_key == "activation-key"
     error_message = "The caller-supplied license Secret key must be used as-is."
   }
+
+  assert {
+    condition = (
+      local.n8n_license_values.existingSecret.name == "n8n-license" &&
+      local.n8n_license_values.existingSecret.key == "activation-key"
+    )
+    error_message = "On the caller-managed key path the chart's license.existingSecret must point at the caller-supplied Secret name and key."
+  }
 }
 
 run "license_key_and_secret_ref_are_mutually_exclusive" {
@@ -172,6 +190,245 @@ run "license_key_missing_source_fails_validation" {
   }
 
   expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "license_cert_secret_ref_creates_no_managed_secret" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "cert" }
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n_license) == 0
+    error_message = "n8n_license_cert_secret_ref must not create a managed license Secret."
+  }
+
+  assert {
+    condition     = local.effective_license_secret_name == null && local.effective_license_secret_key == null
+    error_message = "The offline-certificate path must resolve effective_license_secret_name/key to null; no license key Secret is referenced."
+  }
+
+  assert {
+    condition     = !contains(keys(local.n8n_license_values), "existingSecret")
+    error_message = "The offline-certificate path must omit license.existingSecret, so the chart's license helper falls back to its empty default and emits no N8N_LICENSE_ACTIVATION_KEY."
+  }
+
+  assert {
+    condition     = local.n8n_license_values.enabled == true && local.n8n_license_values.activationKey == ""
+    error_message = "license.enabled must stay true on the offline-certificate path (the chart gates N8N_MULTI_MAIN_SETUP_ENABLED on it), with no literal activationKey."
+  }
+
+  assert {
+    condition     = contains(local.n8n_managed_env_names, "N8N_LICENSE_CERT")
+    error_message = "N8N_LICENSE_CERT must be reserved against the extra env inputs while n8n_license_cert_secret_ref is set."
+  }
+
+  assert {
+    condition     = length(local.n8n_license_cert_env) == 1
+    error_message = "local.n8n_license_cert_env must carry exactly one entry when n8n_license_cert_secret_ref is set."
+  }
+
+  assert {
+    condition = (
+      local.n8n_license_cert_env[0].name == "N8N_LICENSE_CERT" &&
+      local.n8n_license_cert_env[0].valueFrom.secretKeyRef.name == "platform-n8n-license-cert" &&
+      local.n8n_license_cert_env[0].valueFrom.secretKeyRef.key == "cert"
+    )
+    error_message = "local.n8n_license_cert_env's single entry must be N8N_LICENSE_CERT sourced from n8n_license_cert_secret_ref via secretKeyRef."
+  }
+}
+
+# Not assertable under mocks: that helm_release.n8n's config.extraEnv
+# actually includes local.n8n_license_cert_env (n8n.tf), because
+# helm_release.values is unknown at plan time (AGENTS.md's "Known mock
+# provider limitations"). tests/scripts/check-n8n-chart.sh proves the chart
+# renders such an entry on every pod role. To verify the module wiring
+# itself, run a real `terraform plan` from an example root with
+# n8n_license_cert_secret_ref set and check the rendered values for an
+# N8N_LICENSE_CERT entry with a secretKeyRef, or run
+# `kubectl -n <namespace> get deploy n8n-main -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="N8N_LICENSE_CERT")]}'`
+# after apply.
+
+run "license_cert_secret_ref_key_defaults_to_cert" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+  }
+
+  assert {
+    condition     = var.n8n_license_cert_secret_ref.key == "cert"
+    error_message = "n8n_license_cert_secret_ref.key must default to \"cert\" when omitted."
+  }
+}
+
+run "rejects_license_key_and_cert_secret_ref_together" {
+  command = plan
+
+  variables {
+    n8n_license_key             = "test-license-key-not-real"
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+  }
+
+  expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "rejects_license_key_secret_ref_and_cert_secret_ref_together" {
+  command = plan
+
+  variables {
+    n8n_license_key = null
+    n8n_license_key_secret_ref = {
+      name = "platform-n8n-license"
+    }
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert" }
+  }
+
+  expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "rejects_no_license_credential_set" {
+  command = plan
+
+  variables {
+    n8n_license_key = null
+  }
+
+  expect_failures = [var.n8n_license_key_secret_ref]
+}
+
+run "rejects_empty_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_malformed_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "Not_A_Valid_K8s_Name!", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_malformed_license_cert_secret_ref_key" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "not a valid key" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_null_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = null, key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+# Each dot-separated part of a DNS-1123 subdomain must start and end with an
+# alphanumeric, so an empty part or a part next to a hyphen is invalid.
+run "rejects_license_cert_secret_ref_name_with_empty_label" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "n8n..license", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_license_cert_secret_ref_name_with_hyphen_after_dot" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "n8n.-license", key = "cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "accepts_dotted_license_cert_secret_ref_name" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "n8n.license-cert", key = "tls.cert" }
+  }
+
+  assert {
+    condition     = local.n8n_license_cert_env[0].valueFrom.secretKeyRef.name == "n8n.license-cert" && local.n8n_license_cert_env[0].valueFrom.secretKeyRef.key == "tls.cert"
+    error_message = "A valid dotted Secret name and key must pass validation and render as-is."
+  }
+}
+
+# Kubernetes rejects a Secret data key of "." or one starting with "..".
+run "rejects_license_cert_secret_ref_key_dot" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "." }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_license_cert_secret_ref_key_dot_dot" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = ".." }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "rejects_license_cert_secret_ref_key_with_dot_dot_prefix" {
+  command = plan
+
+  variables {
+    n8n_license_key             = null
+    n8n_license_cert_secret_ref = { name = "platform-n8n-license-cert", key = "..cert" }
+  }
+
+  expect_failures = [var.n8n_license_cert_secret_ref]
+}
+
+run "existing_core_secret_accepts_license_cert_secret_ref" {
+  command = plan
+
+  variables {
+    existing_n8n_core_secret_name = "existing-core-secrets"
+    n8n_license_key               = null
+    n8n_license_cert_secret_ref   = { name = "platform-n8n-license-cert" }
+  }
+
+  assert {
+    condition     = length(kubernetes_secret.n8n) == 0
+    error_message = "An existing core Secret must not create the module-managed core Secret, whichever license source satisfies it."
+  }
 }
 
 # ── Core Secret reference ─────────────────────────────────────────────────────

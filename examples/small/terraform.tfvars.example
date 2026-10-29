@@ -5,6 +5,13 @@ gcs_location         = "US"       # keep near gcp_region: US for us-*, EU for eu
 friendly_name_prefix = "dev"
 n8n_fqdn           = "n8n.example.com"
 n8n_license_key      = "your-enterprise-license-key"
+# Offline license activation instead of a key (air-gapped clusters): delete
+# the n8n_license_key line above and reference a Secret you created in the n8n
+# namespace. The certificate covers initial activation only: for a fully
+# offline cluster, also disable N8N_LICENSE_AUTO_RENEW_ENABLED, block egress to
+# n8n's license server, and request a replacement certificate before the
+# current one expires. See the root README, "Offline license activation".
+# n8n_license_cert_secret_ref = { name = "n8n-license-cert", key = "cert" }
 cloud_dns_zone_name     = "my-cloud-dns-zone" # empty = manage the A-record yourself
 
 # Let Terraform disable iam.disableServiceAccountKeyCreation for the GCS HMAC key.

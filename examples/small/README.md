@@ -28,6 +28,17 @@ terraform apply
 If `cloud_dns_zone_name` is empty, create the A-record yourself against the
 `static_ip` output. Status: preliminary / not scale-validated.
 
+For an air-gapped or egress-restricted cluster, set
+`n8n_license_cert_secret_ref` to a Kubernetes Secret you created in the n8n
+namespace and leave `n8n_license_key` unset (see the commented lines in
+`terraform.tfvars.example` and the root README's
+[Offline license activation](../../README.md#offline-license-activation)).
+The certificate covers initial activation only. For a fully offline
+deployment, also set `N8N_LICENSE_AUTO_RENEW_ENABLED=false` through the
+module's `n8n_extra_env` (this example does not pass it through, so add it to
+`main.tf`), block egress to n8n's license server, and request a replacement
+certificate before the current one expires.
+
 ## Production considerations
 
 This example's defaults favor easy teardown over production hardening. Before running this against a real workload, review:
@@ -82,6 +93,7 @@ See [`docs/destroy-cleanup.md`](../../docs/destroy-cleanup.md) for the full tear
 | <a name="input_n8n_additional_domains"></a> [n8n\_additional\_domains](#input\_n8n\_additional\_domains) | Additional hostnames to give the full main/webhook route set alongside n8n\_fqdn. Passed straight through to the module's n8n\_additional\_domains. Default empty (no aliases). | `list(string)` | `[]` | no |
 | <a name="input_n8n_fqdn"></a> [n8n\_fqdn](#input\_n8n\_fqdn) | Hostname n8n is served on. | `string` | n/a | yes |
 | <a name="input_n8n_image_tag"></a> [n8n\_image\_tag](#input\_n8n\_image\_tag) | n8n image tag to deploy, passed straight through to the module's n8n\_image\_tag. Null (the default) keeps the chart's own default tag: its appVersion (2.41.4 at chart 1.14.0), which only moves when the module's n8n\_chart\_version does. Pin a concrete version (for example "2.39.7") to upgrade n8n independently of the chart. | `string` | `null` | no |
+| <a name="input_n8n_license_cert_secret_ref"></a> [n8n\_license\_cert\_secret\_ref](#input\_n8n\_license\_cert\_secret\_ref) | Optional caller-managed Kubernetes Secret (name and key) in the n8n namespace holding a base64-encoded offline license certificate, passed through to the module's n8n\_license\_cert\_secret\_ref for air-gapped or egress-restricted clusters. Leave n8n\_license\_key unset when using it. Null (the default) keeps the license-key path. See the root README, "Offline license activation". | <pre>object({<br/>    name = string<br/>    key  = optional(string, "cert")<br/>  })</pre> | `null` | no |
 | <a name="input_n8n_license_key"></a> [n8n\_license\_key](#input\_n8n\_license\_key) | n8n Enterprise license activation key (multi-main requires Enterprise). | `string` | `""` | no |
 | <a name="input_n8n_main_hpa_min_replicas"></a> [n8n\_main\_hpa\_min\_replicas](#input\_n8n\_main\_hpa\_min\_replicas) | Minimum replica count for n8n main pods, passed straight through to the module's own n8n\_main\_hpa\_min\_replicas. Leave null (the default) to use the module's default of 2 (multi-main). Set to 1 to run single-main queue mode instead; see the module's n8n\_main\_hpa\_enabled description for the required license edition and maintenance implications. | `number` | `null` | no |
 | <a name="input_postgres_backup_retained_backups"></a> [postgres\_backup\_retained\_backups](#input\_postgres\_backup\_retained\_backups) | Number of automated backups Cloud SQL retains. Null (the default) preserves the provider's own default retention. Passed straight through to the module's postgres\_backup\_retained\_backups. | `number` | `null` | no |
