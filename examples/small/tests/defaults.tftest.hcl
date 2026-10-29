@@ -53,3 +53,24 @@ run "backup_tuning_and_additional_domains_passthrough" {
     error_message = "New backup-tuning and additional-domains passthrough must not break the base plan."
   }
 }
+
+# The offline certificate path through this example: the example's
+# n8n_license_key default ("") must be dropped to null, or the module's
+# exactly-one-license-credential validation would reject the plan. A
+# non-empty key alongside the certificate is passed through unchanged and
+# rejected by that validation; the root suite covers that rejection
+# (tests/kubernetes_ownership.tftest.hcl), because a run here cannot list a
+# child module's variable in expect_failures.
+run "license_cert_secret_ref_passthrough" {
+  command = plan
+
+  variables {
+    n8n_license_key             = ""
+    n8n_license_cert_secret_ref = { name = "n8n-license-cert" }
+  }
+
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
+    error_message = "n8n_license_cert_secret_ref with the default empty n8n_license_key must produce a valid plan through this example's passthrough."
+  }
+}

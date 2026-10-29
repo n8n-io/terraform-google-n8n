@@ -33,6 +33,15 @@ variable "n8n_license_key" {
   sensitive   = true
 }
 
+variable "n8n_license_cert_secret_ref" {
+  description = "Optional caller-managed Kubernetes Secret (name and key) in the n8n namespace holding a base64-encoded offline license certificate, passed through to the module's n8n_license_cert_secret_ref for air-gapped or egress-restricted clusters. Leave n8n_license_key unset when using it. Null (the default) keeps the license-key path. See the root README, \"Offline license activation\"."
+  type = object({
+    name = string
+    key  = optional(string, "cert")
+  })
+  default = null
+}
+
 variable "n8n_image_tag" {
   description = "n8n image tag to deploy, passed straight through to the module's n8n_image_tag. Null (the default) keeps the chart's own default tag: its appVersion (2.41.4 at chart 1.14.0), which only moves when the module's n8n_chart_version does. Pin a concrete version (for example \"2.39.7\") to upgrade n8n independently of the chart."
   type        = string

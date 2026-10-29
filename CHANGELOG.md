@@ -176,8 +176,11 @@ this project adheres to the stability contract in
   non-blank. While the input is set, `n8n_extra_env`,
   `n8n_worker_extra_env`, and `n8n_worker_pools[*].extra_env` reject
   `N8N_LICENSE_CERT`; while it is null they accept it as before, so no
-  existing configuration is rejected. See ["Offline license
-  activation"](./README.md#offline-license-activation). Same design as
+  existing configuration is rejected. `examples/small` passes the input
+  through, treating its empty `n8n_license_key` default as unset on this
+  path. See ["Offline license
+  activation"](./README.md#offline-license-activation), which also covers
+  matching the certificate to the instance ID and switching back to a key. Same design as
   [terraform-aws-n8n#171](https://github.com/n8n-io/terraform-aws-n8n/pull/171)
   and
   [terraform-azurerm-n8n#51](https://github.com/n8n-io/terraform-azurerm-n8n/pull/51).

@@ -46,18 +46,20 @@ for m in re.finditer(r'^variable\s+\"([a-z0-9_]+)\"', text, re.MULTILINE):
 # Plain case statements instead of associative arrays (declare -A) so the
 # script runs under the bash 3.2 that macOS ships as /bin/bash.
 
+# n8n_license_cert_secret_ref (offline license activation) is shown in
+# examples/small only, so every other example may omit it.
 missing_ok() {
   case "$1" in
-    medium) echo "" ;;
-    large) echo "" ;;
-    cloudflare) echo "n8n_image_tag cloud_dns_zone_name n8n_additional_domains" ;;
-    godaddy) echo "n8n_image_tag cloud_dns_zone_name n8n_additional_domains" ;;
-    split-ingress) echo "n8n_image_tag cloud_dns_zone_name n8n_additional_domains" ;;
-    customer-managed-cluster) echo "n8n_image_tag gke_deletion_protection" ;;
-    customer-managed-redis) echo "n8n_image_tag" ;;
-    customer-managed-gcs) echo "gcs_location n8n_image_tag manage_sa_key_org_policy gcs_force_destroy" ;;
-    customer-managed-everything) echo "gcs_location n8n_image_tag cloud_dns_zone_name n8n_main_hpa_min_replicas manage_sa_key_org_policy postgres_backup_retained_backups postgres_transaction_log_retention_days gke_deletion_protection postgres_deletion_protection gcs_force_destroy" ;;
-    worker-pools) echo "" ;;
+    medium) echo "n8n_license_cert_secret_ref" ;;
+    large) echo "n8n_license_cert_secret_ref" ;;
+    cloudflare) echo "n8n_image_tag cloud_dns_zone_name n8n_additional_domains n8n_license_cert_secret_ref" ;;
+    godaddy) echo "n8n_image_tag cloud_dns_zone_name n8n_additional_domains n8n_license_cert_secret_ref" ;;
+    split-ingress) echo "n8n_image_tag cloud_dns_zone_name n8n_additional_domains n8n_license_cert_secret_ref" ;;
+    customer-managed-cluster) echo "n8n_image_tag gke_deletion_protection n8n_license_cert_secret_ref" ;;
+    customer-managed-redis) echo "n8n_image_tag n8n_license_cert_secret_ref" ;;
+    customer-managed-gcs) echo "gcs_location n8n_image_tag manage_sa_key_org_policy gcs_force_destroy n8n_license_cert_secret_ref" ;;
+    customer-managed-everything) echo "gcs_location n8n_image_tag cloud_dns_zone_name n8n_main_hpa_min_replicas manage_sa_key_org_policy postgres_backup_retained_backups postgres_transaction_log_retention_days gke_deletion_protection postgres_deletion_protection gcs_force_destroy n8n_license_cert_secret_ref" ;;
+    worker-pools) echo "n8n_license_cert_secret_ref" ;;
     *) echo "" ;;
   esac
 }

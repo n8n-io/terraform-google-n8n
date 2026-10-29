@@ -16,9 +16,14 @@ module "n8n" {
   friendly_name_prefix = var.friendly_name_prefix
   n8n_fqdn             = var.n8n_fqdn
 
-  n8n_license_key = var.n8n_license_key
-  n8n_image_tag   = var.n8n_image_tag
-  gcs_location    = var.gcs_location
+  # The module requires exactly one license credential. This example's
+  # n8n_license_key defaults to "", so treat that default as unset when the
+  # offline certificate is used. A non-empty key alongside the certificate
+  # still reaches the module and fails its validation.
+  n8n_license_key             = var.n8n_license_cert_secret_ref != null && var.n8n_license_key == "" ? null : var.n8n_license_key
+  n8n_license_cert_secret_ref = var.n8n_license_cert_secret_ref
+  n8n_image_tag               = var.n8n_image_tag
+  gcs_location                = var.gcs_location
 
   # Set true only if your creds have org-policy admin (see variable docs).
   manage_sa_key_org_policy = var.manage_sa_key_org_policy
