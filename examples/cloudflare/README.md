@@ -14,7 +14,7 @@ example owns all of it.
 
 ## Prerequisites
 
-- APIs enabled: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage`.
+- APIs enabled: `container`, `sqladmin`, `redis`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `orgpolicy` if `manage_sa_key_org_policy = true`).
 - Org policy `iam.disableServiceAccountKeyCreation` OFF (GCS HMAC key).
   Either disable it out-of-band, or set `manage_sa_key_org_policy = true` to have
   Terraform do it (needs `roles/orgpolicy.policyAdmin`).

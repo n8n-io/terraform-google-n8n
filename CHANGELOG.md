@@ -368,7 +368,14 @@ this project adheres to the stability contract in
   missing permissions on customer-managed paths that `apply` does not need.
   The README no longer lists `certificatemanager.googleapis.com` for
   `tls_mode = "google_managed"`: the module uses a GKE `ManagedCertificate`,
-  not Certificate Manager.
+  not Certificate Manager. The API lists now also name the conditional
+  `dns` API (`cloud_dns_zone_name` set) and `orgpolicy` API
+  (`manage_sa_key_org_policy = true`) where the example exposes them.
+- `scripts/preflight.sh` reported the `iam.disableServiceAccountKeyCreation`
+  org policy as unreadable whenever `orgpolicy.googleapis.com` was enabled,
+  because `gcloud` prints the effective enforce value as `True`/`False` and
+  the script only matched `TRUE`/`FALSE`. A non-enforced policy now reports
+  `[ok]`, and an enforced one reports `[BLOCK]` instead of a warning.
 
 ## [0.1.0] - 2026-09-29
 

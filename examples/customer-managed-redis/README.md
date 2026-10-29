@@ -22,7 +22,7 @@ for the full ownership matrix and every layer's contract.
 
   The module never reads this Secret's value; it only passes the reference
   through to the n8n Helm chart and KEDA's `TriggerAuthentication`.
-- APIs: `container`, `sqladmin`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage`.
+- APIs: `container`, `sqladmin`, `servicenetworking`, `compute`, `iam`, `cloudresourcemanager`, `storage` (and `dns` if `cloud_dns_zone_name` is set, and `orgpolicy` if `manage_sa_key_org_policy = true`).
 - Org policy `iam.disableServiceAccountKeyCreation` OFF (GCS HMAC). Either
   disable it out-of-band, or set `manage_sa_key_org_policy = true`.
 - `gcloud auth application-default login`.
