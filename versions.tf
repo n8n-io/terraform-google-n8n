@@ -17,9 +17,8 @@ terraform {
   #   - `terraform test` on 1.12 and older leaves roughly one provider
   #     process running per run block until the command exits, so a large
   #     test file can exhaust CI memory (n8n-io/terraform-google-n8n#30).
-  #     1.13.0 does not leak them. 1.13 also short-circuits && and || in
-  #     validation and precondition blocks, so the contributor guidance no
-  #     longer depends on which CLI runs the suite.
+  #     1.13.0 does not leak them. CI runs every test suite on 1.13.0 as well
+  #     as on its current TF_VERSION, so this floor stays tested.
   required_version = ">= 1.13"
 
   required_providers {

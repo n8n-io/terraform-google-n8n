@@ -279,7 +279,8 @@ this project adheres to the stability contract in
   "Added" above). 1.13 is the floor because `terraform test` on 1.12 and
   older leaves about one provider process running per `run` block until the
   command exits (n8n-io/terraform-google-n8n#30), which 1.13.0 does not. CI
-  now pins Terraform 1.13.5. The floor applies module-wide regardless of
+  now runs on Terraform 1.16.6 and also runs every `terraform test` suite
+  on 1.13.0, so the floor stays tested. The floor applies module-wide regardless of
   whether you set that variable, because Terraform parses `ephemeral` and
   write-only syntax from this module's HCL unconditionally. The
   `modules/controllers` submodule keeps `>= 1.9`. Upgrade the Terraform CLI,

@@ -9,7 +9,7 @@ Verify the Google parity change through reproducible automated checks while keep
 The root, every application example, controller submodule, and direct controller example SHALL pass formatting, validation, mocked plan tests, TFLint, and generated-documentation checks using the declared Terraform floor. New scenarios SHALL cover defaults, valid overrides, invalid inputs, managed/external paths, and independently disabled scalers. Tests SHALL NOT use live credentials or mock apply merely to resolve unknown Helm values.
 
 #### Scenario: Minimum-version checks run
-- **WHEN** the local or CI verification loop runs on Terraform 1.9.8
+- **WHEN** the CI verification loop runs on Terraform 1.13.0, the root module's and application examples' declared floor (the controller submodule and its direct example declare `>= 1.9` but run on the same version)
 - **THEN** all declared targets SHALL validate and pass plan-time tests without cloud credentials
 - **AND** nullable validations SHALL not fail due to unguarded function calls or list indexing
 

@@ -164,7 +164,8 @@ Concretely, in this repo:
   suite runs **without Google Cloud credentials** and is safe to run in CI.
 - CI runs the root suite **one job per `tests/*.tftest.hcl` file**
   (`test-root` job, `terraform test -filter=<file>`, matrix generated from
-  the filesystem so a new file is picked up automatically) and without
+  the filesystem so a new file is picked up automatically), once on
+  `TF_VERSION` and once on the `required_version` floor, and without
   `-verbose`. One serial job with full plan output for 500 runs took 43
   minutes and starved the runner until a mock provider missed Terraform's
   fixed 60 s plugin start timeout (`timeout while waiting for plugin to
@@ -306,21 +307,27 @@ file. Use `command = plan` unless you specifically need apply semantics.
   above). Prefer `try(...)` over `length(...) > 0 && ...[0]` for readability;
   both evaluate correctly on the 1.13 floor.
 
-- **Terraform 1.13 is the floor and the CI pin for the root module and the
-  examples (`TF_VERSION` in `.github/workflows/terraform-tests.yml`).**
-  Terraform short-circuits `&&`/`||` from 1.12.0, and in `validation`/
-  `precondition` blocks from 1.13, so in the root module and the examples a
-  null or empty guard on the left of `&&`/`||` is enough. The ternary
+- **Terraform 1.13 is the floor for the root module and the examples, and
+  CI tests it.** `TF_VERSION` in `.github/workflows/terraform-tests.yml` is
+  a recent release (1.16.6) used by fmt, validate, and tflint; the
+  `test-root` and `test` jobs run each suite on it and on `1.13.0`, the
+  lowest release the floor admits, through their `terraform` matrix axis
+  (`["1.16.6", "1.13.0"]`).
+  Keep the first entry equal to `TF_VERSION` and the second equal to
+  `required_version` in `versions.tf`. Terraform short-circuits `&&`/`||`
+  from 1.12.0, so in the root module and the examples a null or empty guard
+  on the left of `&&`/`||` is enough. The ternary
   spellings already in `variables.tf` (`var.x == null ? true : contains(...)`,
   nested ternaries for attribute reads off nullable objects) are still valid;
   follow the surrounding style rather than rewriting them. **Exception:
   `modules/controllers` and its `examples/direct-use` keep `>= 1.9`, where
   `&&`/`||` do not short-circuit, so the ternary and `try(...)` forms remain
-  required there** (CI still runs them on 1.13.5, which would not catch a
-  violation). The floor also exists because `terraform test` on 1.12 and
-  older leaks about one provider process per `run` block until the command
-  exits (n8n-io/terraform-google-n8n#30), which can exhaust CI memory on a
-  large test file. Do not lower the root floor or the CI pin.
+  required there** (CI runs them only on 1.16.6 and 1.13.0, which would not
+  catch a violation). The floor also exists because `terraform test` on 1.12
+  and older leaks about one provider process per `run` block until the
+  command exits (n8n-io/terraform-google-n8n#30), which can exhaust CI memory
+  on a large test file. Do not lower the root floor or drop the floor cell
+  from the CI matrix.
 
 - **A `terraform test` `assert` condition can reference module `local.*` values
   directly** (not just resource/output attributes), which is the way to test
