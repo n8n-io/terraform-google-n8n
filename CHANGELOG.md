@@ -356,7 +356,12 @@ this project adheres to the stability contract in
   checks `container.clusterRoles.create`, `container.clusterRoleBindings.create`,
   `container.roles.create`, and `container.roleBindings.create`, gated on a new
   `CHECK_KEDA_RBAC` toggle (default true, following `CHECK_CLOUD_DNS`'s pattern)
-  so it does not reject `install_keda = false` deployments.
+  so it does not reject `install_keda = false` deployments. The README also
+  notes that `storage.buckets.setIamPolicy` is needed on an existing bucket
+  (`create_gcs_bucket = false`), that Kubernetes RBAC can replace
+  `roles/container.admin` on an existing cluster, and that the preflight
+  script does not read the `create_*` switches, so it can report missing
+  permissions on customer-managed paths that `apply` does not need.
 
 ## [0.1.0] - 2026-09-29
 

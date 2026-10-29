@@ -109,6 +109,9 @@ perms=(
 # install_keda path (default true): the KEDA Helm release creates cluster-scoped
 # RBAC, authorized through these four permissions (modules/controllers/keda.tf).
 # Not needed when install_keda = false (no KEDA release, no cluster RBAC).
+# IAM only: on an existing cluster, Kubernetes RBAC can authorize the same
+# requests, so set CHECK_KEDA_RBAC=false there and verify the RBAC directly
+# (see README.md, Authentication).
 [[ "${CHECK_KEDA_RBAC}" == "true" ]] && perms+=(
   container.clusterRoles.create container.clusterRoleBindings.create
   container.roles.create container.roleBindings.create
