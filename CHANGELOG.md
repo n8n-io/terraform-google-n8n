@@ -317,11 +317,15 @@ this project adheres to the stability contract in
 - The module-created load balancer static IP
   (`google_compute_global_address.lb`) and Private Services Access range
   (`google_compute_global_address.psa`) now carry the module's standard
-  labels (`local.gcp_labels`, including `common_labels`). Applying this is an
-  in-place label update on each address. For the PSA range it was verified
-  live against an active Service Networking peering: the saved plan showed
-  only the label update, with no replacement of the address, the network, or
-  `google_service_networking_connection.psa`. The provider manages only the
+  labels (`local.gcp_labels`, including `common_labels`). Terraform plans this
+  as an in-place label update on each address (`labels` does not force
+  replacement). For the PSA range this was checked live against an active
+  Service Networking peering: the saved plan showed only the label update,
+  with no replacement of the address, the network, or
+  `google_service_networking_connection.psa`, and the apply succeeded. That
+  check had no producer service on the range. The case this module normally
+  creates, with Cloud SQL or Memorystore using the range, was not tested live.
+  Review the plan before applying. The provider manages only the
   label keys in the configuration, so labels added outside Terraform under
   other keys are kept. A label under the same key as a module label
   (`managed_by`, `app`, `cluster`, or a `common_labels` key) is overwritten,
