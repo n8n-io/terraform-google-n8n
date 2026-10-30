@@ -181,11 +181,13 @@ run "chart_version_accepts_exact_semver" {
   command = plan
 
   variables {
-    keda_chart_version = "2.21.0"
+    keda_chart_version = "2.20.1"
   }
 
+  # Deliberately not the default, so this proves the override reaches the
+  # release rather than the default happening to match.
   assert {
-    condition     = helm_release.keda[0].version == "2.21.0"
+    condition     = helm_release.keda[0].version == "2.20.1"
     error_message = "An exact semantic version must be accepted and applied"
   }
 }

@@ -25,6 +25,15 @@ from `2.20.1` to `2.21.0`
 ([KEDA v2.21.0](https://github.com/kedacore/keda/releases/tag/v2.21.0)). Check
 these points before you apply:
 
+- **Security fix.** `2.21.0` is the first KEDA release with the fix for the
+  critical CVE-2026-77524
+  ([GHSA-637c-6jxx-4rwm](https://github.com/advisories/GHSA-637c-6jxx-4rwm)):
+  a namespace admin can escalate to cluster admin through a
+  `TriggerAuthentication`. Every earlier release, including `2.20.1`, is
+  affected. The module's own `TriggerAuthentication` does not need to use the
+  affected modes for a cluster to be exposed, so if you pin an older
+  `keda_chart_version`, or run your own KEDA with `install_keda = false`,
+  move that install to `2.21.0` or later.
 - **KEDA's three breaking changes do not apply to the module's own
   configuration.** (1) Service-account-token audiences are now enforced, which
   affects Vault Kubernetes authentication and `boundServiceAccountToken` in a
@@ -45,11 +54,27 @@ these points before you apply:
   Kubernetes version; it is not a tested or supported minimum. A cluster on
   1.23 through 1.33 (for example on the `EXTENDED` channel) passes that Helm
   gate but falls outside the Kubernetes versions KEDA 2.21 actually tests.
+  The window also has an upper end: 1.37 is now available on the `RAPID`
+  channel (since 2026-09-02) and the `REGULAR` channel (since 2026-10-22)
+  ([release schedule](https://cloud.google.com/kubernetes-engine/docs/release-schedule)),
+  and no KEDA release lists 1.37 as tested yet. Check your cluster's version
+  (`kubectl version`) against KEDA's tested window before you apply.
+- **`ScaledObject` health moves to a new condition.** The jump from `2.20.1`
+  also picks up KEDA
+  [2.20.2](https://github.com/kedacore/keda/releases/tag/v2.20.2), which
+  reports HPA health in a dedicated `HPAActive` condition. A transient HPA
+  metric gap no longer flips `Ready` to `False`, so `Ready=True` alone (what
+  `tests/scripts/smoke-test.sh` checks) no longer shows that the HPA is
+  healthy. Check `HPAActive` too when you diagnose worker scaling.
 - **CRDs are upgraded with the release.** The chart renders its CRDs from
   templates (`crds.install: true`), so the Helm upgrade updates them, unlike a
   chart that ships CRDs in `crds/`.
-- **The KEDA pods roll once.** Because the release is `atomic`, a failed
-  upgrade rolls back to `2.20.1`.
+- **The KEDA pods roll once.** The release is `atomic`, so if the upgrade
+  fails, Helm attempts to roll back to the previous release revision (the
+  version you ran before, `2.20.1` if you used the old default). The rollback
+  can itself fail, and when the previous version predates `2.21.0` it puts
+  back a release without the security fix above, so fix forward to `2.21.0`
+  rather than staying on the rolled-back version.
 
 ## Moving from chart 1.13.0 to 1.14.0
 
