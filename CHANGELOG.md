@@ -555,7 +555,9 @@ this project adheres to the stability contract in
   `cloud.google.com/neg` explicitly and ignore the controller-written
   `cloud.google.com/neg-status`. Before, any re-apply removed the annotations
   GKE had added, and both Ingresses stopped syncing with `service is type
-  ClusterIP, expected NodePort or LoadBalancer`.
+  ClusterIP, expected NodePort or LoadBalancer`. A plan-time test now checks
+  the annotation, and `docs/ingress-options.md` notes that Services copied
+  for a GKE Gateway must leave out these Ingress-only annotations.
 - Module-created Cloud KMS keys for Cloud SQL, Memorystore, and GCS
   (`google_kms_crypto_key.postgres`, `.redis`, and `.gcs`) now carry the
   module's standard labels (`local.gcp_labels`, including `common_labels`),

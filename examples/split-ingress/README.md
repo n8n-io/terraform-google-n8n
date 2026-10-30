@@ -24,9 +24,9 @@ chart upgrade that changes the webhook family list changes this example's
 routing the same way it changes the module's built-in managed ingress.
 
 > **Status:** not scale-validated. This example is plan-tested with mocked
-> providers (`terraform test`); it has not been applied against a real GKE
-> cluster as part of this change. Follow the DNS/TLS prerequisites below
-> before relying on it.
+> providers (`terraform test`). It has had one live smoke test on GKE: apply,
+> re-apply, and a clean re-plan, with both Ingresses serving traffic. Follow
+> the DNS/TLS prerequisites below before relying on it.
 
 ## What this example creates that `examples/small` doesn't
 
@@ -43,6 +43,8 @@ routing the same way it changes the module's built-in managed ingress.
 | `kubernetes_secret_v1.private_tls` | Caller-supplied TLS Secret for the private host; see "TLS" below. |
 | `kubernetes_ingress_v1.public` | Public `gce`-class Ingress on `public_webhook_fqdn`: the five webhook families only, no editor/API route. |
 | `kubernetes_ingress_v1.private` | Private `gce-internal`-class Ingress on `n8n_fqdn`: editor/API catch-all plus the same webhook families, using the caller-supplied TLS Secret. |
+
+All three Services set `cloud.google.com/neg` to `{"ingress":true}` and ignore the `cloud.google.com/neg-status` annotation that GKE writes. Without this, a re-apply removes both annotations and the Ingresses stop syncing. If you copy these Services for a GKE Gateway instead of an Ingress, drop the Ingress-only annotations; see [`docs/ingress-options.md`](../../docs/ingress-options.md#switching-an-existing-deployment-destroys-module-owned-ingress-resources).
 
 ## Prerequisites
 
