@@ -104,8 +104,10 @@ and bump-tier classification these scripts check against.
   the latest release falls outside it (`~> 6.23` against 8.x). So `OK` means
   the constraint admits the latest release, not that anything is pinned to
   it; a `>=`-only constraint does not report drift once the latest release
-  meets its minimum. A constraint or version
-  the evaluator cannot parse (`lib/constraints.sh`) is an `ERROR`.
+  meets its minimum. Prerelease registry releases are skipped before
+  evaluation, so they never count as the latest release. A constraint the
+  evaluator (`lib/constraints.sh`) cannot parse, for example a prerelease
+  constraint such as `~> 1.2.0-beta`, is an `ERROR`.
   `test-version-drift-constraints.sh` tests that evaluator offline. The n8n
   chart lookup keeps only plain `X.Y.Z` tags (`lib/drift-tags.sh`), so
   prereleases and registry metadata tags such as `artifacthub.io` and

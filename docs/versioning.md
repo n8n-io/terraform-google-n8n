@@ -78,8 +78,11 @@ provider and chart pins above. A provider counts as drift only when its
 latest release falls outside the constraint in the table: `~> 3.0` against
 3.3.0 is `OK`, `~> 6.23` against 8.x is `DRIFT`. So `OK` means the
 constraint admits the latest release, not that the lock file or any caller
-uses it. The chart pins are exact, so any newer chart release is drift. It
-does not yet check the CI toolchain pins
+uses it. A constraint the script cannot evaluate (for example a prerelease
+constraint) is reported as `ERROR` and makes the script exit 2, like a
+failed lookup; prerelease registry releases are skipped, not reported. The
+chart pins are exact, so any newer chart release is drift. It does not yet
+check the CI toolchain pins
 (`TF_VERSION`, `TFLINT_VERSION`, the checkov action ref,
 `TERRAFORM_DOCS_VERSION`); compare those against their upstream releases by
 hand. It is not a CI gate by

@@ -14,7 +14,12 @@
 # Only plain numeric N[.N[.N]] versions are understood. A prerelease or
 # build-metadata version (1.2.3-rc.1, 1.2.3+meta), a "v" prefix, or a fourth
 # component, in the constraint or as <version>, is exit 2 rather than a
-# guess, so the caller reports an explicit ERROR instead of DRIFT.
+# guess. In check-version-drift.sh only an unparseable constraint reaches
+# that path in practice: check_provider drops prerelease registry versions
+# before it calls this function, so the <version> check is a guard against
+# a future caller, not a way prereleases are reported.
+#
+# check-version-drift.sh reports exit 2 as an explicit ERROR, not DRIFT.
 constraint_accepts() {
   python3 - "$1" "$2" <<'PYEOF'
 import re
