@@ -29,7 +29,7 @@ internal_tls_key_pem  = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-
 # ── TLS-inspecting egress proxy / TLS-terminating proxy in front (optional) ──
 # See docs/tls-proxy.md in the module root.
 # n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----\n"  # or pass -var "n8n_extra_ca_pem=$(cat proxy-ca.pem)"
-# n8n_proxy_hops   = 2  # one value for both ingresses: 2 with no customer proxy, 3 behind one proxy on the external path; the internal load balancer strips a proxy's X-Forwarded-For
+# n8n_proxy_hops   = 2  # one value for both ingresses, safe only when both paths cross the same number of proxies: 2 with none, 3 with one proxy in front of both; the internal load balancer can strip a proxy's X-Forwarded-For, so verify the recorded client address
 #                       # this example sets no source allow-list on either ingress: add one to both before you set this, see docs/tls-proxy.md
 # n8n_extra_env = [
 #   { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
