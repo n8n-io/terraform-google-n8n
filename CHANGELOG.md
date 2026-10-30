@@ -223,7 +223,10 @@ this project adheres to the stability contract in
   `terraform init -upgrade` before planning. If your root module pins either
   provider below 8.0, widen the constraint first. `terraform init -upgrade`
   can also move other providers in your root module, so review the lock
-  file diff and the plan before you apply.
+  file diff and the plan before you apply. If you set
+  `psa_connection_abandon_on_destroy = false`, the first plan may show a
+  one-time in-place update of `google_service_networking_connection.psa` to
+  `deletion_policy = "DELETE"`; see `docs/upgrading-n8n.md`.
 - `private_cluster_config.enable_private_nodes` itself is no longer
   `ForceNew` under provider 8.x. The module derives the `ForceNew`
   `master_ipv4_cidr_block` from `gke_enable_private_nodes` (`gke.tf`), so

@@ -23,8 +23,9 @@ terraform {
 
   required_providers {
     # GCP substrate: GKE, Cloud SQL, Memorystore, GCS, networking, IAM, DNS.
-    # ~> 8.0: the module was verified on 8.x (docs/build-time-decisions.md
-    # re-checks every ForceNew/in-place claim against v8.7.0). 8.x keeps the
+    # ~> 8.0: the module was checked against google provider v8.7.0
+    # (docs/build-time-decisions.md re-checks every ForceNew/in-place claim
+    # against it); other 8.x releases are not separately verified. 8.x keeps the
     # 6.23 features this module needs (google_sql_user's password_wo /
     # password_wo_version for postgres_password_write_only, cloudsql.tf, and
     # google_container_cluster.secret_manager_config in gke.tf), and adds

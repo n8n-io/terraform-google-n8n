@@ -64,8 +64,12 @@ What was checked:
 
 What to expect on the first plan:
 
-- **Default settings: no diff.** After `terraform init -upgrade`, the plan
-  shows no changes. A `terraform apply -refresh-only` records new computed
+- **Default settings: no diff from the provider change.** After
+  `terraform init -upgrade`, the provider upgrade itself plans no changes.
+  If you are coming from 0.1.0, the same first plan also shows the one-time
+  no-op update to `google_sql_user.n8n` described in
+  [Terraform CLI floor raised to >= 1.13](#terraform-cli-floor-raised-to--113).
+  A `terraform apply -refresh-only` records new computed
   attributes from the 8.x schema in state. It changes no infrastructure, but
   it does make the state unreadable for 6.x (see "Rolling back" below).
 - **`psa_connection_abandon_on_destroy = false`.** The connection's

@@ -4,8 +4,8 @@ terraform {
   required_providers {
     google = {
       source = "hashicorp/google"
-      # >= 6.23 for google_sql_user's password_wo / password_wo_version
-      # (postgres_password_write_only).
+      # ~> 8.0 matches the root module's constraint (see its versions.tf);
+      # the module was checked against google provider v8.7.0.
       version = "~> 8.0"
     }
     google-beta = {
