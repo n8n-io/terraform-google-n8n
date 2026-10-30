@@ -41,23 +41,32 @@ this project adheres to the stability contract in
   (nothing is added) because n8n's Marketplace consumption tracking label,
   shown in Producer Portal, has not been agreed for use here yet; the default
   changes to that value once it is. Set, it reaches the module-managed
-  resources that accept labels through `local.gcp_labels` (including the
-  load-balancer and Private Service Access global addresses; it wins over a
-  colliding `common_labels` key), the module-managed GKE node VMs through
-  `node_config.resource_labels` (the cluster's `resource_labels` and the
-  existing node `labels` do not reach the VMs; with `create_gke = false` the
-  existing node pools are unchanged), the n8n main, worker and
-  webhook-processor pod templates through the chart's `podLabels`, the Redis
-  exporter pods, and disks provisioned through the module's pd-balanced
-  StorageClass through a new `modules/controllers` input, `pd_disk_labels`
-  (the PD CSI driver's `labels` parameter). Not labeled: resources GKE
-  creates outside Terraform for the Ingress (forwarding rules, backend
-  services), disks already provisioned, and resources without a label
-  argument (VPC, subnet, router, NAT, firewall). Upgrade note, when set: the
-  pod label rolls the n8n pods once; whether `node_config.resource_labels`
-  updates the node pool in place or replaces it has not been verified against
-  a live apply; and the StorageClass is replaced because its parameters are
-  immutable (bound volumes keep working).
+  resources that accept labels through `local.gcp_labels`, the
+  module-managed GKE node VMs through `node_config.resource_labels` (GKE also
+  propagates cluster labels to node VMs and attached disks, but only through
+  an hourly background process; with `create_gke = false` the existing node
+  pools are unchanged), the n8n main, worker and webhook-processor pod
+  templates through the chart's `podLabels`, the Redis exporter pods, and
+  disks provisioned through the module's pd-balanced StorageClass through a
+  new `modules/controllers` input, `pd_disk_labels` (the PD CSI driver's
+  `labels` parameter), also exposed as the new `modules/controllers` output
+  `pd_balanced_storage_class_parameters`. The input owns the label: a
+  `goog-partner-solution` key in `common_labels` is now ignored, whether or
+  not the input is set, matching terraform-aws-n8n's `aws-apn-id` handling.
+  Not labeled by Terraform: resources GKE creates outside Terraform for the
+  Ingress (forwarding rules, backend services), and resources without a label
+  argument (VPC, subnet, router, NAT, firewall). Upgrade note: at the default
+  nothing changes, unless `common_labels` already contains
+  `goog-partner-solution`, in which case that label is removed from the
+  labeled resources, including the module node pool's Kubernetes node
+  `labels`, which GKE applies by recreating the nodes (move the value to
+  `google_partner_attribution_label` to keep it). Setting, changing or clearing the input with
+  `create_gke = true` updates the node pool in place (its `resource_labels`
+  and Kubernetes node `labels`), which GKE applies by recreating the nodes
+  without respecting maintenance policies; it also rolls the n8n and Redis
+  exporter pods, and replaces the pd-balanced StorageClass because its
+  parameters are immutable (bound volumes keep working; disks already
+  provisioned are not relabeled through the StorageClass).
 
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane

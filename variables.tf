@@ -45,7 +45,7 @@ variable "friendly_name_prefix" {
 }
 
 variable "common_labels" {
-  description = "Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision."
+  description = "Common labels merged into every taggable Google Cloud resource the module creates. Built-in module labels win on key collision. A goog-partner-solution key is ignored; set google_partner_attribution_label instead."
   type        = map(string)
   default     = {}
 
@@ -67,7 +67,7 @@ variable "common_labels" {
 
 variable "google_partner_attribution_label" {
   description = <<-EOT
-    Value of the goog-partner-solution label, Google Cloud's partner consumption tracking label for Cloud Marketplace products (the "Consumption tracking label" shown for n8n's listing in Producer Portal, e.g. isol_plb32_0123456789abcdef). When set, the label is added to the module-managed resources that accept labels (through local.gcp_labels, including the load-balancer and Private Service Access global addresses), to the module-managed GKE node VMs (node_config.resource_labels; with create_gke = false the existing node pools are unchanged), to the n8n and Redis-exporter pods, and, as a PD CSI disk label, to disks provisioned by the module's pd-balanced StorageClass. It wins over a goog-partner-solution key in common_labels. Must start and end with a lowercase letter or number, because it is also used as a Kubernetes pod label value. Empty (the default) adds nothing. Resources GKE creates outside Terraform, such as the Ingress's forwarding rules and backend services, are not labeled.
+    Value of the goog-partner-solution label, Google Cloud's partner consumption tracking label for Cloud Marketplace products (the "Consumption tracking label" shown for n8n's listing in Producer Portal, e.g. isol_plb32_0123456789abcdef). When set, the label is added to the module-managed resources that accept labels (through local.gcp_labels, including the load-balancer and Private Service Access global addresses), to the module-managed GKE node VMs (node_config.resource_labels; with create_gke = false the existing node pools are unchanged), to the n8n and Redis-exporter pods, and, as a PD CSI disk label, to disks provisioned by the module's pd-balanced StorageClass. This input owns the label: a goog-partner-solution key in common_labels is ignored. Setting, changing, or clearing it with create_gke = true updates the module's node pool in place, which GKE applies by recreating the nodes. Must start and end with a lowercase letter or number, because it is also used as a Kubernetes pod label value. Empty (the default) adds nothing. Resources GKE creates outside Terraform, such as the Ingress's forwarding rules and backend services, are not labeled.
   EOT
   type        = string
   default     = ""

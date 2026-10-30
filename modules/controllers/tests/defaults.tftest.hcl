@@ -239,6 +239,24 @@ run "pd_disk_labels_become_pd_csi_labels_parameter" {
     condition     = kubernetes_storage_class_v1.pd_balanced[0].parameters["type"] == "pd-balanced"
     error_message = "pd_disk_labels must not displace the pd-balanced disk type"
   }
+
+  assert {
+    condition     = output.pd_balanced_storage_class_parameters["labels"] == "goog-partner-solution=isol_plb32_0123456789abcdef,team=platform"
+    error_message = "pd_balanced_storage_class_parameters output must expose the rendered labels parameter"
+  }
+}
+
+run "pd_balanced_storage_class_parameters_null_without_class" {
+  command = plan
+
+  variables {
+    create_pd_balanced_storage_class = false
+  }
+
+  assert {
+    condition     = output.pd_balanced_storage_class_parameters == null
+    error_message = "pd_balanced_storage_class_parameters output must be null when create_pd_balanced_storage_class = false"
+  }
 }
 
 run "pd_disk_labels_reject_separator_characters" {

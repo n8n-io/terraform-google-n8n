@@ -21,6 +21,12 @@ locals {
     "goog-partner-solution" = var.google_partner_attribution_label
   }
 
+  # The chart's podLabels value (helm_release.n8n in n8n.tf), kept here so a
+  # plan-time test can assert it: helm_release.values is unknown under mocks.
+  n8n_pod_labels_values = length(local.google_partner_attribution_labels) == 0 ? {} : {
+    podLabels = local.google_partner_attribution_labels
+  }
+
   # (GCP labels live in local.gcp_labels, network.tf.)
 
   # ── n8n_extra_env collision guard ──────────────────────────────────────────

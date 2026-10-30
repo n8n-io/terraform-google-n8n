@@ -92,4 +92,5 @@ No modules.
 | <a name="output_keda_namespace"></a> [keda\_namespace](#output\_keda\_namespace) | Namespace KEDA is installed into, or null when install\_keda = false. |
 | <a name="output_keda_release_name"></a> [keda\_release\_name](#output\_keda\_release\_name) | Name of the KEDA Helm release, or null when install\_keda = false. |
 | <a name="output_pd_balanced_storage_class_name"></a> [pd\_balanced\_storage\_class\_name](#output\_pd\_balanced\_storage\_class\_name) | Name of the pd-balanced StorageClass, or null when create\_pd\_balanced\_storage\_class = false. |
+| <a name="output_pd_balanced_storage_class_parameters"></a> [pd\_balanced\_storage\_class\_parameters](#output\_pd\_balanced\_storage\_class\_parameters) | Provisioner parameters of the pd-balanced StorageClass (type, plus labels when pd\_disk\_labels is set), or null when create\_pd\_balanced\_storage\_class = false. |
 <!-- END_TF_DOCS -->

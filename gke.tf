@@ -282,11 +282,15 @@ resource "google_container_node_pool" "n8n" {
     labels = local.gcp_labels
 
     # GCE labels on the node VMs themselves. node_config.labels above are
-    # Kubernetes node labels and do not reach the VMs, and the cluster's
-    # resource_labels do not propagate to them either, so the partner
-    # consumption tracking label is set here explicitly. Only that label, not
-    # all of gcp_labels, so an unset google_partner_attribution_label leaves
-    # node_config untouched.
+    # Kubernetes node labels and do not reach the VMs. GKE also propagates the
+    # cluster's resource_labels to node VMs and attached disks, but only through
+    # an hourly background process, so the partner consumption tracking label
+    # is set here as well: node pool labels apply when the nodes are created and
+    # override cluster labels on conflict. Only that label, not all of
+    # gcp_labels, so an unset google_partner_attribution_label leaves
+    # resource_labels empty (labels above still carries gcp_labels). Changing
+    # either map updates the node pool in place, and GKE applies that by
+    # recreating the nodes.
     resource_labels = local.google_partner_attribution_labels
   }
 

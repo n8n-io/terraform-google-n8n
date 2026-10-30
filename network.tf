@@ -5,9 +5,13 @@
 
 locals {
   # GCP labels: lowercase keys/values only. common_labels is merged in first so
-  # the module's own built-in labels, and the partner consumption tracking
-  # label, win on key collision.
-  gcp_labels = merge(var.common_labels, {
+  # the module's own built-in labels win on key collision. goog-partner-solution
+  # is owned by google_partner_attribution_label, so a common_labels entry for
+  # it is dropped: it can neither override the input nor add the label while
+  # the input is empty (matching terraform-aws-n8n's aws-apn-id handling).
+  gcp_labels = merge({
+    for k, v in var.common_labels : k => v if k != "goog-partner-solution"
+    }, {
     managed_by = "terraform"
     app        = "n8n"
     cluster    = local.name_prefix

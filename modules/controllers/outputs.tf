@@ -22,3 +22,8 @@ output "pd_balanced_storage_class_name" {
   description = "Name of the pd-balanced StorageClass, or null when create_pd_balanced_storage_class = false."
   value       = var.create_pd_balanced_storage_class ? kubernetes_storage_class_v1.pd_balanced[0].metadata[0].name : null
 }
+
+output "pd_balanced_storage_class_parameters" {
+  description = "Provisioner parameters of the pd-balanced StorageClass (type, plus labels when pd_disk_labels is set), or null when create_pd_balanced_storage_class = false."
+  value       = var.create_pd_balanced_storage_class ? kubernetes_storage_class_v1.pd_balanced[0].parameters : null
+}
