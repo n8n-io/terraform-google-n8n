@@ -35,6 +35,50 @@ this project adheres to the stability contract in
   "already exists"; set the matching input to `false` as well. See
   `docs/upgrading-n8n.md`, "Moving from chart 1.15.0 to 1.16.0".
 
+- `google_partner_attribution_label` sets the `goog-partner-solution` label,
+  Google Cloud's partner consumption tracking label for Cloud Marketplace
+  products. Prepared ahead of end-to-end testing: it defaults to empty
+  (nothing is added) because n8n's Marketplace consumption tracking label,
+  shown in Producer Portal, has not been agreed for use here yet; the default
+  changes to that value once it is. Set, it reaches the module-managed
+  resources that accept labels through `local.gcp_labels`, the
+  module-managed GKE node VMs through `node_config.resource_labels` (GKE also
+  propagates cluster labels to node VMs and attached disks, but only through
+  an hourly background process; with `create_gke = false` the existing node
+  pools are unchanged), the n8n main, worker and webhook-processor pod
+  templates through the chart's `podLabels`, the Redis exporter pods, and
+  disks provisioned through the module's pd-balanced StorageClass through a
+  new `modules/controllers` input, `pd_disk_labels` (the PD CSI driver's
+  `labels` parameter), also exposed as the new `modules/controllers` output
+  `pd_balanced_storage_class_parameters`. The input owns the label: a
+  `goog-partner-solution` key in `common_labels` is now ignored, whether or
+  not the input is set, matching terraform-aws-n8n's `aws-apn-id` handling.
+  Not labeled by Terraform: resources GKE creates outside Terraform for the
+  Ingress (forwarding rules, backend services), and resources without a label
+  argument (VPC, subnet, router, NAT, firewall). Upgrade note: at the default
+  nothing changes, unless `common_labels` already contains
+  `goog-partner-solution`, in which case that label is removed from the
+  labeled resources, including the module node pool's Kubernetes node
+  `labels`, which GKE applies by recreating the nodes (move the value to
+  `google_partner_attribution_label` to keep it). Setting, changing or clearing the input with
+  `create_gke = true` updates the node pool in place (its `resource_labels`
+  and Kubernetes node `labels`), which GKE applies by recreating the nodes
+  without respecting maintenance policies; it also rolls the n8n and Redis
+  exporter pods, and replaces the pd-balanced StorageClass because its
+  parameters are immutable (bound volumes keep working; disks already
+  provisioned are not relabeled through the StorageClass).
+  `google_container_cluster.n8n` ignores changes to its leftover default-pool
+  `node_config.resource_labels`: GKE reports the module node pool's labels
+  there, so the cluster would otherwise plan to strip the partner label on
+  every run, and applying that fails with `Node pool "default-pool" not found
+  on update`. A deployment that applied the label with an earlier commit of
+  this change needs this fix before it can clear the label. After the label
+  is cleared, Terraform state can still show it under the cluster's
+  `node_config.resource_labels` while the live cluster is already clean:
+  the cluster is updated and read back before the node pool update removes
+  the label in GKE. The next plan shows this only as a refresh change with
+  no planned actions, and the next apply saves the refreshed state.
+
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services

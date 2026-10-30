@@ -72,3 +72,24 @@ variable "common_labels" {
   default     = {}
   nullable    = false
 }
+
+variable "pd_disk_labels" {
+  description = "GCE labels the PD CSI driver applies to every disk it provisions through the pd-balanced StorageClass (the class's `labels` parameter), e.g. the goog-partner-solution partner consumption tracking label. Changing it on an existing class replaces the class (StorageClass parameters are immutable); disks already provisioned are not relabeled. Ignored when create_pd_balanced_storage_class = false."
+  type        = map(string)
+  default     = {}
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for k, v in var.pd_disk_labels :
+      can(regex("^[a-z][a-z0-9_-]{0,62}$", k)) &&
+      (v == "" || can(regex("^[a-z0-9_-]{0,63}$", v)))
+    ])
+    error_message = "pd_disk_labels keys and values must use the lowercase GCE label syntax (keys start with a lowercase letter; at most 63 characters of lowercase letters, numbers, dashes, and underscores), which also rules out the commas and equals signs the PD CSI labels parameter uses as separators."
+  }
+
+  validation {
+    condition     = length(var.pd_disk_labels) <= 64
+    error_message = "pd_disk_labels may hold at most 64 labels: Google Cloud allows 64 labels per resource and the PD CSI driver applies the whole map to each disk."
+  }
+}

@@ -31,6 +31,7 @@ resource "google_container_cluster" "n8n" {
 
   # checkov:skip=CKV_GCP_65: intentional, requires caller-owned Google Group, see resource comment above.
   # checkov:skip=CKV_GCP_66: intentional, out of module scope, see resource comment above.
+  # checkov:skip=CKV_GCP_21: false positive, resource_labels is set below from local.gcp_labels; Checkov cannot resolve that merge() once it contains the conditional google_partner_attribution_label map and reports the cluster as unlabeled.
 
   name     = local.name_prefix
   project  = var.project_id
@@ -191,6 +192,17 @@ resource "google_container_cluster" "n8n" {
 
   resource_labels = local.gcp_labels
 
+  # GKE reports the remaining node pool's config as the cluster's node_config
+  # once the default pool is removed, so resource_labels set on
+  # google_container_node_pool.n8n (e.g. goog-partner-solution) show up here
+  # and the cluster would plan to strip them on every run. Applying that diff
+  # fails with "Node pool \"default-pool\" not found on update", because the
+  # provider sends cluster node_config changes to the deleted default pool.
+  # The node pool owns these labels, so the cluster template ignores them.
+  lifecycle {
+    ignore_changes = [node_config[0].resource_labels]
+  }
+
   # PSA peering must exist before the cluster if Cloud SQL/Memorystore are
   # used. Also wait for the module-created key's IAM grant (kms.tf): GKE
   # checks roles/cloudkms.cryptoKeyEncrypterDecrypter on the key during
@@ -279,6 +291,18 @@ resource "google_container_node_pool" "n8n" {
     }
 
     labels = local.gcp_labels
+
+    # GCE labels on the node VMs themselves. node_config.labels above are
+    # Kubernetes node labels and do not reach the VMs. GKE also propagates the
+    # cluster's resource_labels to node VMs and attached disks, but only through
+    # an hourly background process, so the partner consumption tracking label
+    # is set here as well: node pool labels apply when the nodes are created and
+    # override cluster labels on conflict. Only that label, not all of
+    # gcp_labels, so an unset google_partner_attribution_label leaves
+    # resource_labels empty (labels above still carries gcp_labels). Changing
+    # either map updates the node pool in place, and GKE applies that by
+    # recreating the nodes.
+    resource_labels = local.google_partner_attribution_labels
   }
 
   # Nodes must come up with their logging/monitoring roles already granted, or

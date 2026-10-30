@@ -47,7 +47,7 @@ resource "kubernetes_deployment_v1" "redis_exporter" {
 
     template {
       metadata {
-        labels = { "app" = "redis-exporter" }
+        labels = merge({ "app" = "redis-exporter" }, local.google_partner_attribution_labels)
 
         # Annotation-based scrape convention; harmless when the cluster's
         # Prometheus uses ServiceMonitors instead, since nothing reads them.

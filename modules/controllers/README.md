@@ -81,6 +81,7 @@ No modules.
 | <a name="input_keda_helm_timeout"></a> [keda\_helm\_timeout](#input\_keda\_helm\_timeout) | Seconds Terraform waits for the KEDA Helm release to converge. Ignored when install\_keda = false. | `number` | `300` | no |
 | <a name="input_keda_namespace"></a> [keda\_namespace](#input\_keda\_namespace) | Kubernetes namespace KEDA is installed into. Created automatically by the Helm release. Ignored when install\_keda = false. | `string` | `"keda"` | no |
 | <a name="input_pd_balanced_storage_class_name"></a> [pd\_balanced\_storage\_class\_name](#input\_pd\_balanced\_storage\_class\_name) | Name of the pd-balanced StorageClass. Ignored when create\_pd\_balanced\_storage\_class = false. | `string` | `"n8n-pd-balanced"` | no |
+| <a name="input_pd_disk_labels"></a> [pd\_disk\_labels](#input\_pd\_disk\_labels) | GCE labels the PD CSI driver applies to every disk it provisions through the pd-balanced StorageClass (the class's `labels` parameter), e.g. the goog-partner-solution partner consumption tracking label. Changing it on an existing class replaces the class (StorageClass parameters are immutable); disks already provisioned are not relabeled. Ignored when create\_pd\_balanced\_storage\_class = false. | `map(string)` | `{}` | no |
 
 ## Outputs
 
@@ -91,4 +92,5 @@ No modules.
 | <a name="output_keda_namespace"></a> [keda\_namespace](#output\_keda\_namespace) | Namespace KEDA is installed into, or null when install\_keda = false. |
 | <a name="output_keda_release_name"></a> [keda\_release\_name](#output\_keda\_release\_name) | Name of the KEDA Helm release, or null when install\_keda = false. |
 | <a name="output_pd_balanced_storage_class_name"></a> [pd\_balanced\_storage\_class\_name](#output\_pd\_balanced\_storage\_class\_name) | Name of the pd-balanced StorageClass, or null when create\_pd\_balanced\_storage\_class = false. |
+| <a name="output_pd_balanced_storage_class_parameters"></a> [pd\_balanced\_storage\_class\_parameters](#output\_pd\_balanced\_storage\_class\_parameters) | Provisioner parameters of the pd-balanced StorageClass (type, plus labels when pd\_disk\_labels is set), or null when create\_pd\_balanced\_storage\_class = false. |
 <!-- END_TF_DOCS -->

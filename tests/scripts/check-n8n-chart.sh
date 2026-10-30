@@ -144,6 +144,8 @@ s3:
   storage:
     mode: s3
     forcePathStyle: true
+podLabels:
+  goog-partner-solution: isol_synthetic_partner_urn
 EOF
 
 echo "==> helm template ${CHART_REPOSITORY}/${CHART_NAME} --version ${CHART_VERSION}"
@@ -160,6 +162,27 @@ fi
 pass "helm template rendered ${CHART_NAME}:${CHART_VERSION} with no credentials"
 
 RENDERED="$WORKDIR/rendered.yaml"
+
+# podLabels (google_partner_attribution_label): the Google Cloud partner
+# consumption tracking label must be in each of the main, worker, and
+# webhook-processor Deployments' pod template labels (spec.template.metadata.labels,
+# 6-space `labels:` under the 2-space `template:`), not merely somewhere in the
+# rendered output.
+for deployment in n8n-main n8n-worker n8n-webhook-processor; do
+  if awk -v name="$deployment" '
+    /^kind: Deployment$/ { in_deploy = 1; found_name = 0; in_template_labels = 0 }
+    in_deploy && $0 == "  name: " name { found_name = 1 }
+    in_deploy && found_name && /^      labels:$/ { in_template_labels = 1; next }
+    in_template_labels && /^      [^ ]/ { in_template_labels = 0 }
+    in_template_labels && $0 == "        goog-partner-solution: isol_synthetic_partner_urn" { found_label = 1 }
+    /^---$/ { in_deploy = 0; in_template_labels = 0 }
+    END { exit !found_label }
+  ' "$RENDERED"; then
+    pass "Deployment/${deployment} pod template carries goog-partner-solution"
+  else
+    fail "Deployment/${deployment} pod template is missing goog-partner-solution"
+  fi
+done
 
 # assert_deployment_replicas <deployment-name> <expected-replica-count>
 # Reads the `replicas:` field from the named Deployment's manifest block.
