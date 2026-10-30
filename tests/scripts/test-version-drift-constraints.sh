@@ -82,6 +82,8 @@ check_case "~>" "1.0.0" 2
 check_case ">=1.x" "1.0.0" 2
 check_case "1.2.3.4" "1.0.0" 2
 check_case "latest" "1.0.0" 2
+check_case "= 1.2.0-beta" "1.2.0" 2
+check_case ">= 1.2.0-beta" "1.2.0" 2
 
 # ── Unparseable candidate versions (ERROR, not DRIFT) ───────────────────────
 check_case "~> 3.0" "3.3.0-rc.1" 2
@@ -89,6 +91,7 @@ check_case "~> 3.0" "3.3.0+meta" 2
 check_case "~> 3.0" "v3.3.0" 2
 check_case "~> 3.0" "3.3.0.1" 2
 check_case "~> 3.0" "" 2
+check_case "~> 3.0" "unknown" 2
 
 # ── Extra whitespace tolerance ──────────────────────────────────────────────
 check_case "  ~>   3.0  " "3.1.0" 0
