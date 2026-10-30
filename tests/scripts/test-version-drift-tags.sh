@@ -59,9 +59,10 @@ assert_latest "real GHCR shape picks the highest release, ignoring non-version t
 # ── Case 2: numeric, not lexical, ordering ─────────────────────────────────
 # Lexical string sort would put "1.9.0" after "1.10.0" (since '9' > '1'
 # character-wise), making 1.9.0 look "latest". key() must sort on the
-# integer tuple, not the raw string.
+# integer tuple, not the raw string. The highest release comes first, so an
+# implementation that skips sorting and takes the last match also fails.
 assert_latest "numeric ordering: 1.10.0 beats 1.9.0 despite lexical order" \
-  '{"tags":["1.9.0","1.10.0"]}' "1.10.0"
+  '{"tags":["1.10.0","1.9.0","1.2.0"]}' "1.10.0"
 
 # ── Case 3: prerelease-only tag list -> failure ─────────────────────────────
 # No plain X.Y.Z tag exists; must fail with no output rather than pick the
@@ -78,32 +79,15 @@ assert_latest "JSON with no tags key fails cleanly" \
   '{"name":"n8n-io/n8n-helm-chart/n8n"}' ""
 
 # ── Self-check: prove the harness can actually fail ─────────────────────────
-# Runs one assertion with a deliberately wrong expected value in a subshell
-# (so its FAILURES increment does not pollute the real run) and confirms
-# assert_latest reports it as a failure, not a false pass. Follows the same
+# Runs the real assert_latest with a deliberately wrong expected value in a
+# subshell (so its FAILURES increment does not pollute the real run) and
+# confirms it reports a failure, not a false pass. Only fail() is redefined,
+# to print to stdout; bash resolves it at call time, so the assert_latest
+# under test is the same one every case above uses. Follows the same
 # pattern as tests/scripts/check-n8n-chart.sh's self-check.
 SELFTEST_OUTPUT="$(
   FAILURES=0
   fail() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
-  pass() { echo "PASS: $1"; }
-  assert_latest() {
-    local name="$1" input="$2" expected="$3" actual rc
-    actual="$(printf '%s' "$input" | latest_release_tag 2>/dev/null)"
-    rc=$?
-    if [ -n "$expected" ]; then
-      if [ "$rc" -eq 0 ] && [ "$actual" = "$expected" ]; then
-        pass "$name: latest_release_tag -> $actual"
-      else
-        fail "$name: expected '$expected', got rc=$rc output='$actual'"
-      fi
-    else
-      if [ "$rc" -ne 0 ] && [ -z "$actual" ]; then
-        pass "$name: latest_release_tag correctly failed with no output"
-      else
-        fail "$name: expected failure with no output, got rc=$rc output='$actual'"
-      fi
-    fi
-  }
   assert_latest "self-check: intentionally wrong expected value" '{"tags":["1.15.0"]}' "9.9.9"
   echo "FAILURES=$FAILURES"
 )"

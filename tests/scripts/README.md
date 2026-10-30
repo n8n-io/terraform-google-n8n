@@ -98,7 +98,13 @@ and bump-tier classification these scripts check against.
   the KEDA chart (via its Helm repo) against the currently pinned version.
   Every lookup failure is reported as an explicit `ERROR`, distinct from "no
   drift found", so a network hiccup cannot look like a clean report. Exit
-  code is nonzero only on a lookup failure, never on drift alone.
+  code is nonzero only on a lookup failure, never on drift alone. The n8n
+  chart lookup keeps only plain `X.Y.Z` tags (`lib/drift-tags.sh`), so
+  prereleases and registry metadata tags such as `artifacthub.io` and
+  `sha256-...` never count as the latest release.
+  `test-version-drift-tags.sh` tests that filter offline, with no network or
+  credentials. CI runs every `tests/scripts/test-*.sh` in the `chart-render`
+  job, and `task script-tests` runs the same loop locally.
 - **`check-helm-chart-coverage.sh`**: fails when
   [`docs/helm-chart-coverage.md`](../../docs/helm-chart-coverage.md)'s
   declared chart version disagrees with `n8n_chart_version`'s default, or
