@@ -89,3 +89,10 @@ hand. It is not a CI gate by
 default (see the weekly `version-drift.yml` workflow); a stale entry here is
 still possible between its runs. When you bump a pin by hand, update this
 table in the same change.
+
+The constraint evaluator (`tests/scripts/lib/constraints.sh`) supports a
+narrow grammar: comma-separated `~>`, `>=`, `>`, `<=`, `<`, `!=`, `=` or a
+bare version, over numeric `N[.N[.N]]` versions. Terraform's documentation
+says an exact constraint (`=` or a bare version) cannot be combined with
+other conditions. The evaluator does not enforce that, and accepts
+`= 1.2.3, >= 1.0`, as `terraform init` does.
