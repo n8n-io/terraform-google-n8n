@@ -192,6 +192,17 @@ resource "google_container_cluster" "n8n" {
 
   resource_labels = local.gcp_labels
 
+  # GKE reports the remaining node pool's config as the cluster's node_config
+  # once the default pool is removed, so resource_labels set on
+  # google_container_node_pool.n8n (e.g. goog-partner-solution) show up here
+  # and the cluster would plan to strip them on every run. Applying that diff
+  # fails with "Node pool \"default-pool\" not found on update", because the
+  # provider sends cluster node_config changes to the deleted default pool.
+  # The node pool owns these labels, so the cluster template ignores them.
+  lifecycle {
+    ignore_changes = [node_config[0].resource_labels]
+  }
+
   # PSA peering must exist before the cluster if Cloud SQL/Memorystore are
   # used. Also wait for the module-created key's IAM grant (kms.tf): GKE
   # checks roles/cloudkms.cryptoKeyEncrypterDecrypter on the key during

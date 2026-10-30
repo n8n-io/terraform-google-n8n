@@ -10,6 +10,13 @@
 # real `terraform plan` from an example root (podLabels in the Helm values). The
 # PD CSI StorageClass parameter is a child-module resource, asserted here
 # through the modules/controllers output and in modules/controllers/tests.
+#
+# Also not assertable at plan time: google_container_cluster.n8n's
+# lifecycle.ignore_changes on node_config[0].resource_labels (gke.tf). Without
+# it, a live apply that sets the label leaves a perpetual cluster diff, and
+# clearing the label fails with "Node pool \"default-pool\" not found on
+# update" (found in a live test of f205f33). Verify with a real plan after
+# setting and after clearing the label.
 
 mock_provider "google" {}
 mock_provider "google-beta" {}

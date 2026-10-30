@@ -67,6 +67,12 @@ this project adheres to the stability contract in
   exporter pods, and replaces the pd-balanced StorageClass because its
   parameters are immutable (bound volumes keep working; disks already
   provisioned are not relabeled through the StorageClass).
+  `google_container_cluster.n8n` ignores changes to its leftover default-pool
+  `node_config.resource_labels`: GKE reports the module node pool's labels
+  there, so the cluster would otherwise plan to strip the partner label on
+  every run, and applying that fails with `Node pool "default-pool" not found
+  on update`. A deployment that applied the label with an earlier commit of
+  this change needs this fix before it can clear the label.
 
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
