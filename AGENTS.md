@@ -471,6 +471,7 @@ terraform-docs --output-check .                # README drift check
 # `task script-tests` runs the same loop, and `task ci` includes it.
 tests/scripts/check-n8n-chart.sh
 tests/scripts/test-version-drift-tags.sh
+tests/scripts/test-version-drift-constraints.sh
 
 # Security baseline: pinned Checkov, both passes (default tfvars and the
 # opt-in fixture that unblinds count-0 resources like the Redis exporter),
@@ -497,7 +498,6 @@ scripts/check-example-parity.sh
 # is manual, run with a candidate version when picking up a chart bump:
 #   tests/scripts/chart-values-diff.sh 1.12.0
 tests/scripts/check-version-drift.sh
-tests/scripts/test-version-drift-constraints.sh  # offline unit test for constraint_accepts()
 tests/scripts/check-helm-chart-coverage.sh
 
 # Repeat the same five commands under every example and both controller

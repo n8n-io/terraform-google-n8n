@@ -83,32 +83,26 @@ check_case ">=1.x" "1.0.0" 2
 check_case "1.2.3.4" "1.0.0" 2
 check_case "latest" "1.0.0" 2
 
+# ── Unparseable candidate versions (ERROR, not DRIFT) ───────────────────────
+check_case "~> 3.0" "3.3.0-rc.1" 2
+check_case "~> 3.0" "3.3.0+meta" 2
+check_case "~> 3.0" "v3.3.0" 2
+check_case "~> 3.0" "3.3.0.1" 2
+check_case "~> 3.0" "" 2
+
 # ── Extra whitespace tolerance ──────────────────────────────────────────────
 check_case "  ~>   3.0  " "3.1.0" 0
 
 # ── Self-check: prove a wrong expected value is actually caught ────────────
-# Runs one case with a deliberately wrong expected exit code in a subshell
-# (so its FAILURES increment does not pollute the real run) and confirms it
-# is reported as a failure, not a false pass. This proves the harness has
-# teeth every time it runs, rather than only when someone remembers to
-# break it by hand.
+# Runs the real check_case with a deliberately wrong expected exit code in a
+# subshell (so its FAILURES increment does not pollute the real run) and
+# confirms it is reported as a failure, not a false pass. Only fail() is
+# redefined, to print to stdout; bash resolves it at call time, so the
+# check_case under test is the same one every case above uses. Same pattern
+# as tests/scripts/test-version-drift-tags.sh's self-check.
 SELFTEST_OUTPUT="$(
   FAILURES=0
   fail() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
-  pass() { echo "PASS: $1"; }
-  check_case() {
-    local constraint="$1" version="$2" expected="$3" actual
-    if constraint_accepts "$constraint" "$version"; then
-      actual=0
-    else
-      actual=$?
-    fi
-    if [ "$actual" = "$expected" ]; then
-      pass "constraint_accepts '${constraint}' '${version}' -> ${actual}"
-    else
-      fail "constraint_accepts '${constraint}' '${version}' -> ${actual}, expected ${expected}"
-    fi
-  }
   check_case "~> 3.0" "3.3.0" 1
   echo "FAILURES=$FAILURES"
 )"

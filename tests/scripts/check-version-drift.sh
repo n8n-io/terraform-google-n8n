@@ -77,7 +77,7 @@ print(sorted(versions, key=key)[-1])
   case "$verdict" in
     0) report_ok "$display" "$current" "$latest" ;;
     1) report_drift "$display" "$current" "$latest" ;;
-    *) report_error "$display" "could not evaluate constraint '${current}'" ;;
+    *) report_error "$display" "could not evaluate constraint '${current}' against '${latest}'" ;;
   esac
 }
 
