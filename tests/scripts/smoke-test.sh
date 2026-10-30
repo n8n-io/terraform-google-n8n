@@ -532,15 +532,16 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
   # silent empty string, which would then hit the "can't parse, skip"
   # branch below and let a transient API error pass as a successful check.
   # A read failure must FAIL; the version-agnostic fallback is reserved for
-  # a successfully fetched label that is empty or unparsable. Combining stderr into the
-  # same capture (2>&1) is safe here: kubectl prints only the label value
-  # to stdout on success (no stderr), so success always yields a clean
-  # value, and any failure yields only the error text, nothing to confuse
-  # the two. The `if` form is also required for this script's `set -e`: a
-  # bare `label=$(...) 2>&1; rc=$?` would abort the whole script on the
-  # exact failure this is meant to catch.
+  # a successfully fetched label that is empty or unparsable. stderr goes to
+  # its own file and only stdout is read as the label: a kubectl or
+  # auth-plugin warning on a successful call would otherwise corrupt the
+  # label and send a 1.16.0+ deployment down the older-chart branch. The
+  # `if` form is also required for this script's `set -e`: a bare
+  # `label=$(...); rc=$?` would abort the whole script on the exact failure
+  # this is meant to catch.
+  chart_label_err=$(mktemp)
   if deployed_chart_label=$(kubectl get deployment n8n-main -n "$NAMESPACE" \
-    -o jsonpath='{.metadata.labels.helm\.sh/chart}' 2>&1); then
+    -o jsonpath='{.metadata.labels.helm\.sh/chart}' 2>"$chart_label_err"); then
     deployed_chart_version="${deployed_chart_label#n8n-}"
 
     # Guarded by if/else, not a bare call: under this script's `set -e`, a
@@ -612,8 +613,9 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
     fi
   else
     fail "Cannot read Deployment n8n-main's helm.sh/chart label in namespace $NAMESPACE, single-main PDB state unverified"
-    info "$deployed_chart_label"
+    info "$(cat "$chart_label_err")"
   fi
+  rm -f "$chart_label_err"
   info "Editor, REST API, and scheduled triggers are interrupted during any main rollout or maintenance in this topology."
 
 elif [[ -n "$main_pod" ]]; then
