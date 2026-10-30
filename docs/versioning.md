@@ -24,8 +24,8 @@ upgrade guidance when a bump changes behavior.
 
 | Provider | Current constraint | Tier to bump |
 | --- | --- | --- |
-| `hashicorp/google` | `~> 6.23` | Verification-required (major); patch-safe within `6.x`. Floor is 6.23 because `google_sql_user.password_wo`/`password_wo_version` (`postgres_password_write_only`) do not exist before 6.23.0; this also covers `google_container_cluster.secret_manager_config`, which does not exist in 6.0.x |
-| `hashicorp/google-beta` | `~> 6.23` | Same as `google`; kept in lockstep |
+| `hashicorp/google` | `~> 8.0` | Verification-required (major); patch-safe within `8.x`. Moved from `~> 6.23` after the 7.0 and 8.0 upgrade guides were checked against the module's resources and `docs/build-time-decisions.md`'s provider claims were re-verified against `v8.7.0`. The features that set the old floor (`google_sql_user.password_wo`/`password_wo_version` from 6.23.0, `google_container_cluster.secret_manager_config` from 6.1) exist in 8.x too |
+| `hashicorp/google-beta` | `~> 8.0` | Same as `google`; kept in lockstep |
 | `hashicorp/kubernetes` | `~> 3.0` | Verification-required (major); patch-safe within `3.x` |
 | `hashicorp/helm` | `~> 3.0` | Verification-required (major); patch-safe within `3.x` |
 | `gavinbunney/kubectl` | `~> 1.14` | Minor-required: this provider applies the raw Ingress-support CRs (`BackendConfig`/`FrontendConfig`/`ManagedCertificate`); verify `kubectl_manifest` behavior is unchanged before bumping |

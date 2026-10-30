@@ -152,10 +152,16 @@ resource "google_compute_global_address" "psa" {
 # network (create_network = false) the peering stays on the caller's VPC, which
 # the module does not own; docs/destroy-cleanup.md covers removal and the
 # re-deploy path. Provider >= 8.1 adds deletion_policy = "REMOVE_PEERING" for
-# exactly this case; adopt it when the google constraint moves past 6.x.
+# exactly this case: it deletes the connection and, only when the API refuses
+# because service producers still use it, removes just the peering so the
+# network can be deleted. It is not adopted here because it changes destroy
+# behavior and needs its own live destroy check.
 #
-# psa_connection_abandon_on_destroy = false leaves deletion_policy unset so the
-# provider attempts the API delete (may stall on the producer check).
+# psa_connection_abandon_on_destroy = false sets deletion_policy = "DELETE"
+# explicitly so the provider attempts the API delete (may stall on the
+# producer check). Explicit, because 8.x makes an unset policy Computed, which
+# is unknown at plan time under mock_provider. Upgrade and provider-level
+# deletion_policy details: docs/upgrading-n8n.md and docs/destroy-cleanup.md.
 #
 # Cloud SQL / Memorystore depend on this resource directly (cloudsql.tf,
 # memorystore.tf) so creation still waits for the peering to exist.
@@ -166,5 +172,5 @@ resource "google_service_networking_connection" "psa" {
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.psa[0].name]
 
-  deletion_policy = var.psa_connection_abandon_on_destroy ? "ABANDON" : null
+  deletion_policy = var.psa_connection_abandon_on_destroy ? "ABANDON" : "DELETE"
 }

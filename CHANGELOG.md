@@ -193,24 +193,50 @@ this project adheres to the stability contract in
 
 ### Changed
 
-- **Provider floor raised:** `hashicorp/google` and `hashicorp/google-beta`
-  now require `~> 6.23` (was `~> 6.0`). Two features need it:
-  `google_container_cluster.secret_manager_config` does not exist in 6.0.x
-  (Terraform rejects the block at validate time even when the add-on is
-  off), and `google_sql_user`'s `password_wo`/`password_wo_version`
-  (`postgres_password_write_only`) do not exist before 6.23.0.
-  `google-beta` uses neither; it moves because the module keeps it in
-  lockstep with `google` (`docs/versioning.md`). The examples that call the
-  root module now declare `~> 6.23` too;
+- **Provider floor raised (breaking):** `hashicorp/google` and
+  `hashicorp/google-beta` now require `~> 8.0` (was `~> 6.0` in 0.1.0). The
+  module still needs two features from 6.x: `google_sql_user`'s
+  `password_wo`/`password_wo_version` (`postgres_password_write_only`, from
+  6.23.0) and `google_container_cluster.secret_manager_config` (from 6.1).
+  Both exist in 8.x. `google-beta` uses neither; it moves because the module
+  keeps it in lockstep with `google` (`docs/versioning.md`). The examples
+  that call the root module declare `~> 8.0` too;
   `modules/controllers/examples/direct-use` stays on `~> 6.0` because the
   controllers submodule needs neither feature. This is a minor-version change
-  under the module's stability contract.
-  Upgrade note: if your dependency lock file selects a 6.0.x release, run
+  under the module's stability contract. The provider major was checked
+  against the 7.0 and 8.0 upgrade guides: their entries for resources this
+  module creates (`google_compute_router`, `google_compute_subnetwork`,
+  `google_sql_user`, `google_storage_bucket`, `google_container_cluster`,
+  `google_container_node_pool`) need no configuration change. See
+  `docs/upgrading-n8n.md`, "Google provider floor raised to ~> 8.0", for
+  what to expect on the first plan.
+  Rollback: back up your state, in encrypted storage, before 8.x first
+  writes it. Any apply on 8.x writes state, even one that plans no changes.
+  Provider 8.x writes some resources (for example `google_storage_bucket`)
+  at a newer state schema version that 6.x cannot read, so after that,
+  reverting the provider constraint alone does not roll
+  back.
+  Known warning: from provider 8.9.0, `google_container_cluster`'s
+  `remove_default_node_pool` is deprecated, so `terraform validate` and
+  `terraform plan` print a deprecation warning. The argument still works; the
+  suggested replacement needs GKE 1.36.4-gke.1469000 or later.
+  Upgrade note: if your dependency lock file selects a 6.x release, run
   `terraform init -upgrade` before planning. If your root module pins either
-  provider to 6.0.x, widen the constraint first. The floor change itself
-  changes no resources, but `terraform init -upgrade` can also move other
-  providers in your root module, so review the lock file diff and the plan
-  before you apply.
+  provider below 8.0, widen the constraint first. `terraform init -upgrade`
+  can also move other providers in your root module, so review the lock
+  file diff and the plan before you apply. If you set
+  `psa_connection_abandon_on_destroy = false`, the first plan may show a
+  one-time in-place update of `google_service_networking_connection.psa` to
+  `deletion_policy = "DELETE"`; see `docs/upgrading-n8n.md`.
+- `private_cluster_config.enable_private_nodes` itself is no longer
+  `ForceNew` under provider 8.x. The module derives the `ForceNew`
+  `master_ipv4_cidr_block` from `gke_enable_private_nodes` (`gke.tf`), so
+  turning private nodes on plans a cluster replacement when the configured
+  control-plane CIDR differs from the value in state. Turning them off sets
+  that field to `null`, which keeps the stored value because the field is
+  also `Computed`, so it is expected to plan as an in-place update. Neither
+  direction was verified against a real cluster. `docs/build-time-decisions.md`'s
+  row now describes both directions.
 - Default `n8n_chart_version` bumped to `1.14.0` (was `1.13.0`; n8n-hosting
   v1.14.0, 2026-09-30, which bundles n8n `2.41.4` as its `appVersion`, so a
   caller with `n8n_image_tag = null` moves from n8n `2.40.5` to `2.41.4`; n8n
