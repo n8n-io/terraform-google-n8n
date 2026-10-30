@@ -312,6 +312,17 @@ jobs:
         working-directory: ${{ matrix.target }}
         run: terraform test -no-color
 
+  # Stable name for branch protection, like test-root-gate: the per-target job
+  # names above include the Terraform version, so require this one instead.
+  test-gate:
+    name: terraform test (examples and modules)
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      - name: all example and submodule tests passed
+        run: test "${{ needs.test.result }}" = "success"
+
   chart-render:
     name: n8n chart rendering check
     runs-on: ubuntu-latest

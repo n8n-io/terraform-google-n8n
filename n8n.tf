@@ -1129,7 +1129,8 @@ check "external_secrets_update_interval_requires_master_switch" {
 # pre-release/channel tags, is left alone rather than guessed at. Written as
 # nested ternaries so the numeric comparisons sit on a branch that is only
 # taken once the regex has confirmed they are numbers. Terraform before 1.12
-# did not short-circuit && / ||; the ternaries stay on the 1.13 floor.
+# did not short-circuit && / ||. On the 1.13 floor the ternaries are house
+# style, not a correctness requirement.
 check "execution_data_s3_requires_n8n_2_27" {
   assert {
     condition = var.n8n_execution_data_storage_mode != "s3" ? true : (
