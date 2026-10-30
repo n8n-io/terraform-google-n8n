@@ -219,9 +219,13 @@ Check these points before you apply:
   Without a CA the module's entry is unchanged. A chart pinned below
   `1.15.0`, a prerelease tag (e.g. `1.15.0-rc.1`), or a custom
   `n8n_chart_repository`, keeps the module's own entry, because in each
-  case the module cannot verify what the chart renders and a missing entry
-  would leave TLS silently off. Build metadata (e.g. `1.15.0+build.5`) is
-  not a prerelease and still counts as the release.
+  case the module cannot verify what the chart renders. That is a
+  conservative choice, not a guard against a TLS downgrade: n8n builds TLS
+  options from a non-empty CA (`DB_POSTGRESDB_SSL_CA`) whether or not
+  `DB_POSTGRESDB_SSL_ENABLED` is set, and a duplicate entry with the same
+  value does not change n8n's effective TLS configuration. Build metadata
+  (e.g. `1.15.0+build.5`) is not a prerelease and still counts as the
+  release.
 - **No replica, KEDA, or task-runner changes.** No `templates/deployment-*.yaml`
   changed between `1.14.0` and `1.15.0`, so
   `local.n8n_chart_has_worker_only_runners` (`capacity.tf`) now also covers

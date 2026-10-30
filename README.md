@@ -245,7 +245,7 @@ its instance ID as that fingerprint. Every pod in a deployment shares the
 same instance ID. If the certificate was issued for a different ID, the
 license does not validate.
 
-In n8n 2.41.4 (the default chart's appVersion), n8n resolves the instance ID
+In n8n 2.42.4 (the default chart's appVersion), n8n resolves the instance ID
 in this order: the `N8N_INSTANCE_ID` environment variable, then the
 `instance.id` row stored in the database, then a value derived from the
 encryption key. The first server process to start without either of the
@@ -259,7 +259,7 @@ encryption key do not change the instance ID.
 - **Certificate already issued for another ID:** pin the instance ID with
   `N8N_INSTANCE_ID` through `n8n_extra_env`. `config.extraEnv` is
   chart-global, so the value reaches every pod role. The value must be at
-  least 32 characters. In n8n 2.41.4, a shorter value makes the license
+  least 32 characters. In n8n 2.42.4, a shorter value makes the license
   client fall back to the encryption-key-derived ID and log a warning.
 
 ```hcl
@@ -287,7 +287,7 @@ A license key needs the license server, so also reverse the offline setup in
 the same change: restore egress to n8n's license server, and remove
 `N8N_LICENSE_AUTO_RENEW_ENABLED=false` from `n8n_extra_env` if you set it.
 
-In n8n 2.41.4, a pod with an activation key skips activation at startup when
+In n8n 2.42.4, a pod with an activation key skips activation at startup when
 the database already holds a license certificate, for example one saved by an
 earlier key activation before you switched to the offline certificate. n8n
 then keeps using that stored certificate. After the switch, check

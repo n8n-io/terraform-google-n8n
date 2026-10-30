@@ -272,11 +272,14 @@ locals {
   # (n8n-hosting#175), so it is treated like an older chart and the module
   # keeps emitting its own entry; build metadata after "+" (e.g.
   # "1.15.0+build.5") is not a prerelease and still counts as the release.
-  # For any other repository the chart contents cannot be verified, and the
-  # safe error is a duplicate env entry (same value "true"), not a silently
-  # disabled TLS connection, so the module keeps emitting its own entry
-  # there. Nested ternaries, because Terraform below 1.12 does not
-  # short-circuit && / || (AGENTS.md). Same shape as
+  # For any other repository the chart contents cannot be verified, so the
+  # module keeps emitting its own entry there. That is a conservative choice,
+  # not a guard against a TLS downgrade: this gate only matters while a CA is
+  # delivered, and n8n (n8n@2.42.4, db-connection-options.ts) builds TLS
+  # options from a non-empty DB_POSTGRESDB_SSL_CA whether or not
+  # DB_POSTGRESDB_SSL_ENABLED is set. A duplicate entry with the same value
+  # does not change n8n's effective TLS configuration.
+  # Nested ternaries are the house style (AGENTS.md); same shape as
   # local.n8n_worker_keda_pause_supported in scaling.tf.
   n8n_chart_renders_postgres_ssl_enabled = var.n8n_chart_repository != "oci://ghcr.io/n8n-io/n8n-helm-chart" ? false : (
     strcontains(split("+", var.n8n_chart_version)[0], "-") ? false : (

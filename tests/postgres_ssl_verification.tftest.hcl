@@ -190,8 +190,8 @@ run "ca_pem_on_chart_before_1_15_keeps_module_ssl_enabled_entry" {
   }
 
   # Charts before 1.15.0 render DB_POSTGRESDB_SSL (which n8n does not read), not
-  # DB_POSTGRESDB_SSL_ENABLED, so dropping the module's entry would silently
-  # leave TLS off.
+  # DB_POSTGRESDB_SSL_ENABLED, so the module keeps its own entry rather than
+  # rely on n8n deriving TLS from the CA alone.
   assert {
     condition     = local.n8n_chart_renders_postgres_ssl_enabled == false && length(local.n8n_postgres_ssl_env) == 2 && one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_ENABLED"]) == "true"
     error_message = "On chart 1.14.0 the module must keep emitting DB_POSTGRESDB_SSL_ENABLED=true next to DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED."
@@ -211,8 +211,9 @@ run "ca_pem_on_unverifiable_chart_repository_keeps_module_ssl_enabled_entry" {
     n8n_chart_repository                  = "oci://registry.example.com/mirror/n8n-helm-chart"
   }
 
-  # A mirror's chart contents cannot be verified, so a duplicate entry (same
-  # value) is safer than a silently disabled TLS connection.
+  # A mirror's chart contents cannot be verified, so the module keeps its own
+  # entry: a duplicate with the same value does not change n8n's effective
+  # TLS configuration.
   assert {
     condition     = local.n8n_chart_renders_postgres_ssl_enabled == false && length(local.n8n_postgres_ssl_env) == 2
     error_message = "On a custom chart repository the module must keep emitting DB_POSTGRESDB_SSL_ENABLED=true."
@@ -233,8 +234,8 @@ run "ca_pem_on_prerelease_chart_keeps_module_ssl_enabled_entry" {
   }
 
   # A prerelease tag may predate the ConfigMap key the chart needs to render
-  # DB_POSTGRESDB_SSL_ENABLED itself (n8n-hosting#175), so dropping the
-  # module's entry would risk silently leaving TLS off.
+  # DB_POSTGRESDB_SSL_ENABLED itself (n8n-hosting#175), so the module keeps
+  # its own entry rather than rely on unverified chart behavior.
   assert {
     condition     = local.n8n_chart_renders_postgres_ssl_enabled == false && length(local.n8n_postgres_ssl_env) == 2 && one([for e in local.n8n_postgres_ssl_env : e.value if e.name == "DB_POSTGRESDB_SSL_ENABLED"]) == "true"
     error_message = "On a prerelease chart version the module must keep emitting DB_POSTGRESDB_SSL_ENABLED=true next to DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED."
