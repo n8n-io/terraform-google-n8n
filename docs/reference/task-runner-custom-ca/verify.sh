@@ -42,6 +42,7 @@ Environment:
                   deletes (default: task-runner-ca-verify-client). Change
                   this if it collides with a pod already in the namespace.
   TEST_POD_IMAGE  Image for that pod (default: curlimages/curl:8.11.0).
+  CLEANUP_TIMEOUT Seconds each cleanup request may take (default: 15).
 EOF
 }
 
@@ -90,16 +91,19 @@ exec_curl() { kubectl -n "$N8N_NAMESPACE" exec "$TEST_POD_NAME" -- curl -s "$@";
 # Runs on every exit, including a failed assertion: deactivate, archive, and
 # delete the workflow this run created (so its fixed webhook path is free for
 # the next run and nothing stays reachable), then remove the client pod. Each
-# step is best effort; a leftover workflow is reported by id.
+# step is best effort; a leftover workflow is reported by id. Every request
+# is capped at CLEANUP_TIMEOUT seconds, so a stalled n8n cannot keep the
+# script from exiting and removing the client pod.
+: "${CLEANUP_TIMEOUT:=15}"
 auth_cookie=""
 wf_id=""
 cleanup() {
   if [ -n "$wf_id" ] && [ -n "$auth_cookie" ]; then
-    exec_curl -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/deactivate" \
+    exec_curl --max-time "$CLEANUP_TIMEOUT" -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/deactivate" \
       -H "Cookie: ${auth_cookie}" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1 || true
-    exec_curl -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/archive" \
+    exec_curl --max-time "$CLEANUP_TIMEOUT" -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/archive" \
       -H "Cookie: ${auth_cookie}" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1 || true
-    delete_resp=$(exec_curl -X DELETE "http://n8n-main:5678/rest/workflows/${wf_id}" \
+    delete_resp=$(exec_curl --max-time "$CLEANUP_TIMEOUT" -X DELETE "http://n8n-main:5678/rest/workflows/${wf_id}" \
       -H "Cookie: ${auth_cookie}" 2>/dev/null || true)
     case "$delete_resp" in
       *'"data":true'*) echo "Cleaned up workflow ${wf_id}." >&2 ;;
