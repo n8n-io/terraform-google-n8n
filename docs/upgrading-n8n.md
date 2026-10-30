@@ -193,6 +193,56 @@ these points before you apply:
   back a release without the security fix above, so fix forward to `2.21.0`
   rather than staying on the rolled-back version.
 
+## Moving from chart 1.14.0 to 1.15.0
+
+The default `n8n_chart_version` moved from `1.14.0` to `1.15.0`
+([n8n-hosting v1.15.0](https://github.com/n8n-io/n8n-hosting/releases/tag/v1.15.0)).
+Check these points before you apply:
+
+- **The n8n image moves with the chart if it is not pinned.** The chart's
+  `appVersion` is n8n `2.42.4` (was `2.41.4`), so a caller with
+  `n8n_image_tag = null` moves from `2.41.4` to `2.42.4`. The n8n release
+  notes for `2.42.0` through `2.42.4` list no breaking changes. Pin
+  `n8n_image_tag` first to take the chart without the application bump.
+- **Pods roll once.** The chart's labels and `checksum/config` annotation
+  change with the new chart, so every main, worker, and webhook-processor
+  pod is replaced on the upgrade apply, as on any chart bump.
+- **Database TLS with a CA bundle: the variable is now owned by the chart.**
+  The chart now renders `DB_POSTGRESDB_SSL_ENABLED` from
+  `database.ssl.enabled` (n8n-hosting#175); `1.14.0` rendered
+  `DB_POSTGRESDB_SSL`, which n8n does not read. The module sets
+  `database.ssl.enabled` only when `db_postgresdb_ssl_ca_pem` is set with
+  `db_postgresdb_ssl_reject_unauthorized = true`. In that case, on the
+  upstream chart repository at a released `1.15.0` or newer, the module no
+  longer adds its own `DB_POSTGRESDB_SSL_ENABLED` entry, so each pod carries
+  it once (value `"true"`, from the chart's ConfigMap) instead of twice.
+  Without a CA the module's entry is unchanged. With a CA, the module keeps
+  its own entry in three cases, for different reasons:
+  - **An upstream chart below `1.15.0`.** These charts render
+    `DB_POSTGRESDB_SSL` instead, so the module's entry is the only
+    `DB_POSTGRESDB_SSL_ENABLED` on each pod.
+  - **A prerelease tag (e.g. `1.15.0-rc.1`).** A prerelease may be built
+    from a branch that predates n8n-hosting#175, so the module cannot tell
+    from the version which name the chart renders.
+  - **A custom `n8n_chart_repository`.** The module cannot check what a
+    mirrored chart renders.
+
+  In the last two cases, a chart that does render the name gives each pod a
+  second entry with the same value, which does not change n8n's effective
+  TLS configuration. None of the three is a guard against a TLS downgrade:
+  the module still passes the CA as `database.ssl.ca`, which the upstream
+  charts render as `DB_POSTGRESDB_SSL_CA`, and n8n builds TLS options from a
+  non-empty CA whether or not `DB_POSTGRESDB_SSL_ENABLED` is set. Build
+  metadata (e.g. `1.15.0+build.5`) is not a prerelease and still counts as
+  the release.
+- **No replica, KEDA, or task-runner changes.** No `templates/deployment-*.yaml`
+  changed between `1.14.0` and `1.15.0`, so
+  `local.n8n_chart_has_worker_only_runners` (`capacity.tf`) now also covers
+  `1.15.0`.
+- **New chart values the module does not use.** `extraObjects`
+  (n8n-hosting#219) and `database.ssl.existingSecret` (n8n-hosting#222) are
+  new; the module sets neither.
+
 ## Moving from chart 1.13.0 to 1.14.0
 
 The default `n8n_chart_version` moved from `1.13.0` to `1.14.0`
@@ -526,7 +576,7 @@ terraform-azurerm-n8n.
 ## Main pods lose the task-runner sidecar (chart 1.12.0 and later)
 
 n8n-hosting [#179](https://github.com/n8n-io/n8n-hosting/pull/179), shipped
-in chart `1.12.0` and unchanged through `1.14.0`, renders the task-runner
+in chart `1.12.0` and unchanged through `1.15.0`, renders the task-runner
 sidecar, its env, and the launcher ConfigMap mount on the main Deployment
 only in standalone mode (`taskRunners.enabled && !queueMode.enabled`). This
 module always runs queue mode, where n8n offloads manual executions to
@@ -541,7 +591,7 @@ deployment takes both releases at once):
   `n8n_task_runner_custom_config`, and `n8n_task_runner_timeout` now apply
   to worker pods only, **while the pinned chart is one this module has
   verified carries the fix**: its own OCI repository
-  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0`, `1.13.0`, or `1.14.0`
+  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0`, `1.13.0`, `1.14.0`, or `1.15.0`
   exactly (`local.n8n_chart_has_worker_only_runners` in `capacity.tf`). Any
   other `n8n_chart_version` (a private mirror, a preview build such as
   `examples/worker-pools`' `1.11.0-preview.workerpools.1`, which predates
@@ -880,7 +930,7 @@ To keep that window safe, switch when load is low. To stop KEDA from adding
 default workers during the switch, set `n8n_worker_keda_pause = true` in a
 separate apply first, and set it back to `false` after the switch. That
 input pauses only the default worker Deployment, not `n8n_worker_pools`,
-and needs `n8n_chart_version` 1.13.0 or newer (the default is 1.14.0).
+and needs `n8n_chart_version` 1.13.0 or newer (the default is 1.15.0).
 Older charts ignore the pause, and chart 1.12.0 overwrites the held worker
 count on every Helm upgrade, including the switch itself
 (`check.worker_keda_pause_requires_a_supported_chart` warns). On an older

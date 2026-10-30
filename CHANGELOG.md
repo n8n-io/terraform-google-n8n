@@ -315,6 +315,26 @@ this project adheres to the stability contract in
   in #54), the re-plan was clean, and a rollback to `2.20.1` was also a clean
   in-place update. See `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to
   2.21.0".
+- Default `n8n_chart_version` bumped to `1.15.0` (was `1.14.0`; n8n-hosting
+  v1.15.0, which bundles n8n `2.42.4` as its `appVersion`, so a caller with
+  `n8n_image_tag = null` moves from n8n `2.41.4` to `2.42.4`; the n8n release
+  notes for 2.42.0 through 2.42.4 list no breaking changes). No replica, KEDA,
+  or task-runner template changes (`deployment-*.yaml` untouched), so the
+  worker-only task-runner capacity rule (`local.n8n_chart_has_worker_only_runners`)
+  now also covers `1.15.0`. Upstream changes that reach this module:
+  - The chart now renders `DB_POSTGRESDB_SSL_ENABLED` from
+    `database.ssl.enabled` instead of `DB_POSTGRESDB_SSL`, which n8n does not
+    read (n8n-hosting#175). The module sets `database.ssl.enabled` only for
+    `db_postgresdb_ssl_ca_pem` with `db_postgresdb_ssl_reject_unauthorized = true`;
+    there, on the upstream repository at a released chart `1.15.0` or newer,
+    it now omits its own `DB_POSTGRESDB_SSL_ENABLED` extraEnv entry, so the
+    variable appears once per pod instead of twice. Without a CA the behavior
+    is unchanged, and older charts, prerelease chart versions (e.g.
+    `1.15.0-rc.1`), and custom chart repositories keep the module's entry;
+    build metadata (e.g. `1.15.0+build.5`) still counts as the release.
+  - New chart values `extraObjects` and `database.ssl.existingSecret`
+    (n8n-hosting#219, #222); the module sets neither.
+  - See `docs/upgrading-n8n.md`, "Moving from chart 1.14.0 to 1.15.0".
 - **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
   sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
   instance, replacing Memorystore's own `volatile-lru` default. Under memory
