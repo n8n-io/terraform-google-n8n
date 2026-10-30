@@ -74,9 +74,10 @@ this project adheres to the stability contract in
   on update`. A deployment that applied the label with an earlier commit of
   this change needs this fix before it can clear the label. After the label
   is cleared, Terraform state can still show it under the cluster's
-  `node_config.resource_labels` (an ignored attribute keeps its prior value)
-  while the live cluster is already clean; this causes no plan diff and the
-  next apply clears it.
+  `node_config.resource_labels` while the live cluster is already clean:
+  the cluster is updated and read back before the node pool update removes
+  the label in GKE. The next plan shows this only as a refresh change with
+  no planned actions, and the next apply saves the refreshed state.
 
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
