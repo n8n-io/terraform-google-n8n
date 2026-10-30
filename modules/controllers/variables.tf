@@ -27,7 +27,7 @@ variable "keda_chart_repository" {
 }
 
 variable "keda_chart_version" {
-  description = "KEDA Helm chart version to deploy. Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Versions before 2.21.0 lack KEDA's fix for CVE-2026-77524; see docs/upgrading-n8n.md before pinning one. Ignored when install_keda = false."
+  description = "KEDA Helm chart version to deploy. Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Versions before 2.21.0 lack KEDA's fix for CVE-2026-77524; see [docs/upgrading-n8n.md](../../docs/upgrading-n8n.md) before pinning one. Ignored when install_keda = false."
   type        = string
   default     = "2.21.0"
 

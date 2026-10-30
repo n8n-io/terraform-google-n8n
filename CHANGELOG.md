@@ -281,7 +281,13 @@ this project adheres to the stability contract in
   covered every version GKE's `REGULAR` and `STABLE` channels offered; GKE's
   release schedule (checked 2026-10-29) lists 1.37 on `RAPID` since
   2026-09-02 and on `REGULAR` since 2026-10-22, so check your cluster's
-  version. See `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to
+  version. Verified live on `examples/small` (GKE 1.36.4, `REGULAR`): the
+  in-place upgrade from `2.20.1` planned only the KEDA release change; after
+  apply the `ScaledObject` stayed `Ready=True` and `HPAActive=True`, the smoke
+  test with `LOAD_TEST=true` passed with Redis AUTH both off and on (turning
+  AUTH on for an existing instance needed a second apply, a separate bug fixed
+  in #54), the re-plan was clean, and a rollback to `2.20.1` was also a clean
+  in-place update. See `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to
   2.21.0".
 - **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
   sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
