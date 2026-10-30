@@ -11,7 +11,11 @@ permissions:
   pull-requests: write
 
 env:
-  TF_VERSION: "1.11.4"
+  # Recent Terraform release for fmt, validate, and tflint. The test-root and
+  # test jobs repeat it as the first entry of their `terraform` matrix axis,
+  # next to the required_version floor (1.13.0). Matches terraform-aws-n8n
+  # and terraform-azurerm-n8n.
+  TF_VERSION: "1.16.6"
   TFLINT_VERSION: "v0.64.0"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
@@ -212,20 +216,26 @@ jobs:
           echo "files=$files" >> "$GITHUB_OUTPUT"
 
   test-root:
-    name: terraform test (${{ matrix.file }})
+    name: terraform test (${{ matrix.file }}, ${{ matrix.terraform }})
     runs-on: ubuntu-latest
     needs: test-root-matrix
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        # TF_VERSION plus the root module's required_version floor. The floor
+        # cell proves the declared minimum still works; a newer runtime alone
+        # never notices code that needs more. Keep the first entry equal to
+        # TF_VERSION (matrix values cannot read `env`) and the second equal
+        # to the floor in versions.tf. Same list in the `test` job below.
+        terraform: ["1.16.6", "1.13.0"]
         file: ${{ fromJson(needs.test-root-matrix.outputs.files) }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ matrix.terraform }}
 
       - name: terraform init
         run: terraform init -backend=false
@@ -249,7 +259,7 @@ jobs:
         run: test "${{ needs.test-root.result }}" = "success"
 
   test:
-    name: terraform test (${{ matrix.target }})
+    name: terraform test (${{ matrix.target }}, ${{ matrix.terraform }})
     runs-on: ubuntu-latest
     needs: validate
     timeout-minutes: 20
@@ -265,6 +275,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Same versions as test-root above: TF_VERSION, then the root
+        # required_version floor. modules/controllers and its direct-use
+        # example declare >= 1.9 but run on these two versions only.
+        terraform: ["1.16.6", "1.13.0"]
         # The module root (".") is covered by test-root above, one job per
         # test file.
         target:
@@ -288,7 +302,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ matrix.terraform }}
 
       - name: terraform init
         working-directory: ${{ matrix.target }}
@@ -297,6 +311,17 @@ jobs:
       - name: terraform test
         working-directory: ${{ matrix.target }}
         run: terraform test -no-color
+
+  # Stable name for branch protection, like test-root-gate: the per-target job
+  # names above include the Terraform version, so require this one instead.
+  test-gate:
+    name: terraform test (examples and modules)
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      - name: all example and submodule tests passed
+        run: test "${{ needs.test.result }}" = "success"
 
   chart-render:
     name: n8n chart rendering check

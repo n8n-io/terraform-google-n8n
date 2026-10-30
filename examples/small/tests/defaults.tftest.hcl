@@ -3,7 +3,7 @@
 # Exercises the module wiring without contacting Google Cloud.
 #
 # Run: terraform test
-#   (from examples/small/ - requires terraform >= 1.11)
+#   (from examples/small/ - requires terraform >= 1.13)
 
 mock_provider "google" {}
 mock_provider "google-beta" {}

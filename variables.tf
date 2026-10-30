@@ -177,10 +177,10 @@ variable "n8n_credentials_overwrite_secret_ref" {
   default = null
 
   validation {
-    # Terraform does not short-circuit ||; a bare `var.x == null ||
-    # <attribute access on var.x>` still evaluates the right-hand side and
-    # errors on Terraform 1.9.x (the CI floor) when var.x is null. Use a
-    # ternary so the attribute access only happens when var.x is non-null.
+    # A ternary, so the attribute access only happens when var.x is non-null.
+    # Terraform before 1.12 did not short-circuit ||, so a bare `var.x ==
+    # null || <attribute access on var.x>` errored when var.x was null. The
+    # 1.13 floor short-circuits; the ternary stays as the house style.
     condition     = var.n8n_credentials_overwrite_secret_ref == null ? true : (trimspace(var.n8n_credentials_overwrite_secret_ref.name) != "" && trimspace(var.n8n_credentials_overwrite_secret_ref.key) != "")
     error_message = "n8n_credentials_overwrite_secret_ref.name and .key must be non-empty."
   }
@@ -383,8 +383,8 @@ variable "n8n_image_pull_policy" {
   default     = null
 
   validation {
-    # Ternary, not ||: Terraform does not short-circuit, and contains() errors
-    # on a null needle under the CI-pinned Terraform 1.9.x.
+    # Ternary, not ||: contains() errors on a null needle, and Terraform before
+    # 1.12 did not short-circuit ||. Kept as the house style on the 1.13 floor.
     condition     = var.n8n_image_pull_policy == null ? true : contains(["Always", "IfNotPresent", "Never"], var.n8n_image_pull_policy)
     error_message = "n8n_image_pull_policy must be one of Always, IfNotPresent, or Never, or null to use the chart's default (IfNotPresent)."
   }
@@ -520,9 +520,9 @@ variable "n8n_extra_volumes" {
 
   validation {
     # Nested ternaries, not `v.config_map == null || v.config_map.default_mode
-    # == null || ...`: Terraform does not short-circuit ||, so the attribute
-    # access still runs and errors on Terraform 1.9.x (the CI floor) whenever
-    # an entry has no config_map at all.
+    # == null || ...`: Terraform before 1.12 did not short-circuit ||, so the
+    # attribute access ran and errored whenever an entry had no config_map at
+    # all. Kept as the house style on the 1.13 floor.
     condition = alltrue([
       for v in var.n8n_extra_volumes :
       v.config_map == null ? true : (v.config_map.default_mode == null ? true : can(regex("^[0-7]{1,4}$", v.config_map.default_mode)))
@@ -1219,9 +1219,9 @@ variable "n8n_dns_config" {
 
   validation {
     # Ternaries, not `o.name != "ndots" || (... && can(regex(...)) &&
-    # tonumber(o.value) ...)`: Terraform does not short-circuit &&/||, so
-    # tonumber still runs (and errors, e.g. on "many") even when the regex
-    # already rejected the value. Only a ternary's untaken branch is skipped.
+    # tonumber(o.value) ...)`: Terraform before 1.12 did not short-circuit
+    # &&/||, so tonumber ran (and errored, e.g. on "many") even when the regex
+    # already rejected the value. Kept as the house style on the 1.13 floor.
     condition = var.n8n_dns_config == null ? true : alltrue([
       for o in coalesce(var.n8n_dns_config.options, []) :
       o.name != "ndots" ? true : (o.value == null ? false : (can(regex("^[0-9]+$", o.value)) ? tonumber(o.value) <= 15 : false))
@@ -1695,8 +1695,8 @@ variable "n8n_otel_exporter_otlp_endpoint" {
   type        = string
   default     = null
 
-  # Null-safe ternary (see n8n_otel_traces_sample_rate for the Terraform 1.9.x
-  # short-circuit rationale): only validate the scheme when a value is set.
+  # Null-safe ternary (see n8n_otel_traces_sample_rate for the history):
+  # only validate the scheme when a value is set.
   validation {
     condition = var.n8n_otel_exporter_otlp_endpoint == null ? true : (
       startswith(var.n8n_otel_exporter_otlp_endpoint, "http://") ||
@@ -1724,10 +1724,11 @@ variable "n8n_otel_traces_sample_rate" {
   type        = number
   default     = null
 
-  # Use a ternary rather than `null || numeric_op` here: Terraform 1.9.x
-  # eagerly evaluates both sides of the logical OR during validation, so the
-  # `null >= 0` branch errors with 'argument must not be null.' even when
-  # the variable is null. Ternaries DO short-circuit, so wrapping the numeric
+  # Use a ternary rather than `null || numeric_op` here: Terraform before
+  # 1.12 evaluated both sides of the logical OR, so the `null >= 0` branch
+  # errored with 'argument must not be null.' even when the variable was
+  # null. The 1.13 floor short-circuits; the ternary stays as the house
+  # style. A ternary's untaken branch is never evaluated, so wrapping the numeric
   # comparison in `var == null ? true : (...)` keeps the null path entirely
   # off the numeric-op branch.
   validation {
@@ -2104,7 +2105,7 @@ variable "n8n_worker_pools" {
     # Deployment falls back to 1 replica when no scaler owns the count, so
     # with KEDA off every pool would silently ignore min_replicas and
     # max_replicas. Both operands are always known booleans, so this `||` is
-    # safe under the CI-pinned Terraform 1.9.x (see AGENTS.md).
+    # safe with or without short-circuit evaluation.
     condition     = length(var.n8n_worker_pools) == 0 || var.n8n_worker_keda_enabled
     error_message = "n8n_worker_pools requires n8n_worker_keda_enabled = true. The chart renders a pool's KEDA ScaledObject only when release-wide KEDA scaling is on; otherwise each pool runs as a plain Deployment at 1 replica regardless of its min_replicas and max_replicas. Enable KEDA for workers, or remove the pools."
   }

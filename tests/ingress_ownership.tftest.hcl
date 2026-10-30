@@ -200,9 +200,9 @@ run "source_cidrs_create_module_managed_cloud_armor_policy" {
     error_message = "Non-empty ingress_source_cidrs must create a module-managed Cloud Armor policy."
   }
 
-  # try(), not `length(...) > 0 && ...[0]`: Terraform does not short-circuit
-  # && and the CI-pinned 1.9.x errors on indexing the empty nested block list
-  # (this rule set mixes match.config and match.expr rules; see AGENTS.md).
+  # try() guards indexing the empty nested block list (this rule set mixes
+  # match.config and match.expr rules; see AGENTS.md). Terraform before 1.12
+  # did not short-circuit &&, so `length(...) > 0 && ...[0]` errored there.
   assert {
     condition = anytrue([
       for r in google_compute_security_policy.n8n[0].rule :

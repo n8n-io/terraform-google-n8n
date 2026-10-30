@@ -241,7 +241,7 @@ This example is a reference deployment optimized for clean `apply` / `destroy` c
 
 | Name | Version |
 | ---- | ------- |
-| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.11 |
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.13 |
 | <a name="requirement_google"></a> [google](#requirement\_google) | ~> 6.23 |
 | <a name="requirement_google-beta"></a> [google-beta](#requirement\_google-beta) | ~> 6.23 |
 | <a name="requirement_helm"></a> [helm](#requirement\_helm) | ~> 3.0 |

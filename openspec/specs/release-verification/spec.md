@@ -6,11 +6,12 @@ Verify the Google parity change through reproducible automated checks while keep
 ## Requirements
 
 ### Requirement: Credential-free Terraform coverage
-The root, every application example, controller submodule, and direct controller example SHALL pass formatting, validation, mocked plan tests, TFLint, and generated-documentation checks using the declared Terraform floor. New scenarios SHALL cover defaults, valid overrides, invalid inputs, managed/external paths, and independently disabled scalers. Tests SHALL NOT use live credentials or mock apply merely to resolve unknown Helm values.
+The root, every application example, controller submodule, and direct controller example SHALL pass formatting, validation, mocked plan tests, TFLint, and generated-documentation checks. Mocked plan tests SHALL run on both `TF_VERSION` and the root module's declared Terraform floor; formatting, validation, and TFLint SHALL run on `TF_VERSION`; generated-documentation checks do not use the Terraform CLI. New scenarios SHALL cover defaults, valid overrides, invalid inputs, managed/external paths, and independently disabled scalers. Tests SHALL NOT use live credentials or mock apply merely to resolve unknown Helm values.
 
 #### Scenario: Minimum-version checks run
-- **WHEN** the local or CI verification loop runs on Terraform 1.9.8
-- **THEN** all declared targets SHALL validate and pass plan-time tests without cloud credentials
+- **WHEN** the CI test jobs run on Terraform 1.13.0, the root module's and application examples' declared floor
+- **THEN** all declared targets SHALL pass plan-time tests without cloud credentials (`terraform test` also validates each configuration); formatting, `terraform validate`, and TFLint run on `TF_VERSION` only, and generated-documentation checks do not use the Terraform CLI
+- **AND** the controller submodule and its direct example, which declare `>= 1.9`, SHALL run on the same versions; their own floor is not tested
 - **AND** nullable validations SHALL not fail due to unguarded function calls or list indexing
 
 #### Scenario: Fully customer-managed composition remains valid
