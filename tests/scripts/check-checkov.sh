@@ -28,6 +28,24 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 
+# checkov 3.3.20 can ignore --var-file when any TF_VAR_* is exported (seen in
+# terraform-aws-n8n#199), which makes the opt-in pass silently evaluate
+# nothing new. Clear them so local runs match CI, which exports none.
+# `env -u` rather than bash `unset`: Terraform variable names may contain
+# hyphens, and `unset` rejects (and cannot clear) non-identifier names.
+# `env -0` with a bash match rather than `env | awk`: a value containing a
+# newline cannot pose as another entry, and no locale-aware tool can abort
+# on an unrelated value that is not valid UTF-8 (macOS awk does, and a
+# failure inside `< <(...)` would not stop this script).
+CHECKOV=(env)
+while IFS= read -r -d '' entry; do
+  name="${entry%%=*}"
+  if [[ "$name" == TF_VAR_* ]]; then
+    CHECKOV+=(-u "$name")
+  fi
+done < <(env -0)
+CHECKOV+=(checkov)
+
 if ! command -v checkov >/dev/null 2>&1; then
   echo "check-checkov.sh: checkov is not on PATH. Install the pinned version" >&2
   echo "named in .github/workflows/terraform-tests.yml's checkov job comment" >&2
@@ -48,7 +66,7 @@ REQUIRED_OPT_IN_RESOURCES=(
 status=0
 
 echo "==> checkov (default tfvars)"
-if ! checkov -d . --framework terraform --compact --quiet; then
+if ! "${CHECKOV[@]}" -d . --framework terraform --compact --quiet; then
   echo "check-checkov.sh: default-pass checkov scan failed" >&2
   status=1
 fi
@@ -73,7 +91,7 @@ trap 'rm -f "$opt_in_json"' EXIT
 # the same module and make the attribution deterministic. The
 # reachability check below then accepts root-module addresses only.
 checkov_exit=0
-checkov -d . --framework terraform --compact --skip-path examples --var-file "$OPT_IN_TFVARS" -o json >"$opt_in_json" 2>&1 || checkov_exit=$?
+"${CHECKOV[@]}" -d . --framework terraform --compact --skip-path examples --var-file "$OPT_IN_TFVARS" -o json >"$opt_in_json" 2>&1 || checkov_exit=$?
 
 if ! python3 - "$opt_in_json" "$checkov_exit" <<'PYEOF'
 import json

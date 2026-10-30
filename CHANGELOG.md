@@ -363,6 +363,12 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- `tests/scripts/check-checkov.sh` (contributor tooling, no module change)
+  now removes every exported `TF_VAR_*` variable, including names with
+  hyphens, before it runs checkov. On checkov 3.3.20 an exported `TF_VAR_*`
+  can make checkov ignore `--var-file`, so the opt-in pass would stop
+  applying `tests/checkov/opt-in.tfvars` (seen in terraform-aws-n8n#199).
+  CI exports none, so its results do not change.
 - `tests/scripts/check-version-drift.sh` (contributor tooling, no module
   change) now evaluates each provider constraint against the latest
   registry release instead of looking for the version number in the
