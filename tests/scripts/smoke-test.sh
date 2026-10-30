@@ -1134,9 +1134,11 @@ fi
 
 header "Redis TLS and AUTH"
 
-# A paused worker ScaledObject may hold zero workers; say so in the skips below.
+# A paused worker ScaledObject may hold zero workers; say so in the skips
+# below. Report the annotations read in Pod Health as observed, rather than
+# asserting the pause is the cause or that KEDA applied the requested count.
 no_worker_reason="no running worker pod found"
-[[ "${worker_paused:-}" == "true" ]] && no_worker_reason="worker ScaledObject paused via n8n_worker_keda_pause, no running worker pod"
+[[ "${worker_paused:-}" == "true" ]] && no_worker_reason="no running worker pod found; worker ScaledObject annotated paused, paused-replicas: ${worker_held:-not set}"
 worker_pod=$(kubectl get pods -n "$NAMESPACE" \
   -l "app.kubernetes.io/component=worker" \
   --field-selector=status.phase=Running \
