@@ -119,6 +119,23 @@ run "split_ingress_produces_valid_plan" {
     error_message = "this example's Services must be new, separate objects from the chart-owned main/webhook-processor Services, never reusing their names."
   }
 
+  # Each Service must request an Ingress NEG itself. GKE adds this annotation
+  # on its own, but Terraform then removes it on the next apply and the
+  # Ingress stops syncing. The lifecycle ignore_changes on the GKE-written
+  # cloud.google.com/neg-status annotation cannot be asserted at plan time;
+  # verify it with a re-apply and a clean re-plan against a live cluster.
+  assert {
+    condition = alltrue([
+      for svc in [
+        kubernetes_service_v1.webhook_public,
+        kubernetes_service_v1.main_private,
+        kubernetes_service_v1.webhook_private,
+      ] :
+      try(jsondecode(svc.metadata[0].annotations["cloud.google.com/neg"]).ingress, false) == true
+    ])
+    error_message = "every exposure-specific Service must set cloud.google.com/neg to {\"ingress\":true}, or a re-apply strips the GKE-added annotation and the Ingress stops syncing."
+  }
+
   # ── BackendConfigs (task 21.2): public has no session affinity, private
   # does, both share the same health check. ─────────────────────────────────
   assert {
