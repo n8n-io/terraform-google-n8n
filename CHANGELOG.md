@@ -211,9 +211,10 @@ this project adheres to the stability contract in
   `docs/upgrading-n8n.md`, "Google provider floor raised to ~> 8.0", for
   what to expect on the first plan.
   Rollback: back up your state, in encrypted storage, before 8.x first
-  writes it. Provider 8.x writes some resources (for example
-  `google_storage_bucket`) at a newer state schema version that 6.x cannot
-  read, so after that, reverting the provider constraint alone does not roll
+  writes it. Any apply on 8.x writes state, even one that plans no changes.
+  Provider 8.x writes some resources (for example `google_storage_bucket`)
+  at a newer state schema version that 6.x cannot read, so after that,
+  reverting the provider constraint alone does not roll
   back.
   Known warning: from provider 8.9.0, `google_container_cluster`'s
   `remove_default_node_pool` is deprecated, so `terraform validate` and

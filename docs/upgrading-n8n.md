@@ -97,8 +97,9 @@ What to expect on the first plan:
 Provider 8.x writes some resources at a newer state schema version than 6.x
 can read. For example, `google_storage_bucket` moved from schema version 3
 (6.50.0) to 4 (8.7.0), and module-managed buckets are upgraded on the
-first refresh. After 8.x writes state (any apply, including `-refresh-only`,
-or a standalone `terraform refresh`), you cannot roll back by reverting the
+first refresh. After 8.x writes state (any apply, even one that plans no
+changes, including `-refresh-only`, or a standalone `terraform refresh`),
+you cannot roll back by reverting the
 provider constraint alone: 6.x refuses state that a newer provider wrote.
 
 Before 8.x writes state:
