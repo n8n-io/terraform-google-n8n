@@ -939,7 +939,8 @@ resource "helm_release" "n8n" {
 # worker floor) would block every voluntary eviction and stall node drains.
 # Worker pool pods carry component=worker-group, so the worker budget never
 # overlaps them (a pod matched by two budgets cannot be evicted at all).
-# depends_on the release so a budget is destroyed before the pods it guards.
+# Referencing helm_release.n8n.name orders each budget after the release on
+# create and before it on destroy, so no explicit depends_on is needed.
 resource "kubernetes_pod_disruption_budget_v1" "n8n_webhook" {
   count = var.n8n_webhook_pdb_enabled ? 1 : 0
 
@@ -959,8 +960,6 @@ resource "kubernetes_pod_disruption_budget_v1" "n8n_webhook" {
       }
     }
   }
-
-  depends_on = [helm_release.n8n]
 }
 
 resource "kubernetes_pod_disruption_budget_v1" "n8n_worker" {
@@ -982,8 +981,6 @@ resource "kubernetes_pod_disruption_budget_v1" "n8n_worker" {
       }
     }
   }
-
-  depends_on = [helm_release.n8n]
 }
 
 # ── Ingress (native GKE gce) ──────────────────────────────────────────────────
