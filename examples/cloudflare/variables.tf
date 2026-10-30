@@ -83,13 +83,13 @@ variable "n8n_extra_ca_pem" {
 }
 
 variable "n8n_proxy_hops" {
-  description = "Number of reverse proxies and load balancers in front of n8n (N8N_PROXY_HOPS), counting the Google Cloud load balancer, so one customer proxy in front of the module's ingress is 2. Passed straight through to the module's n8n_proxy_hops. Null (the default) leaves n8n's own default. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
+  description = "Number of trusted reverse-proxy hops in front of n8n (N8N_PROXY_HOPS), passed straight through to the module's n8n_proxy_hops. The Google Cloud load balancer appends two X-Forwarded-For entries, so it counts as 2, and one customer proxy in front of the module's ingress is 3. Too low a value attributes every request to the proxy's address. Admit only the proxy's egress addresses with the module's ingress_source_cidrs, which this example does not pass through (add it in main.tf); otherwise a client that bypasses the proxy can choose its own client IP. Null (the default) leaves n8n's own default. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
   type        = number
   default     = null
 }
 
 variable "n8n_extra_env" {
-  description = "Additional environment variables for every n8n pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md). Marked sensitive so a proxy password is not printed in plan output; values are still stored in plain text in state and Helm values."
+  description = "Additional environment variables for the n8n container in every main, worker, and webhook-processor pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md). The module's input is meant for non-secret values, because values are stored in plain text in Terraform state and the Helm release. The documented exception is the credentials in an authenticated proxy URL. This example marks the variable sensitive to redact normal plan and apply output; values remain readable in Terraform state and the Helm release values."
   type = list(object({
     name  = string
     value = string

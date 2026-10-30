@@ -80,13 +80,13 @@ variable "n8n_extra_ca_pem" {
 }
 
 variable "n8n_proxy_hops" {
-  description = "Number of reverse proxies and load balancers in front of n8n (N8N_PROXY_HOPS): count hops relative to the endpoint the client uses - the public webhook host goes through this example's global external load balancer, the private editor host through the internal one - plus any customer proxy in front of either. Passed through to the module's n8n_proxy_hops. Null (the default) leaves n8n's own default. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
+  description = "Number of trusted reverse-proxy hops in front of n8n (N8N_PROXY_HOPS), passed through to the module's n8n_proxy_hops. One value applies to every n8n role and to both of this example's ingresses. Each Google Cloud load balancer appends two X-Forwarded-For entries, so each path needs 2 with no customer proxy in front. Behind one customer proxy, the external load balancer path needs 3. The internal load balancer strips an X-Forwarded-For it receives from an intermediate proxy, so behind a proxy n8n sees the proxy's address on the editor path whatever the count. Verify the address n8n records on both paths before you rely on client-IP logging or rate limits. Restrict both load balancers to the proxy's egress addresses, or a client that bypasses the proxy can choose its own client IP. Null (the default) leaves n8n's own default. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
   type        = number
   default     = null
 }
 
 variable "n8n_extra_env" {
-  description = "Additional environment variables for every n8n pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md). Marked sensitive so a proxy password is not printed in plan output; values are still stored in plain text in state and Helm values."
+  description = "Additional environment variables for the n8n container in every main, worker, and webhook-processor pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md). The module's input is meant for non-secret values, because values are stored in plain text in Terraform state and the Helm release. The documented exception is the credentials in an authenticated proxy URL. This example marks the variable sensitive to redact normal plan and apply output; values remain readable in Terraform state and the Helm release values."
   type = list(object({
     name  = string
     value = string

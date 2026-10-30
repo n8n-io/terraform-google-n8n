@@ -13,10 +13,14 @@ independent inputs, so any combination works:
 variables by every example under `examples/`. Set them in the example's
 `terraform.tfvars` (pass the PEM with `-var "n8n_extra_ca_pem=$(cat proxy-ca.pem)"`,
 since `file()` is not allowed in a `.tfvars` file). The examples mark
-`n8n_extra_env` `sensitive = true` so a proxy password in it is not printed in
-plan output. The inputs that depend on the ingress (`tls_mode`,
-`ingress_source_cidrs`) are not passed through the examples; set them on the
-module call where the example uses the module-managed ingress.
+`n8n_extra_env` `sensitive = true`. That redacts a proxy password from normal
+plan and apply output only: the value remains readable in Terraform state and
+the Helm release values (see the authenticated-proxy note below). The examples'
+`n8n_proxy_hops` guidance uses the hop count described under
+[Inbound](#inbound-a-proxy-in-front-of-the-ingress). The inputs that depend
+on the ingress (`tls_mode`, `ingress_source_cidrs`) are not passed through the
+examples; set them on the module call where the example uses the
+module-managed ingress.
 
 ## Outbound: trust the proxy's CA
 

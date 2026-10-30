@@ -40,7 +40,7 @@ n8n_kube_namespace = "existing-n8n-namespace"
 #   ...
 #   -----END CERTIFICATE-----
 # EOT
-# n8n_proxy_hops   = <count the load balancers/proxies you run in front of the n8n Services yourself; this example creates no module-managed ingress, so there is no default to copy>
+# n8n_proxy_hops   = <count the hops on the ingress you run in front of the n8n Services: 2 for a Google Cloud load balancer alone, plus 1 per upstream proxy whose X-Forwarded-For entry survives>
 # n8n_extra_env = [
 #   { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
 #   { name = "HTTP_PROXY",  value = "http://proxy.corp.example:3128" },
