@@ -287,7 +287,7 @@ variable "n8n_chart_repository" {
 }
 
 variable "keda_chart_version" {
-  description = "KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. The 2.21.0 default is the first KEDA release with the fix for CVE-2026-77524 (GHSA-637c-6jxx-4rwm, namespace admin to cluster admin through a TriggerAuthentication); pinning an older version leaves the cluster exposed. KEDA tests 2.21 on Kubernetes 1.34 to 1.36. Passed through to modules/controllers. Ignored when install_keda = false."
+  description = "KEDA Helm chart version to deploy (kedacore/charts). Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Versions before 2.21.0 lack KEDA's fix for CVE-2026-77524; see docs/upgrading-n8n.md before pinning one. Passed through to modules/controllers. Ignored when install_keda = false."
   type        = string
   default     = "2.21.0"
 

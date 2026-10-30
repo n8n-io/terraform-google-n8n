@@ -45,8 +45,8 @@ these points before you apply:
   install, review KEDA's [2.20 to 2.21 migration guide](https://keda.sh/docs/2.21/migration/#upgrading-from-keda-220-to-221).
 - **Kubernetes window.** KEDA 2.21 is tested on Kubernetes v1.34 to v1.36
   (2.20: v1.33 to v1.35; as of this writing, `https://keda.sh/docs/2.21/operate/cluster/#kubernetes-compatibility`
-  still lists that range). At the time of writing (2026-10-13), GKE's
-  `REGULAR` channel offers 1.34.11-1.36.4 and `STABLE` offers 1.34.9-1.35.6
+  still lists that range). On 2026-10-13, GKE's `REGULAR` channel offered
+  1.34.11-1.36.4 and `STABLE` offered 1.34.9-1.35.6
   (`gcloud container get-server-config --region=us-east4 --format='yaml(channels)'`; versions differ by location), both
   inside that window. The chart's `kubeVersion: '>=v1.23.0-0'`
   (`helm show chart kedacore/keda --version 2.21.0`) only gates whether Helm
@@ -54,18 +54,21 @@ these points before you apply:
   Kubernetes version; it is not a tested or supported minimum. A cluster on
   1.23 through 1.33 (for example on the `EXTENDED` channel) passes that Helm
   gate but falls outside the Kubernetes versions KEDA 2.21 actually tests.
-  The window also has an upper end: 1.37 is now available on the `RAPID`
-  channel (since 2026-09-02) and the `REGULAR` channel (since 2026-10-22)
-  ([release schedule](https://cloud.google.com/kubernetes-engine/docs/release-schedule)),
-  and no KEDA release lists 1.37 as tested yet. Check your cluster's version
+  The window also has an upper end. GKE's
+  [release schedule](https://cloud.google.com/kubernetes-engine/docs/release-schedule)
+  (checked 2026-10-29) lists 1.37 as available on the `RAPID` channel since
+  2026-09-02 and on the `REGULAR` channel since 2026-10-22, after the
+  2026-10-13 snapshot above, and no KEDA release lists 1.37 as tested yet. Check your cluster's version
   (`kubectl version`) against KEDA's tested window before you apply.
 - **`ScaledObject` health moves to a new condition.** The jump from `2.20.1`
   also picks up KEDA
   [2.20.2](https://github.com/kedacore/keda/releases/tag/v2.20.2), which
   reports HPA health in a dedicated `HPAActive` condition. A transient HPA
-  metric gap no longer flips `Ready` to `False`, so `Ready=True` alone (what
-  `tests/scripts/smoke-test.sh` checks) no longer shows that the HPA is
-  healthy. Check `HPAActive` too when you diagnose worker scaling.
+  metric gap no longer flips `Ready` to `False`, so `Ready=True` alone no
+  longer shows that the HPA is healthy. `tests/scripts/smoke-test.sh` now
+  also reads `HPAActive` and warns when it is not `True` (expected while KEDA
+  has scaled the workers to zero or the `ScaledObject` is paused); on KEDA
+  older than 2.20.2, which does not set the condition, it relies on `Ready`.
 - **CRDs are upgraded with the release.** The chart renders its CRDs from
   templates (`crds.install: true`), so the Helm upgrade updates them, unlike a
   chart that ships CRDs in `crds/`.

@@ -271,13 +271,18 @@ this project adheres to the stability contract in
   `boundServiceAccountToken` authentication, Azure Pipelines in-flight jobs,
   removed Temporal scaler settings); none applies to the module, whose
   `TriggerAuthentication` uses only `secretTargetRef` and which uses neither
-  scaler. The move also picks up KEDA 2.20.2, which reports HPA health in a
-  new `HPAActive` `ScaledObject` condition instead of `Ready`. KEDA 2.21 is
-  tested on Kubernetes v1.34 to v1.36 (2.20: v1.33 to v1.35). As of
-  2026-10-13 that covered every version GKE's `REGULAR` and `STABLE`
-  channels offered, but 1.37 is now available on `RAPID` (since 2026-09-02)
-  and `REGULAR` (since 2026-10-22), so check your cluster's version. See
-  `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to 2.21.0".
+  scaler. With `install_keda = true` (the default), a caller that does not
+  pin `keda_chart_version` gets an in-place Helm upgrade on the next apply,
+  and the KEDA operator pods roll once; nothing in the n8n namespace is
+  replaced. The move also picks up KEDA 2.20.2, which reports HPA health in
+  a new `HPAActive` `ScaledObject` condition instead of `Ready`;
+  `tests/scripts/smoke-test.sh` now reads it too. KEDA 2.21 is tested on
+  Kubernetes v1.34 to v1.36 (2.20: v1.33 to v1.35). On 2026-10-13 that
+  covered every version GKE's `REGULAR` and `STABLE` channels offered; GKE's
+  release schedule (checked 2026-10-29) lists 1.37 on `RAPID` since
+  2026-09-02 and on `REGULAR` since 2026-10-22, so check your cluster's
+  version. See `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to
+  2.21.0".
 - **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
   sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
   instance, replacing Memorystore's own `volatile-lru` default. Under memory

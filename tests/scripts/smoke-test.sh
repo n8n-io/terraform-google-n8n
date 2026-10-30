@@ -1224,6 +1224,25 @@ if kubectl get scaledobject n8n-worker -n "$NAMESPACE" &>/dev/null 2>&1; then
     info "Diagnose: kubectl describe scaledobject n8n-worker -n $NAMESPACE"
   fi
 
+  # Since KEDA 2.20.2, a transient HPA metric gap no longer flips Ready to
+  # False; HPA health is reported in a separate HPAActive condition (mirroring
+  # the HPA's own ScalingActive). Older KEDA does not set it, so an empty value
+  # falls back to the Ready check above. False is a warning, not a failure: the
+  # HPA also reports it while KEDA has scaled the workers to zero or the
+  # ScaledObject is paused.
+  hpa_active=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
+    -o jsonpath='{.status.conditions[?(@.type=="HPAActive")].status}' 2>/dev/null || true)
+  if [[ "$hpa_active" == "True" ]]; then
+    pass "KEDA ScaledObject 'n8n-worker' HPA is active (HPAActive=True)"
+  elif [[ -z "$hpa_active" ]]; then
+    info "HPAActive condition not reported (KEDA older than 2.20.2); relying on Ready above"
+  else
+    hpa_reason=$(kubectl get scaledobject n8n-worker -n "$NAMESPACE" \
+      -o jsonpath='{.status.conditions[?(@.type=="HPAActive")].reason}' 2>/dev/null || true)
+    warn "KEDA ScaledObject 'n8n-worker' HPA is not active (HPAActive=$hpa_active, reason=${hpa_reason:-unknown}); expected only while workers are scaled to zero or paused"
+    info "Diagnose: kubectl describe hpa -n $NAMESPACE"
+  fi
+
   if kubectl get triggerauthentication -n "$NAMESPACE" &>/dev/null 2>&1; then
     ta_count=$(kubectl get triggerauthentication -n "$NAMESPACE" --no-headers 2>/dev/null | wc -l | tr -d ' ')
     if [[ "$ta_count" -gt 0 ]]; then
