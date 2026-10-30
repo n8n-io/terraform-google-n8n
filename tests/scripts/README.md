@@ -141,7 +141,7 @@ Requires `helm` and `python3` on `PATH`. No Google Cloud credentials.
 | Namespace exists | The configured namespace is present |
 | Main / worker / webhook-processor pod health | Each deployment is at the expected ready replica count |
 | Task runner sidecar (workers) | Runner sidecar is present on worker pods and connected to the broker |
-| Main topology | Detects single-main vs multi-main from the chart-rendered `N8N_MULTI_MAIN_SETUP_ENABLED` entry on the `n8n-main` Deployment spec. Multi-main: the flag is `true` in the pod and leadership activity shows in main logs. Single-main: the flag is off (or staged by `n8n_main_leader_election_enabled`), the main HPA is 1/1 (or 1 replica without a module HPA), the strategy is `Recreate`, and PDB `minAvailable=0` |
+| Main topology | Detects single-main vs multi-main from the chart-rendered `N8N_MULTI_MAIN_SETUP_ENABLED` entry on the `n8n-main` Deployment spec. Multi-main: the flag is `true` in the pod and leadership activity shows in main logs. Single-main: the flag is off (or staged by `n8n_main_leader_election_enabled`), the main HPA is 1/1 (or 1 replica without a module HPA), and the strategy is `Recreate`. The main PDB check reads the chart version actually deployed (`helm.sh/chart` label) and expects no `n8n-main` PodDisruptionBudget object on chart 1.16.0+ (n8n-hosting#228), or `minAvailable=0` on an older pin. If the label cannot be parsed, it accepts either shape and fails on anything more restrictive |
 | Autoscalers | KEDA `ScaledObject` (workers, queue-depth) and HPAs (main, webhook-processor) |
 | Redis connectivity | Worker pods see `QUEUE_BULL_REDIS_HOST` and queue-related log activity |
 | HTTPS reachability | `/healthz` returns HTTP 200 over the ALB hostname |

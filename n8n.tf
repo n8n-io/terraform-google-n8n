@@ -931,6 +931,58 @@ resource "helm_release" "n8n" {
   ]
 }
 
+# ── Pod disruption budgets ────────────────────────────────────────────────────
+# The chart (checked on 1.16.0) renders a budget for the main pods only, so the
+# webhook processors and the default workers get theirs here, selecting the
+# labels the chart puts on those Deployments' pods. maxUnavailable = 1, not
+# minAvailable: minAvailable = 1 on a one-replica Deployment (the default
+# worker floor) would block every voluntary eviction and stall node drains.
+# Worker pool pods carry component=worker-group, so the worker budget never
+# overlaps them (a pod matched by two budgets cannot be evicted at all).
+# Referencing helm_release.n8n.name orders each budget after the release on
+# create and before it on destroy, so no explicit depends_on is needed.
+resource "kubernetes_pod_disruption_budget_v1" "n8n_webhook" {
+  count = var.n8n_webhook_pdb_enabled ? 1 : 0
+
+  metadata {
+    name      = "n8n-webhook-processor"
+    namespace = local.effective_namespace
+  }
+
+  spec {
+    max_unavailable = "1"
+
+    selector {
+      match_labels = {
+        "app.kubernetes.io/name"      = "n8n"
+        "app.kubernetes.io/instance"  = helm_release.n8n.name
+        "app.kubernetes.io/component" = "webhook-processor"
+      }
+    }
+  }
+}
+
+resource "kubernetes_pod_disruption_budget_v1" "n8n_worker" {
+  count = var.n8n_worker_pdb_enabled ? 1 : 0
+
+  metadata {
+    name      = "n8n-worker"
+    namespace = local.effective_namespace
+  }
+
+  spec {
+    max_unavailable = "1"
+
+    selector {
+      match_labels = {
+        "app.kubernetes.io/name"      = "n8n"
+        "app.kubernetes.io/instance"  = helm_release.n8n.name
+        "app.kubernetes.io/component" = "worker"
+      }
+    }
+  }
+}
+
 # ── Ingress (native GKE gce) ──────────────────────────────────────────────────
 # Google Cloud L7 LB on the reserved global static IP. Session affinity + health
 # check come from the BackendConfig (crds.tf) via the Service annotation; the

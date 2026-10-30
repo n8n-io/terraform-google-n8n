@@ -266,7 +266,7 @@ variable "create_ingress" {
 variable "n8n_chart_version" {
   description = "n8n Helm chart version to deploy (n8n-io/n8n-hosting charts/n8n). Must be an exact semantic version (e.g. \"1.10.1\"), not a range or floating tag, so every apply is deterministic."
   type        = string
-  default     = "1.15.0"
+  default     = "1.16.0"
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.n8n_chart_version))
@@ -346,7 +346,7 @@ variable "create_pd_balanced_storage_class" {
 }
 
 variable "n8n_image_tag" {
-  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.42.4 for the default 1.15.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. This module requires n8n 2.0 or newer; n8n 1.x is not supported. The tag also decides whether the module still sends the legacy WEBHOOK_URL: only when it names a version below n8n 2.30.0, or when no version can be established (a floating or unversioned tag, or a null tag on a private chart mirror or a chart before 1.12.0). A null tag on the default chart repository at chart 1.12.0 or newer runs the chart's appVersion and gets no WEBHOOK_URL. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
+  description = "n8n application image tag to deploy (e.g. \"2.27.4\"). When it is null (the default), the Helm chart's own default applies: since chart 1.12.0 that is the chart's appVersion (2.43.5 for the default 1.16.0), a fixed n8n version that only moves when n8n_chart_version does; charts before 1.12.0 defaulted to the floating `stable` tag instead. This module requires n8n 2.0 or newer; n8n 1.x is not supported. The tag also decides whether the module still sends the legacy WEBHOOK_URL: only when it names a version below n8n 2.30.0, or when no version can be established (a floating or unversioned tag, or a null tag on a private chart mirror or a chart before 1.12.0). A null tag on the default chart repository at chart 1.12.0 or newer runs the chart's appVersion and gets no WEBHOOK_URL. Pin this to a concrete version to upgrade n8n independently of the chart, and to avoid crossing major-version boundaries (e.g. the n8n 2.0 breaking changes) on a chart bump. See https://docs.n8n.io/2-0-breaking-changes/ for the n8n 2.x migration guide."
   type        = string
   default     = null
 
@@ -1624,6 +1624,13 @@ variable "n8n_webhook_hpa_scale_up_stabilization_window_seconds" {
   }
 }
 
+variable "n8n_webhook_pdb_enabled" {
+  description = "When true (the default), the module creates a PodDisruptionBudget with maxUnavailable = 1 for the webhook processor Deployment, so a node drain (GKE node-pool upgrade, cluster autoscaler scale-down, kubectl drain) evicts at most one webhook processor at a time. The n8n chart renders a budget for the main pods only (checked on 1.16.0), so without this every webhook processor can be stopped at once. maxUnavailable rather than minAvailable, so a single healthy webhook processor can still be evicted (the budget then protects nothing). The budget does block eviction while a webhook processor is already unavailable: with two desired replicas and one not Ready, it allows zero disruptions until the replacement is Ready. Applies whether or not n8n_webhook_hpa_enabled is set. Set to false to manage your own budget. Voluntary-disruption guard only: GKE still evicts after its one-hour node-pool upgrade drain timeout."
+  type        = bool
+  default     = true
+  nullable    = false
+}
+
 # ── License shutdown behavior ─────────────────────────────────────────────────
 
 variable "n8n_license_detach_floating_on_shutdown" {
@@ -1899,6 +1906,13 @@ variable "n8n_worker_keda_paused_replica_count" {
     condition     = var.n8n_worker_keda_paused_replica_count == null ? true : (var.n8n_worker_keda_paused_replica_count >= 0 && floor(var.n8n_worker_keda_paused_replica_count) == var.n8n_worker_keda_paused_replica_count)
     error_message = "n8n_worker_keda_paused_replica_count must be a whole number of at least 0 (0 scales the paused workers to zero), or null to hold the current count."
   }
+}
+
+variable "n8n_worker_pdb_enabled" {
+  description = "When true (the default), the module creates a PodDisruptionBudget with maxUnavailable = 1 for the default worker Deployment, so a node drain evicts at most one worker at a time. The n8n chart renders a budget for the main pods only (checked on 1.16.0). maxUnavailable rather than minAvailable, because minAvailable = 1 on a one-replica Deployment blocks every voluntary eviction and stalls drains: at the default n8n_worker_keda_min_replicas = 1 the budget therefore protects nothing until two or more workers run. Evicted workers still receive SIGTERM and get n8n_termination_grace_period to finish in-flight executions. Does not cover n8n_worker_pools Deployments. Set to false to manage your own budget. Voluntary-disruption guard only: GKE still evicts after its one-hour node-pool upgrade drain timeout."
+  type        = bool
+  default     = true
+  nullable    = false
 }
 
 variable "n8n_worker_keda_jobs_per_replica" {

@@ -63,23 +63,28 @@ edition that supports single-main.
 2. Set `n8n_main_hpa_min_replicas = 1` (or `n8n_main_fixed_replicas = 1` with
    the HPA disabled) and `terraform apply`.
 3. **Expected result:** `n8n-main` scales to exactly 1 replica, rollout
-   strategy is `Recreate`, the main PodDisruptionBudget's `minAvailable` is
-   `0`, and `multiMain.enabled` is `false` (`kubectl get deployment n8n-main -o
-   jsonpath='{.spec.strategy.type}'`, `kubectl get pdb -n <namespace>`).
+   strategy is `Recreate`, `multiMain.enabled` is `false`, and no main
+   PodDisruptionBudget exists at all (chart `1.16.0` and newer render none
+   while main does not exceed one replica, n8n-hosting#228;
+   `kubectl get deployment n8n-main -n <namespace> -o jsonpath='{.spec.strategy.type}'`,
+   `kubectl get pdb n8n-main -n <namespace>` returns NotFound).
 4. Trigger a rollout (e.g. `kubectl rollout restart deployment/n8n-main -n
    <namespace>`) and confirm the editor and REST API are briefly unreachable
    during the recreate, then recover.
 5. Confirm scheduled triggers still fire once the single main pod is ready
    again.
 
-**Status: partial.** Steps 1 to 3 passed twice on a disposable deployment:
-once through `n8n_main_hpa_min_replicas = 1` (Recreate, PDB 0, HPA clamped to
+**Status: partial.** Steps 1 to 3 passed twice on a disposable deployment,
+both against chart `1.10.1` (before chart `1.16.0` changed the PDB
+expectation above from `minAvailable: 0` to no PDB object at all): once
+through `n8n_main_hpa_min_replicas = 1` (Recreate, PDB 0, HPA clamped to
 1/1) and once through `n8n_main_hpa_enabled = false` with
 `n8n_main_fixed_replicas = 1` (no main HPA rendered). The Recreate swap
 produced about 22 to 36 seconds of editor/API unavailability in each run;
 worker and webhook-processor pods were unaffected when only the main template
 changed. Step 4 (`rollout restart`) and node drains were not run. Step 5 was
-observed only as a side effect of the scheduling test in item 2.
+observed only as a side effect of the scheduling test in item 2. Re-run
+against chart `1.16.0` to confirm the PDB's absence specifically.
 
 ## 2. Return to multi-main
 
@@ -96,8 +101,9 @@ harmless test schedule; other submissions and queues must remain idle.
 2. Stage one: set `n8n_main_leader_election_enabled = true` while holding the
    selected count at one. **Expected result:** old process exits before the
    replacement starts, exactly one election-enabled main becomes Ready, strategy
-   remains `Recreate`, PDB minimum remains 0, and a managed main HPA remains
-   min/max 1/1. Chart `multiMain.enabled` stays false; the literal election flag
+   remains `Recreate`, no main PDB renders (chart `1.16.0`+ omits it at one
+   replica), and a managed main HPA remains min/max 1/1. Chart
+   `multiMain.enabled` stays false; the literal election flag
    comes from module-owned `config.extraEnv` on all three n8n roles. Verify
    worker/webhook health and role behavior, the license, queue execution, and
    convergence. Above one replica, verify that the staging literal disappears

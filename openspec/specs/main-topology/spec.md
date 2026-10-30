@@ -23,12 +23,12 @@ The module SHALL select single-main queue mode when the enabled main HPA minimum
 - **THEN** the module SHALL retain multi-main and the configured main autoscaling bounds
 
 ### Requirement: Topology-aware maintenance
-Single-main SHALL use a main-only Recreate rollout with no rolling-update parameters and a main disruption budget permitting eviction of its sole replica. Multi-main SHALL retain its existing rollout behavior and main disruption budget minimum of one. Worker and webhook rollout strategies SHALL NOT change with main topology.
+Single-main SHALL use a main-only Recreate rollout with no rolling-update parameters; against the pinned chart (1.16.0 or newer) no main PodDisruptionBudget SHALL render, permitting eviction of its sole replica. Multi-main SHALL retain its existing rollout behavior and main disruption budget minimum of one. Worker and webhook rollout strategies SHALL NOT change with main topology.
 
 #### Scenario: Single-main chart rendering
 - **WHEN** single-main values are rendered against the pinned chart
 - **THEN** the main strategy SHALL be Recreate with absent or null rolling-update settings
-- **AND** its PDB SHALL select only main pods and set `minAvailable=0`
+- **AND** no main PodDisruptionBudget SHALL render (the pinned chart, 1.16.0 or newer, omits it entirely while main does not exceed one replica)
 - **AND** worker and webhook strategies SHALL remain unchanged
 
 #### Scenario: Topology returns to multi-main

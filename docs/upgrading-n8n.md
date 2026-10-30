@@ -193,6 +193,103 @@ these points before you apply:
   back a release without the security fix above, so fix forward to `2.21.0`
   rather than staying on the rolled-back version.
 
+## Moving from chart 1.15.0 to 1.16.0
+
+The default `n8n_chart_version` moved from `1.15.0` to `1.16.0`
+([n8n-hosting v1.16.0](https://github.com/n8n-io/n8n-hosting/releases/tag/v1.16.0)).
+Check these points before you apply:
+
+- **The n8n image moves with the chart if it is not pinned.** The chart's
+  `appVersion` is n8n `2.43.5` (was `2.42.4`), so a caller with
+  `n8n_image_tag = null` moves from `2.42.4` to `2.43.5`. The n8n release
+  notes for `2.43.0` through `2.43.5` list no breaking changes. Pin
+  `n8n_image_tag` first to take the chart without the application bump.
+- **Pods roll once.** `templates/deployment-main.yaml` and
+  `templates/deployment-worker.yaml` both changed (shared helpers for pod
+  and container `securityContext` and for the task-runner sidecar), and the
+  chart's labels and `checksum/config` annotation change with every bump
+  regardless, so every main, worker, and webhook-processor pod is replaced
+  on the upgrade apply.
+- **Multi-main guard: this module's existing configuration already
+  satisfies it.** The chart now fails to render `replicaCount` or
+  `hpa.main.maxReplicas` above 1 without `multiMain.enabled = true`, and
+  fails to render `multiMain.enabled = true` without
+  `license.enabled = true` (n8n-hosting#229). This module has always
+  derived `multiMain.enabled` from the same effective main-replica count
+  it uses for `replicaCount` and `hpa.main.maxReplicas` (`n8n.tf`), and
+  always sets `license.enabled = true` regardless of whether
+  `n8n_license_key` is set, so none of this module's topology
+  combinations can trip either guard. No module change was needed;
+  `tests/scripts/check-n8n-chart.sh` adds a negative-fixture render
+  proving the guard exists and trips on the combinations this module
+  never produces.
+- **The main `PodDisruptionBudget` no longer renders at one main replica.**
+  Previously the chart rendered a PDB with `minAvailable: 0` for a
+  single-main deployment (permissive, since evicting the sole main is
+  allowed); the chart now renders **no PDB object at all** unless main
+  exceeds one replica, counting both `replicaCount`/`multiMain.replicas`
+  and `hpa.main.minReplicas` (n8n-hosting#228). The module's own values are
+  unchanged: it still sets `pdb.enabled = true` and derives
+  `minAvailable` from `local.n8n_main_pdb_min_available` (0 for single-main,
+  1 otherwise). Only the chart's rendering decision changed. After this
+  upgrade, `kubectl get pdb -n <namespace>` on a single-main deployment
+  returns no `n8n-main` PDB at all, not one with `minAvailable: 0`.
+  `tests/scripts/check-n8n-chart.sh`'s single-main fixture was updated to
+  assert the PDB's absence in that topology instead of its `minAvailable`
+  value (it always renders the one pinned chart).
+  `tests/scripts/smoke-test.sh` checks a live deployment, whose
+  `n8n_chart_version` a caller can override below `1.16.0`, so it reads
+  the chart actually deployed (the main Deployment's `helm.sh/chart`
+  label) and only expects the PDB's absence on `1.16.0` or newer, falling
+  back to the `minAvailable: 0` assertion on an older pin. If the label
+  cannot be parsed, it accepts either shape (no PDB, or `minAvailable: 0`)
+  and still fails on a more restrictive budget. The multi-main
+  case (main replicas above one) is unaffected on every chart version and
+  still renders a PDB with `minAvailable: 1`.
+- **New module-owned budgets for webhook processors and workers.** This
+  release also adds `n8n_webhook_pdb_enabled` and `n8n_worker_pdb_enabled`
+  (both default `true`). The next apply creates two
+  `kubernetes_pod_disruption_budget_v1` resources, whether or not you change
+  `n8n_chart_version`. Before you apply, run
+  `kubectl get pdb -n <namespace> -o yaml` and compare each budget's
+  `spec.selector` with the labels of the webhook processor and worker pods.
+  If a budget you already own selects those pods, set the matching input to
+  `false` and keep your own budget: when two budgets select the same pod, the
+  Eviction API rejects every eviction of it, so `kubectl drain` and cluster
+  autoscaler scale-down fail, and GKE node-pool surge upgrades stall until
+  GKE's one-hour drain timeout forces the eviction (blue-green upgrades use
+  their own timeouts). A budget you own named
+  `n8n-webhook-processor` or `n8n-worker` makes the apply fail with
+  "already exists"; set the matching input to `false` in that case too.
+  After the apply, `kubectl get pdb -n <namespace>` lists
+  `n8n-webhook-processor` and `n8n-worker` (for each input left `true`),
+  each with `MAX UNAVAILABLE` 1, next to `n8n-main` in multi-main. A listed
+  budget is not proof of drain protection: at the default
+  `n8n_worker_keda_min_replicas = 1` the worker budget still permits
+  evicting the only worker, and `n8n_worker_pools` Deployments have no
+  budget.
+- **Task-runner sidecar liveness probe, on by default.** The sidecar now
+  gets a liveness probe against the launcher's own `/healthz` endpoint on
+  port 5680 (`taskRunners.probes.liveness`, n8n-hosting#223). The module sets
+  neither `taskRunners.probes` nor `N8N_RUNNERS_LAUNCHER_HEALTH_CHECK_PORT`
+  in `taskRunners.extraEnv`, so the chart's default (enabled, port 5680,
+  path `/healthz`) applies unmodified to every worker's sidecar (main never
+  carries the sidecar in this module's always-queue-mode setup). A busy
+  task runner does not fail the probe; only an unresponsive launcher does,
+  which the launcher's own supervision already restarts independently.
+- **No change to worker-only task-runner capacity accounting.** The main
+  Deployment's task-runner conditional (`n8n.mainTaskRunnersEnabled`,
+  n8n-hosting#179) is unchanged, so `local.n8n_chart_has_worker_only_runners`
+  (`capacity.tf`) now also covers `1.16.0`.
+- **New chart values the module does not use.** `editor.url` (would set
+  `N8N_EDITOR_BASE_URL` directly; the module keeps emitting that variable
+  itself through `config.extraEnv` and leaves `editor.url`/`ingress.enabled`/
+  `webhook.url` all unset, so the chart's own value for that name stays
+  empty and never collides with the module's entry), per-role
+  `podSecurityContext`/`containerSecurityContext` overrides, `hostAliases`,
+  `image.digest`/`taskRunners.image.digest`, and `persistence.annotations`
+  (n8n-hosting#243, #236, #167, #240) are new; the module sets none of them.
+
 ## Moving from chart 1.14.0 to 1.15.0
 
 The default `n8n_chart_version` moved from `1.14.0` to `1.15.0`
@@ -368,8 +465,12 @@ default), otherwise `n8n_main_fixed_replicas`. A selected count of `1` is
 default. `n8n_main_leader_election_enabled` can override election independently:
 `null` preserves this inference, `true` enables election even at one replica,
 and `false` is rejected above one selected replica. At a selected count of one,
-`Recreate`, PDB minimum 0, and the managed HPA maximum of 1 remain in effect
-regardless of election mode.
+`Recreate`, a main PDB minimum of 0, and the managed HPA maximum of 1 remain
+in effect regardless of election mode. On chart `1.16.0` and newer, no main
+PDB renders at all while selected count is one, instead of one with
+`minAvailable: 0` (see "Moving from chart 1.15.0 to 1.16.0"); the module's
+own derived minimum of 0 is unchanged either way, only whether the chart
+turns it into a rendered object.
 
 Chart `1.10.1` rejects `multiMain.enabled = true` below two replicas. During
 staging, that chart setting stays false and the module injects the literal
@@ -392,7 +493,9 @@ and apply the plan during a quiet maintenance window. This:
 - Disables `multiMain`, clamps the main HPA's effective maximum to 1
   regardless of a higher configured `n8n_main_hpa_max_replicas`, switches the
   main Deployment's rollout `strategy` to `Recreate`, and relaxes the main
-  PodDisruptionBudget to `minAvailable = 0`.
+  PodDisruptionBudget to `minAvailable = 0` (chart `1.16.0` and newer render
+  no PDB object at all at one replica instead; see "Moving from chart 1.15.0
+  to 1.16.0").
 - Interrupts the editor, REST API, and scheduled triggers during any
   maintenance or rollout, since there is exactly one main pod and `Recreate`
   tears it down before starting the replacement. `Recreate` does not
@@ -435,7 +538,8 @@ for every inspection.
    example's `terraform.tfvars`.
 
    Review the plan: election changes, but the main replica count remains one,
-   strategy remains `Recreate`, PDB minimum remains 0, and a managed main HPA
+   strategy remains `Recreate`, the main PDB stays at minimum 0 or absent
+   (chart `1.16.0`+ renders none at one replica), and a managed main HPA
    remains min/max 1/1 even if its configured maximum is higher. Apply only
    this stage. Expect editor/API downtime; the environment changes also roll
    workers and webhook processors.
@@ -576,7 +680,7 @@ terraform-azurerm-n8n.
 ## Main pods lose the task-runner sidecar (chart 1.12.0 and later)
 
 n8n-hosting [#179](https://github.com/n8n-io/n8n-hosting/pull/179), shipped
-in chart `1.12.0` and unchanged through `1.15.0`, renders the task-runner
+in chart `1.12.0` and unchanged through `1.16.0`, renders the task-runner
 sidecar, its env, and the launcher ConfigMap mount on the main Deployment
 only in standalone mode (`taskRunners.enabled && !queueMode.enabled`). This
 module always runs queue mode, where n8n offloads manual executions to
@@ -591,7 +695,7 @@ deployment takes both releases at once):
   `n8n_task_runner_custom_config`, and `n8n_task_runner_timeout` now apply
   to worker pods only, **while the pinned chart is one this module has
   verified carries the fix**: its own OCI repository
-  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0`, `1.13.0`, `1.14.0`, or `1.15.0`
+  (`oci://ghcr.io/n8n-io/n8n-helm-chart`) at version `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, or `1.16.0`
   exactly (`local.n8n_chart_has_worker_only_runners` in `capacity.tf`). Any
   other `n8n_chart_version` (a private mirror, a preview build such as
   `examples/worker-pools`' `1.11.0-preview.workerpools.1`, which predates
@@ -930,7 +1034,7 @@ To keep that window safe, switch when load is low. To stop KEDA from adding
 default workers during the switch, set `n8n_worker_keda_pause = true` in a
 separate apply first, and set it back to `false` after the switch. That
 input pauses only the default worker Deployment, not `n8n_worker_pools`,
-and needs `n8n_chart_version` 1.13.0 or newer (the default is 1.15.0).
+and needs `n8n_chart_version` 1.13.0 or newer (the default is 1.16.0).
 Older charts ignore the pause, and chart 1.12.0 overwrites the held worker
 count on every Helm upgrade, including the switch itself
 (`check.worker_keda_pause_requires_a_supported_chart` warns). On an older

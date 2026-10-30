@@ -1,7 +1,7 @@
 # n8n Helm chart coverage
 
 Every top-level key in the pinned n8n Helm chart's `values.yaml`
-(`n8n_chart_version` default: **1.15.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
+(`n8n_chart_version` default: **1.16.0**, `oci://ghcr.io/n8n-io/n8n-helm-chart/n8n`),
 and how this module surfaces it, if at all. Kept honest by
 `tests/scripts/check-helm-chart-coverage.sh`, which fails when this file's
 declared chart version disagrees with `variables.tf`'s `n8n_chart_version`
@@ -17,7 +17,7 @@ this table never mentions.
 | `commonAnnotations` | Not surfaced | No caller need identified |
 | `queueMode` | `n8n_worker_concurrency`, worker replica/resource inputs | `queueMode.enabled` is always `true`; this module runs queue mode only |
 | `webhookProcessor` | Webhook replica/resource inputs (`n8n_webhook_*`) | Always enabled |
-| `multiMain` | `n8n_main_hpa_min_replicas`/`n8n_main_fixed_replicas` (topology derivation) | Single-main vs multi-main is derived from the effective main replica count, not set directly |
+| `multiMain` | `n8n_main_hpa_min_replicas`/`n8n_main_fixed_replicas` (topology derivation) | Single-main vs multi-main is derived from the effective main replica count, not set directly. Chart `1.16.0` and newer refuse `replicaCount`/`hpa.main.maxReplicas` above 1 without `multiMain.enabled=true`, and refuse `multiMain.enabled=true` without `license.enabled=true` (n8n-hosting#229); the module always keeps these three in lockstep (`multiMain.enabled`, `replicaCount`/`hpa.main.maxReplicas`, and an unconditional `license.enabled=true`), so it can never trip either guard |
 | `taskRunners` | `n8n_task_runners_enabled`, `n8n_task_runner_timeout`, `n8n_task_runner_custom_config` | Since chart 1.12.0 the sidecar renders on worker pods only in queue mode (n8n-hosting#179); main and webhook-processor pods carry none |
 | `strategy` | Derived (`local.n8n_main_strategy`) | `Recreate` at one main replica (election staging), chart default above one |
 | `podLabels` | Not surfaced | No caller need identified |
@@ -32,12 +32,15 @@ this table never mentions.
 | `extraInitContainers` | Not surfaced | Same as `extraContainers` |
 | `dnsPolicy` | Not surfaced | |
 | `dnsConfig` | `n8n_dns_config` | |
+| `hostAliases` | Not surfaced | No caller need identified; chart `1.16.0` added it (n8n-hosting#167) |
 | `resources` | `n8n_main_*`/`n8n_worker_*`/`n8n_webhook_*` CPU/memory request/limit inputs | |
 | `nodeSelector` | Not surfaced | No caller need identified; node placement is via the module-managed node pool |
 | `tolerations` | Not surfaced | Same as `nodeSelector` |
 | `affinity` | Derived (`multiMain.antiAffinity`) only | No general pod affinity/anti-affinity escape hatch |
 | `nodePlacement` | Not surfaced | |
-| `securityContext` | Not surfaced (chart default retained) | The chart's own default pod/container security context is not currently overridden |
+| `securityContext` | Not surfaced (chart default retained) | The chart's own default pod security context is not currently overridden |
+| `podSecurityContext` | Not surfaced (chart default retained) | Chart `1.16.0` added per-role pod securityContext overrides (n8n-hosting#236); none set, so `securityContext` above still applies to every role |
+| `containerSecurityContext` | Not surfaced (chart default retained) | Chart `1.16.0` added per-container (`main`/`worker`/`webhookProcessor`/`taskRunner`) securityContext overrides (n8n-hosting#236); none set, so the chart's own hardened defaults (no privilege escalation, all capabilities dropped) still apply |
 | `rbac` | Not surfaced | Chart defaults retained |
 | `serviceAccount` | `n8n_image_pull_secrets` (indirectly, via ownership transfer) | The module takes over `serviceAccount.create`/`name` only when pull secrets are set; otherwise the chart's own default account is used |
 | `networkPolicy` | Not surfaced | No `NetworkPolicy` resource is created by this module |
@@ -45,8 +48,9 @@ this table never mentions.
 | `lifecycle` | `n8n_termination_grace_period` (main preStop only) | |
 | `hpa` | `n8n_main_hpa_*`, standalone webhook HPA | |
 | `keda` | `n8n_worker_keda_enabled`, worker KEDA tuning inputs, `n8n_worker_keda_pause`/`n8n_worker_keda_paused_replica_count` | `keda.webhookProcessor.*` (including its `pause`) is not surfaced: webhook processors are scaled by the module's own external HPA (`scaling.tf`), so no chart `ScaledObject` exists for it |
-| `pdb` | Derived (`local.n8n_main_pdb_min_available`) | Always enabled; `minAvailable` is 0 for single-main, 1 otherwise |
+| `pdb` | Derived (`local.n8n_main_pdb_min_available`) | Main pods only. `minAvailable` is 0 for single-main, 1 otherwise. Chart `1.16.0` and newer render no PDB object at all while main does not exceed one replica (`replicaCount`/`multiMain.replicas` and `hpa.main.minReplicas` both at 1, n8n-hosting#228), so a single-main deployment has no `n8n-main` PodDisruptionBudget to query, rather than one with `minAvailable: 0`. Webhook processor and worker budgets are module-owned `kubernetes_pod_disruption_budget_v1` resources (`n8n_webhook_pdb_enabled`, `n8n_worker_pdb_enabled`), since the chart renders none for them |
 | `webhook` | See `webhookProcessor` | The chart's top-level `webhook` values namespace (as distinct from `webhookProcessor`) is not separately surfaced; verify against the pinned chart's schema before assuming they are the same key |
+| `editor` | Not surfaced | `editor.url` (chart `1.16.0`, n8n-hosting#243) would set `N8N_EDITOR_BASE_URL` directly; the module leaves it unset and keeps emitting that variable itself through `config.extraEnv`, and leaves `ingress.enabled`/`webhook.url` unset too, so the chart's own `N8N_EDITOR_BASE_URL` stays empty and never duplicates the module's entry |
 | `executions` | `n8n_execution_timeout`, `n8n_execution_timeout_max`, `n8n_execution_concurrency_limit`, `n8n_executions_data_save_*` | |
 | `config` | `n8n_timezone`, `n8n_extra_env`, and the module's large set of dedicated `N8N_*`/`DB_*`/`QUEUE_*` inputs (via `config.extraEnv`) | Most application-level tuning flows through here as environment variables, not chart-native config keys |
 | `license` | `n8n_license_key`, `n8n_license_key_secret_ref`, `n8n_license_cert_secret_ref` (cert path renders through `config.extraEnv` instead of `license.existingSecret`) | |
