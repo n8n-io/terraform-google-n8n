@@ -1,8 +1,8 @@
 # Plan-time tests for n8n_proxy_hops (inbound reverse-proxy trust).
 #
 # helm_release.n8n.values is unknown at plan time under the mock provider
-# (see AGENTS.md), so the N8N_PROXY_HOPS rendering is proven by the live
-# deployment check; these runs cover the variable contract.
+# (see AGENTS.md), so the rendered entry is asserted against
+# local.n8n_proxy_hops_env, which n8n.tf appends to config.extraEnv.
 
 mock_provider "google" {}
 mock_provider "google-beta" {}
@@ -24,8 +24,21 @@ run "proxy_hops_defaults_to_unset" {
   command = plan
 
   assert {
-    condition     = var.n8n_proxy_hops == null
-    error_message = "n8n_proxy_hops should default to null so n8n keeps its own default."
+    condition     = length(local.n8n_proxy_hops_env) == 0
+    error_message = "n8n_proxy_hops should default to null and render no N8N_PROXY_HOPS, so n8n keeps its own default."
+  }
+}
+
+run "proxy_hops_zero_renders_zero" {
+  command = plan
+
+  variables {
+    n8n_proxy_hops = 0
+  }
+
+  assert {
+    condition     = length(local.n8n_proxy_hops_env) == 1 && local.n8n_proxy_hops_env[0].value == "0"
+    error_message = "n8n_proxy_hops = 0 must be accepted and render N8N_PROXY_HOPS=0."
   }
 }
 
@@ -37,8 +50,8 @@ run "proxy_hops_accepts_in_range_value" {
   }
 
   assert {
-    condition     = var.n8n_proxy_hops == 2
-    error_message = "A whole number in range should be accepted."
+    condition     = length(local.n8n_proxy_hops_env) == 1 && local.n8n_proxy_hops_env[0].name == "N8N_PROXY_HOPS" && local.n8n_proxy_hops_env[0].value == "2"
+    error_message = "n8n_proxy_hops = 2 must render N8N_PROXY_HOPS=2."
   }
 }
 
@@ -50,7 +63,7 @@ run "proxy_hops_accepts_long_chain" {
   }
 
   assert {
-    condition     = var.n8n_proxy_hops == 12
+    condition     = length(local.n8n_proxy_hops_env) == 1 && local.n8n_proxy_hops_env[0].value == "12"
     error_message = "There is no upper bound beyond a whole number of 0 or more."
   }
 }
@@ -119,7 +132,7 @@ run "extra_env_may_still_set_proxy_hops_when_input_unset" {
   }
 
   assert {
-    condition     = var.n8n_proxy_hops == null
-    error_message = "The escape hatch must stay usable while n8n_proxy_hops is null."
+    condition     = length(local.n8n_proxy_hops_env) == 0
+    error_message = "The escape hatch must stay usable while n8n_proxy_hops is null, with no module-rendered N8N_PROXY_HOPS."
   }
 }

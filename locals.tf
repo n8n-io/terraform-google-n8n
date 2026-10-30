@@ -757,6 +757,22 @@ locals {
     readOnly  = true
   } : null
 
+  # The config.extraEnv entries for NODE_EXTRA_CA_CERTS and N8N_PROXY_HOPS,
+  # kept here so tests can assert them: helm_release.n8n's values are unknown
+  # at plan time under the mock provider (see AGENTS.md). Node reads one
+  # NODE_EXTRA_CA_CERTS file, so at most one entry: the merged bundle when
+  # n8n_extra_ca_pem is set (it already holds the Redis CA), else the
+  # Memorystore CA alone.
+  n8n_node_extra_ca_certs_env = local.n8n_extra_ca_enabled ? [
+    { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/ca-bundle.crt" },
+    ] : local.manage_redis_tls_ca ? [
+    { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
+  ] : []
+
+  n8n_proxy_hops_env = var.n8n_proxy_hops != null ? [
+    { name = "N8N_PROXY_HOPS", value = tostring(var.n8n_proxy_hops) },
+  ] : []
+
   # ── Pod DNS (task 13) ─────────────────────────────────────────
   # var.n8n_dns_config with unset keys removed.
   #

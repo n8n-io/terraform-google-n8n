@@ -670,9 +670,7 @@ resource "helm_release" "n8n" {
         var.n8n_compression_max_zip_entries != null ? [
           { name = "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES", value = tostring(var.n8n_compression_max_zip_entries) },
         ] : [],
-        var.n8n_proxy_hops != null ? [
-          { name = "N8N_PROXY_HOPS", value = tostring(var.n8n_proxy_hops) },
-        ] : [],
+        local.n8n_proxy_hops_env,
         # Points at the single key mounted read-only from
         # n8n_credentials_overwrite_secret_ref above; the module never reads
         # or renders the Secret's own JSON payload, only this file path.
@@ -680,13 +678,8 @@ resource "helm_release" "n8n" {
           { name = "CREDENTIALS_OVERWRITE_DATA_FILE", value = local.n8n_credentials_overwrite_mount.mountPath },
         ] : [],
         # One file only: the merged bundle when n8n_extra_ca_pem is set (it
-        # already contains the Redis CA), else the Redis CA alone.
-        local.n8n_extra_ca_enabled ? [
-          { name = "NODE_EXTRA_CA_CERTS", value = local.n8n_ca_bundle_mount.mountPath },
-        ] : [],
-        !local.n8n_extra_ca_enabled && local.manage_redis_tls_ca ? [
-          { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
-        ] : [],
+        # already contains the Redis CA), else the Redis CA alone (locals.tf).
+        local.n8n_node_extra_ca_certs_env,
         # Ships nodes baked into a custom image (n8n_image_repository) at this
         # path. Omitted entirely when unset, matching n8n's own default (no
         # extra scan directory).

@@ -6,7 +6,7 @@ independent inputs, so any combination works:
 | Proxy position | What breaks without configuration | Module inputs | You still own |
 | --- | --- | --- | --- |
 | **Outbound** (n8n to the internet, TLS-inspecting) | Node rejects the proxy's re-signed certificates (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`) | `n8n_extra_ca_pem` for the proxy CA, plus `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` in `n8n_extra_env` | The proxy itself, its allow-list, and which hosts bypass it |
-| **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (count every hop including the Google load balancer); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses; `n8n_webhook_url` if the public host differs | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
+| **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (the Google load balancer counts as 2, so one proxy in front of it is 3); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses; `n8n_webhook_url` if the public host differs | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
 | **Both** | Both rows above | Set both groups | Both |
 
 ## Outbound: trust the proxy's CA
@@ -33,6 +33,14 @@ n8n_extra_env = [
   module sets a `checksum/extra-ca` pod annotation (sha256 of the bundle) on
   the main, worker, and webhook-processor pods.
 - Private keys are rejected at plan time; supply certificates only.
+- Setting `n8n_extra_ca_pem` back to `null` deletes the Secret before Helm
+  rolls the pods, because Terraform destroys a removed dependency before it
+  updates the release that referenced it. Pods that are already running keep
+  their mounted copy. A pod from the old revision that is scheduled during the
+  rollout stays in `ContainerCreating` with `FailedMount` events until the
+  rollout replaces it. If the Helm upgrade fails, `atomic = true` rolls back to
+  a revision that mounts the deleted Secret; set the PEM again and re-apply to
+  recover, then remove it in a quieter window.
 - An authenticated proxy works by putting the credentials in the proxy URL
   (`http://user:password@proxy.corp.example:3128`). Without them n8n's outbound
   requests fail (the proxy answers 407). `n8n_extra_env` values are plain text
@@ -41,8 +49,8 @@ n8n_extra_env = [
 
 ### Task-runner sidecar
 
-The module does not deliver the CA to the task-runner sidecar. Chart 1.14.0
-mounts only the launcher config into that container, and the chart's top-level
+The module does not deliver the CA to the task-runner sidecar. Chart 1.16.0
+(the version this module pins) mounts only the launcher config into that container, and the chart's top-level
 `extraVolumeMounts` apply to the n8n container only, so there is no chart value
 that places a file in the sidecar. The runner's JavaScript sandbox has no
 `fetch`, and requests from a Code node through `this.helpers.httpRequest` are
@@ -60,12 +68,32 @@ tested against.
 ## Inbound: a proxy in front of the ingress
 
 ```hcl
-n8n_proxy_hops = 2                       # customer proxy + Google load balancer
+n8n_proxy_hops       = 3                  # customer proxy (1) + Google load balancer (2)
 ingress_source_cidrs = ["203.0.113.0/24"] # the proxy's egress range
 ```
 
-- `n8n_proxy_hops` sets `N8N_PROXY_HOPS` on every role. Leave it null when no
-  proxy is in front, so n8n keeps its own default.
+- `n8n_proxy_hops` sets `N8N_PROXY_HOPS` on every role. Express counts the
+  immediate peer as the first hop, then reads `X-Forwarded-For` from right to
+  left. The Google load balancer appends two entries, the client address it
+  sees and its own forwarding-rule IP
+  ([Google documentation](https://cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)),
+  so it counts as 2. The module-managed ingress alone is 2, and one customer
+  proxy in front of it is 3. Too low a value makes n8n see the proxy's
+  address as the client for every request. Null (the default) leaves n8n's
+  own default in place; this differs from the AWS and Azure modules, which
+  default to 1 for their single-entry load balancers.
+- The count is only safe when every path to n8n crosses the same number of
+  proxies. A client that reaches the load balancer directly while the count
+  is sized for the proxy path can put any address in `X-Forwarded-For` and
+  n8n uses it as the client IP, for example to get around per-IP rate limits
+  ([Express documentation](https://expressjs.com/en/guide/behind-proxies.html)).
+  Use `ingress_source_cidrs` so that only the proxy reaches the load balancer.
+- Google documents that the internal Application Load Balancer can strip an
+  incoming `X-Forwarded-For` it receives from an intermediate proxy
+  ([Google documentation](https://cloud.google.com/load-balancing/docs/l7-internal)).
+  In that case the original client address never reaches n8n, whatever the
+  count. With the split-ingress private editor ingress, check the address n8n
+  records before you rely on it.
 - For a proxy that verifies the origin certificate against a private CA, use
   `tls_mode = "custom"` (`tls_cert_pem` / `tls_key_pem`) or `tls_mode =
   "secret"` (a TLS Secret you create, named by `tls_secret_name`) with a
@@ -79,7 +107,9 @@ ingress_source_cidrs = ["203.0.113.0/24"] # the proxy's egress range
 - `ingress_source_cidrs` is matched against the client address the load
   balancer sees, which for a proxy is its public egress address. Anything else
   gets a 403 from the load balancer (the TLS handshake still succeeds). List
-  every address the proxy can egress from, plus any direct webhook senders.
+  every address the proxy can egress from. Do not also admit clients that
+  bypass the proxy, such as direct webhook senders, unless they go through
+  the same number of proxies; see the hop-count note above.
 - The module cannot configure the proxy. It must send `X-Forwarded-For` and
   `X-Forwarded-Proto`, and its `Host` header must match the hostname the
   ingress serves.

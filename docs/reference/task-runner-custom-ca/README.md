@@ -9,8 +9,8 @@ pass-through for both, exactly as documented.
 
 ## Why the module cannot do this itself
 
-Chart 1.14.0 (the version this module pins) mounts exactly one file into the
-`task-runner` container: the launcher configuration, at
+Chart 1.16.0 (the version this module pins, and 1.14.0, which this reference
+was verified on) mounts exactly one file into the `task-runner` container: the launcher configuration, at
 `/etc/n8n-task-runners.json` via a `subPath` mount. The chart's top-level
 `extraVolumeMounts` only reach the `n8n` container (main/worker/webhook
 processor), and no other chart value places a file in the sidecar. There is

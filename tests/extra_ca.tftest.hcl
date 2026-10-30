@@ -1,8 +1,9 @@
 # Plan-time tests for n8n_extra_ca_pem (outbound TLS-proxy / private CA trust).
 #
 # helm_release.n8n.values is unknown at plan time under the mock provider (see
-# AGENTS.md), so the rendered mount shape is asserted against
-# local.n8n_ca_bundle_* directly, and the Secret through its resource count.
+# AGENTS.md), so the rendered mount shape and the NODE_EXTRA_CA_CERTS entry are
+# asserted against local.n8n_ca_bundle_* and local.n8n_node_extra_ca_certs_env
+# directly (n8n.tf consumes both), and the Secret through its resource count.
 
 mock_provider "google" {}
 mock_provider "google-beta" {}
@@ -32,6 +33,29 @@ run "extra_ca_disabled_by_default" {
     condition     = length(kubernetes_secret_v1.n8n_ca_bundle) == 0
     error_message = "No CA bundle Secret should be created by default."
   }
+
+  assert {
+    condition     = length(local.n8n_node_extra_ca_certs_env) == 0
+    error_message = "NODE_EXTRA_CA_CERTS must not be rendered without an extra CA or managed Redis TLS."
+  }
+}
+
+run "redis_tls_only_points_at_redis_ca" {
+  command = plan
+
+  variables {
+    redis_transit_encryption_enabled = true
+  }
+
+  assert {
+    condition     = length(local.n8n_node_extra_ca_certs_env) == 1 && local.n8n_node_extra_ca_certs_env[0].name == "NODE_EXTRA_CA_CERTS" && local.n8n_node_extra_ca_certs_env[0].value == "/etc/n8n-certs/redis-ca.crt"
+    error_message = "With managed Redis TLS and no extra CA, NODE_EXTRA_CA_CERTS must point at the Redis CA alone."
+  }
+
+  assert {
+    condition     = length(kubernetes_secret_v1.n8n_ca_bundle) == 0
+    error_message = "No CA bundle Secret should be created without n8n_extra_ca_pem."
+  }
 }
 
 run "extra_ca_creates_secret_and_mount" {
@@ -54,6 +78,11 @@ run "extra_ca_creates_secret_and_mount" {
   assert {
     condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----"
     error_message = "Without managed Redis TLS the bundle should be the caller's PEM only (trimmed)."
+  }
+
+  assert {
+    condition     = length(local.n8n_node_extra_ca_certs_env) == 1 && local.n8n_node_extra_ca_certs_env[0].name == "NODE_EXTRA_CA_CERTS" && local.n8n_node_extra_ca_certs_env[0].value == local.n8n_ca_bundle_mount.mountPath
+    error_message = "NODE_EXTRA_CA_CERTS must point at the mounted bundle."
   }
 }
 
@@ -95,6 +124,11 @@ run "extra_ca_with_redis_tls_merges_both" {
     condition     = local.n8n_ca_bundle_checksum == sha256(local.n8n_ca_bundle_pem) && local.n8n_ca_bundle_checksum != sha256("-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----")
     error_message = "The pod-roll checksum must hash the whole bundle, so a Memorystore CA change alone rolls the pods."
   }
+
+  assert {
+    condition     = length(local.n8n_node_extra_ca_certs_env) == 1 && local.n8n_node_extra_ca_certs_env[0].value == "/etc/n8n-certs/ca-bundle.crt"
+    error_message = "With both Redis TLS and an extra CA, exactly one NODE_EXTRA_CA_CERTS must point at the merged bundle, not the Redis CA."
+  }
 }
 
 run "extra_ca_rejects_non_certificate" {
@@ -102,6 +136,26 @@ run "extra_ca_rejects_non_certificate" {
 
   variables {
     n8n_extra_ca_pem = "not a certificate"
+  }
+
+  expect_failures = [var.n8n_extra_ca_pem]
+}
+
+run "extra_ca_rejects_empty_certificate_body" {
+  command = plan
+
+  variables {
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.n8n_extra_ca_pem]
+}
+
+run "extra_ca_rejects_reversed_markers" {
+  command = plan
+
+  variables {
+    n8n_extra_ca_pem = "-----END CERTIFICATE-----\nMIIB\n-----BEGIN CERTIFICATE-----\n"
   }
 
   expect_failures = [var.n8n_extra_ca_pem]
