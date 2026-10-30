@@ -349,6 +349,24 @@ jobs:
       - name: tests/scripts/check-n8n-chart.sh
         run: tests/scripts/check-n8n-chart.sh
 
+      # Runs every offline, deterministic tests/scripts/test-*.sh script via
+      # a glob loop, so a future PR adding another test-*.sh needs no
+      # workflow edit to actually run on PRs (unlike the weekly/manual
+      # version-drift.yml workflow, which does not gate PRs at all).
+      # `!cancelled()` runs it even when check-n8n-chart.sh fails, so a chart
+      # failure does not hide these results. The job still fails. It needs
+      # only python3, which ubuntu-latest has even if setup-python fails.
+      - name: tests/scripts/test-*.sh
+        if: ${{ !cancelled() }}
+        run: |
+          set -uo pipefail
+          status=0
+          for f in tests/scripts/test-*.sh; do
+            echo "==> $f"
+            bash "$f" || status=1
+          done
+          exit "$status"
+
   tflint:
     name: tflint (${{ matrix.target }})
     runs-on: ubuntu-latest
