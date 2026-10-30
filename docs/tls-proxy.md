@@ -17,10 +17,13 @@ since `file()` is not allowed in a `.tfvars` file). The examples mark
 plan and apply output only: the value remains readable in Terraform state and
 the Helm release values (see the authenticated-proxy note below). The examples'
 `n8n_proxy_hops` guidance uses the hop count described under
-[Inbound](#inbound-a-proxy-in-front-of-the-ingress). The inputs that depend
-on the ingress (`tls_mode`, `ingress_source_cidrs`) are not passed through the
-examples; set them on the module call where the example uses the
-module-managed ingress.
+[Inbound](#inbound-a-proxy-in-front-of-the-ingress). The other inbound inputs
+(`tls_mode`, `ingress_source_cidrs`, `n8n_webhook_url`) are not passed through
+the examples. Where an example uses the module-managed ingress, set them on
+its module call in `main.tf`: change the `tls_mode` the example sets when the
+proxy must trust a private-CA origin certificate, and set `n8n_webhook_url`
+when webhooks are served from a different public host. The editor always
+stays on `n8n_fqdn`.
 
 ## Outbound: trust the proxy's CA
 
