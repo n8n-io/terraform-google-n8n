@@ -75,7 +75,7 @@ edition that supports single-main.
    again.
 
 **Status: partial.** Steps 1 to 3 passed twice on a disposable deployment,
-both against chart `1.15.0` (before the `1.16.0` bump changed the PDB
+both against chart `1.10.1` (before chart `1.16.0` changed the PDB
 expectation above from `minAvailable: 0` to no PDB object at all): once
 through `n8n_main_hpa_min_replicas = 1` (Recreate, PDB 0, HPA clamped to
 1/1) and once through `n8n_main_hpa_enabled = false` with
