@@ -708,6 +708,11 @@ run "capacity_warns_when_paused_workers_above_the_maximum_do_not_fit" {
     error_message = "A paused count above the KEDA maximum must be the modeled worker ceiling."
   }
 
+  assert {
+    condition     = local.capacity_worker_paused_count_drives_worker_term
+    error_message = "A paused count above the KEDA maximum drives the worker term, so both warnings must name n8n_worker_keda_paused_replica_count."
+  }
+
   expect_failures = [
     check.gke_capacity_cpu_fits_requested_replicas,
     check.gke_capacity_memory_fits_requested_replicas,
@@ -756,8 +761,26 @@ run "capacity_worker_term_stays_at_maximum_for_lower_paused_count" {
   }
 
   assert {
-    condition     = local.capacity_worker_modeled_max_replicas == 5
-    error_message = "A paused count below the maximum must leave the worker term at the maximum."
+    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term
+    error_message = "A paused count below the maximum must leave the worker term at the maximum, without naming the paused count in the warnings."
+  }
+}
+
+# A paused count equal to the maximum does not raise the worker term, so
+# lowering it would not help and the warnings must not name it.
+run "capacity_worker_term_stays_at_maximum_for_equal_paused_count" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_max_replicas         = 5
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 5
+    gke_node_max_per_zone                = 4
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term
+    error_message = "A paused count equal to the maximum must leave the worker term at the maximum, without naming the paused count in the warnings."
   }
 }
 

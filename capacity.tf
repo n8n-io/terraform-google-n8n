@@ -125,6 +125,11 @@ locals {
     coalesce(var.n8n_worker_keda_paused_replica_count, 0),
   ) : local.capacity_worker_max_replicas
 
+  # True only when the paused count, not the worker maximum, sets the worker
+  # term. The capacity warnings name n8n_worker_keda_paused_replica_count only
+  # then, because lowering a count at or below the maximum shrinks nothing.
+  capacity_worker_paused_count_drives_worker_term = local.capacity_worker_modeled_max_replicas > local.capacity_worker_max_replicas
+
   # Task runners run as a sidecar container inside every worker pod (n8n.tf
   # taskRunners block), never webhook-processor pods. Whether main also gets
   # one depends on the pinned chart: n8n-hosting#179 (n8n.mainTaskRunnersEnabled)
@@ -224,7 +229,12 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       "documented estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster ",
       "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
       "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
-      "n8n_worker_pools max_replicas or n8n_worker_keda_paused_replica_count) to silence this warning.",
+      "n8n_worker_pools max_replicas)",
+      local.capacity_worker_paused_count_drives_worker_term ? join("", [
+        ", or lower n8n_worker_keda_paused_replica_count (the paused count, ${local.capacity_worker_modeled_max_replicas}, ",
+        "is above the worker maximum, ${local.capacity_worker_max_replicas}, and only counts while it stays above it)",
+      ]) : "",
+      " to silence this warning.",
     ])
   }
 }
@@ -246,7 +256,12 @@ check "gke_capacity_memory_fits_requested_replicas" {
       "estimate (GKE's per-node system-reserve formula), not a live read of the node pool. The cluster autoscaler ",
       "never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go Pending. ",
       "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
-      "n8n_worker_pools max_replicas or n8n_worker_keda_paused_replica_count) to silence this warning.",
+      "n8n_worker_pools max_replicas)",
+      local.capacity_worker_paused_count_drives_worker_term ? join("", [
+        ", or lower n8n_worker_keda_paused_replica_count (the paused count, ${local.capacity_worker_modeled_max_replicas}, ",
+        "is above the worker maximum, ${local.capacity_worker_max_replicas}, and only counts while it stays above it)",
+      ]) : "",
+      " to silence this warning.",
     ])
   }
 }

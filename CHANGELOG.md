@@ -530,7 +530,9 @@ this project adheres to the stability contract in
   `local.capacity_worker_modeled_max_replicas` that the PostgreSQL
   connection-budget check also uses. A paused count above
   `n8n_worker_keda_max_replicas` no longer hides an over-capacity node pool.
-  Advisory checks only; plan and apply are unaffected.
+  Both warnings suggest lowering `n8n_worker_keda_paused_replica_count` only
+  while that count is above the worker maximum. Advisory checks only; plan
+  and apply are unaffected.
 - `tests/scripts/check-checkov.sh` (contributor tooling, no module change)
   now removes every exported `TF_VAR_*` variable, including names with
   hyphens, before it runs checkov. On checkov 3.3.20 an exported `TF_VAR_*`
