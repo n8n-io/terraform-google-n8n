@@ -12,6 +12,28 @@
 
 # Managed Memorystore AUTH: wraps the generated AUTH string in a Secret so it
 # can be referenced the same way as the external-password Secrets below.
+#
+# Turning AUTH on for an existing instance: the google provider plans
+# auth_string as its prior known value "" during the in-place auth_enabled
+# update (it has no CustomizeDiff that marks it unknown). A Secret planned from
+# that "" fails the apply with "Provider produced inconsistent final plan" once
+# Memorystore returns the real string. redis_auth_gate shares the Secret's
+# count, so it is created on exactly that apply, and terraform_data plans its
+# output as unknown on create. The conditional below then makes the Secret's
+# data "known after apply", and it takes the real string in the same apply.
+# Once the gate exists its output is known (true), so steady-state plans read
+# auth_string directly and stay clean. The gate stores only a boolean. It
+# depends on the instance so it is only recorded after the AUTH update
+# succeeds: if that update fails, a retry still creates the gate and keeps the
+# Secret unknown, instead of finding a gate that already reads true.
+resource "terraform_data" "redis_auth_gate" {
+  count = var.create_redis_instance && var.redis_auth_enabled ? 1 : 0
+
+  input = true
+
+  depends_on = [google_redis_instance.n8n]
+}
+
 resource "kubernetes_secret" "redis_auth" {
   count = var.create_redis_instance && var.redis_auth_enabled ? 1 : 0
 
@@ -21,7 +43,7 @@ resource "kubernetes_secret" "redis_auth" {
   }
 
   data = {
-    password = google_redis_instance.n8n[0].auth_string
+    password = terraform_data.redis_auth_gate[0].output ? google_redis_instance.n8n[0].auth_string : ""
   }
 
   depends_on = [kubernetes_namespace.n8n]

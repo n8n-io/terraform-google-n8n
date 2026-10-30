@@ -37,6 +37,11 @@ run "defaults_create_managed_redis_resources" {
   }
 
   assert {
+    condition     = length(terraform_data.redis_auth_gate) == 0
+    error_message = "redis_auth_enabled defaults to false; no AUTH gate should be created."
+  }
+
+  assert {
     condition     = length(kubectl_manifest.redis_trigger_auth) == 0
     error_message = "No password is present by default (AUTH disabled); no TriggerAuthentication should be created."
   }
@@ -89,6 +94,20 @@ run "managed_redis_auth_wires_trigger_authentication" {
   assert {
     condition     = length(kubectl_manifest.redis_trigger_auth) == 1
     error_message = "A password is present (managed AUTH); KEDA must get a TriggerAuthentication."
+  }
+
+  # The Secret's password is gated on terraform_data.redis_auth_gate, which
+  # shares its count. On an existing instance, turning AUTH on plans
+  # auth_string as its prior value "", and a Secret planned from it fails the
+  # apply with "Provider produced inconsistent final plan". The gate is created
+  # on that apply, so its unknown output makes the Secret's data known after
+  # apply. The mock provider does not reproduce the provider behavior, so this
+  # run only asserts that the gate exists alongside the Secret. Verify the fix
+  # live: apply with redis_auth_enabled = false, then flip it to true and
+  # confirm a single apply creates the Secret and the TriggerAuthentication.
+  assert {
+    condition     = length(terraform_data.redis_auth_gate) == 1
+    error_message = "redis_auth_enabled = true must create the AUTH gate that keeps the Secret unknown on the apply that turns AUTH on."
   }
 }
 
