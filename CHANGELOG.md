@@ -72,7 +72,11 @@ this project adheres to the stability contract in
   there, so the cluster would otherwise plan to strip the partner label on
   every run, and applying that fails with `Node pool "default-pool" not found
   on update`. A deployment that applied the label with an earlier commit of
-  this change needs this fix before it can clear the label.
+  this change needs this fix before it can clear the label. After the label
+  is cleared, Terraform state can still show it under the cluster's
+  `node_config.resource_labels` (an ignored attribute keeps its prior value)
+  while the live cluster is already clean; this causes no plan diff and the
+  next apply clears it.
 
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
