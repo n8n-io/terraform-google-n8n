@@ -382,7 +382,9 @@ this project adheres to the stability contract in
     live, possibly caller-overridden deployment, so it reads the chart
     version actually deployed (the `helm.sh/chart` label on the main
     Deployment) and asserts absence only on `1.16.0` or newer, falling
-    back to the old `minAvailable: 0` assertion on an older pin.
+    back to the old `minAvailable: 0` assertion on an older pin. If the
+    label cannot be parsed, it accepts either shape and still fails on a
+    more restrictive budget.
   - **Task-runner sidecar liveness probe**, enabled by default
     (`taskRunners.probes.liveness`, port 5680, path `/healthz`). The module
     sets neither `taskRunners.probes` nor

@@ -241,7 +241,9 @@ Check these points before you apply:
   `n8n_chart_version` a caller can override below `1.16.0`, so it reads
   the chart actually deployed (the main Deployment's `helm.sh/chart`
   label) and only expects the PDB's absence on `1.16.0` or newer, falling
-  back to the `minAvailable: 0` assertion on an older pin. The multi-main
+  back to the `minAvailable: 0` assertion on an older pin. If the label
+  cannot be parsed, it accepts either shape (no PDB, or `minAvailable: 0`)
+  and still fails on a more restrictive budget. The multi-main
   case (main replicas above one) is unaffected on every chart version and
   still renders a PDB with `minAvailable: 1`.
 - **Task-runner sidecar liveness probe, on by default.** The sidecar now

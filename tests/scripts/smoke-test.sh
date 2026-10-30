@@ -531,8 +531,8 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
   # idiom turns a real kubectl read failure (RBAC, API timeout) into a
   # silent empty string, which would then hit the "can't parse, skip"
   # branch below and let a transient API error pass as a successful check.
-  # A read failure must FAIL; warn+skip is reserved for a successfully
-  # fetched label that is empty or unparsable. Combining stderr into the
+  # A read failure must FAIL; the version-agnostic fallback is reserved for
+  # a successfully fetched label that is empty or unparsable. Combining stderr into the
   # same capture (2>&1) is safe here: kubectl prints only the label value
   # to stdout on success (no stderr), so success always yields a clean
   # value, and any failure yields only the error text, nothing to confuse
@@ -553,7 +553,29 @@ if [[ "$MAIN_TOPOLOGY" == "single-main" ]]; then
     fi
 
     if [ "$chart_pdb_behavior" -eq 2 ]; then
-      warn "Deployment n8n-main's helm.sh/chart label ('${deployed_chart_label:-<empty>}') did not contain a parsable chart version; skipping the main PDB check (chart >= 1.16.0 omits it at one replica, n8n-hosting#228; earlier charts render minAvailable=0)"
+      # The chart version is unknown, so accept either safe single-main shape
+      # (no main PDB, chart >= 1.16.0; or minAvailable=0, older charts)
+      # instead of skipping: a restrictive budget must still fail. Printing
+      # name|minAvailable with --ignore-not-found keeps a missing PDB (empty
+      # output, exit 0) apart from a failed lookup (non-zero exit). stderr goes
+      # to its own file so a kubectl or auth-plugin warning on a successful
+      # lookup cannot make an absent PDB look like a present one.
+      pdb_lookup_err=$(mktemp)
+      if pdb_lookup=$(kubectl get pdb n8n-main -n "$NAMESPACE" --ignore-not-found \
+        -o jsonpath='{.metadata.name}|{.spec.minAvailable}' 2>"$pdb_lookup_err"); then
+        if [[ -z "$pdb_lookup" ]]; then
+          pass "No main PodDisruptionBudget object (chart version unknown: helm.sh/chart label '${deployed_chart_label:-<empty>}' is not parsable)"
+        elif [[ "${pdb_lookup#*|}" == "0" ]]; then
+          pass "Main PDB minAvailable=0 (chart version unknown: helm.sh/chart label '${deployed_chart_label:-<empty>}' is not parsable)"
+        else
+          pdb_min="${pdb_lookup#*|}"
+          fail "Main PDB minAvailable is '${pdb_min:-<unset>}', expected no main PDB or minAvailable=0 for single-main, otherwise node drains stall on the single main (chart version unknown)"
+        fi
+      else
+        fail "Cannot read PDB n8n-main in namespace $NAMESPACE, single-main PDB state unverified"
+        info "$(cat "$pdb_lookup_err")"
+      fi
+      rm -f "$pdb_lookup_err"
     elif [ "$chart_pdb_behavior" -eq 0 ]; then
       # Only NotFound means "chart correctly omitted the PDB at one replica"
       # (n8n-hosting#228); any other error (RBAC, API timeout) must not fall
