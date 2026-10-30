@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# Offline, deterministic regression test for constraint_accepts()
+# (tests/scripts/lib/constraints.sh), the Terraform version-constraint
+# evaluator tests/scripts/check-version-drift.sh uses to decide whether a
+# provider's latest registry version is actual drift or already covered by
+# the module's own `~>`/`>=`/etc. constraint. Runs no network and no
+# Terraform; every case below is a fixed (constraint, version, expected
+# exit code) triple.
+#
+# Usage: tests/scripts/test-version-drift-constraints.sh
+# Requires: python3 (constraints.sh shells out to it).
+
+set -euo pipefail
+
+cd "$(dirname "$0")/../.."
+
+# shellcheck source=lib/constraints.sh
+source tests/scripts/lib/constraints.sh
+
+FAILURES=0
+
+fail() {
+  echo "FAIL: $1" >&2
+  FAILURES=$((FAILURES + 1))
+}
+
+pass() {
+  echo "PASS: $1"
+}
+
+# check_case <constraint> <version> <expected-exit>
+check_case() {
+  local constraint="$1" version="$2" expected="$3" actual
+  if constraint_accepts "$constraint" "$version"; then
+    actual=0
+  else
+    actual=$?
+  fi
+  if [ "$actual" = "$expected" ]; then
+    pass "constraint_accepts '${constraint}' '${version}' -> ${actual}"
+  else
+    fail "constraint_accepts '${constraint}' '${version}' -> ${actual}, expected ${expected}"
+  fi
+}
+
+# ── ~> precision (one and two dotted components, exact upper bound) ────────
+check_case "~> 3.0" "3.3.0" 0
+check_case "~> 3.0" "4.0.0" 1
+check_case "~> 0.14" "0.14.2" 0
+check_case "~> 0.14" "1.0.0" 1
+check_case "~> 6.23" "8.6.0" 1
+check_case "~> 8.0" "8.7.0" 0
+check_case "~> 1.14" "1.19.0" 0
+check_case "~> 6.23.1" "6.23.9" 0
+check_case "~> 6.23.1" "6.24.0" 1
+check_case "~> 1" "1.9.0" 0
+check_case "~> 1" "2.0.0" 1
+
+# ── Correct ~> 6.23 lower/upper edges (6.23.0 inclusive, 6.22.x excluded) ───
+check_case "~> 6.23" "6.23.0" 0
+check_case "~> 6.23" "6.99.9" 0
+check_case "~> 6.23" "6.22.9" 1
+
+# ── Comma-separated bounds ──────────────────────────────────────────────────
+check_case ">= 1.11" "1.16.5" 0
+check_case ">= 1.11, < 2.0" "2.1.0" 1
+check_case ">= 1.11, < 2.0" "1.16.5" 0
+check_case ">= 1.11, < 2.0" "1.10.9" 1
+
+# ── Bare, =, !=, >, <=, < ────────────────────────────────────────────────
+check_case "1.2.3" "1.2.3" 0
+check_case "1.2.3" "1.2.4" 1
+check_case "= 1.2.3" "1.2.3" 0
+check_case "!= 1.2.3" "1.2.3" 1
+check_case "> 1.0.0" "1.0.0" 1
+check_case "<= 1.0.0" "1.0.0" 0
+check_case "< 1.0.0" "1.0.0" 1
+
+# ── Unparseable constraints ─────────────────────────────────────────────────
+check_case "" "1.0.0" 2
+check_case "~>" "1.0.0" 2
+check_case ">=1.x" "1.0.0" 2
+check_case "1.2.3.4" "1.0.0" 2
+check_case "latest" "1.0.0" 2
+
+# ── Unparseable candidate versions (ERROR, not DRIFT) ───────────────────────
+check_case "~> 3.0" "3.3.0-rc.1" 2
+check_case "~> 3.0" "3.3.0+meta" 2
+check_case "~> 3.0" "v3.3.0" 2
+check_case "~> 3.0" "3.3.0.1" 2
+check_case "~> 3.0" "" 2
+
+# ── Extra whitespace tolerance ──────────────────────────────────────────────
+check_case "  ~>   3.0  " "3.1.0" 0
+
+# ── Self-check: prove a wrong expected value is actually caught ────────────
+# Runs the real check_case with a deliberately wrong expected exit code in a
+# subshell (so its FAILURES increment does not pollute the real run) and
+# confirms it is reported as a failure, not a false pass. Only fail() is
+# redefined, to print to stdout; bash resolves it at call time, so the
+# check_case under test is the same one every case above uses. Same pattern
+# as tests/scripts/test-version-drift-tags.sh's self-check.
+SELFTEST_OUTPUT="$(
+  FAILURES=0
+  fail() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
+  check_case "~> 3.0" "3.3.0" 1
+  echo "FAILURES=$FAILURES"
+)"
+
+if echo "$SELFTEST_OUTPUT" | grep -q "^FAILURES=1$"; then
+  pass "self-check: a deliberately wrong expected exit code is caught as a failure"
+else
+  fail "self-check: a deliberately wrong expected exit code was NOT caught (harness has no teeth): ${SELFTEST_OUTPUT}"
+fi
+
+echo ""
+if [ "$FAILURES" -gt 0 ]; then
+  echo "test-version-drift-constraints.sh: ${FAILURES} case(s) failed" >&2
+  exit 1
+fi
+
+echo "test-version-drift-constraints.sh: all cases passed"

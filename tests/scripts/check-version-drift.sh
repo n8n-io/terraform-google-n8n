@@ -19,6 +19,8 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 source tests/scripts/lib/tf-defaults.sh
 # shellcheck source=lib/drift-tags.sh
 source tests/scripts/lib/drift-tags.sh
+# shellcheck source=lib/constraints.sh
+source tests/scripts/lib/constraints.sh
 
 drift_count=0
 error_count=0
@@ -29,7 +31,11 @@ report_drift() {
 }
 
 report_ok() {
-  echo "OK:    $1 pinned at $2 (latest)"
+  if [ -n "${3:-}" ]; then
+    echo "OK:    $1 pinned at $2 (accepts latest $3)"
+  else
+    echo "OK:    $1 pinned at $2 (latest)"
+  fi
 }
 
 report_error() {
@@ -64,11 +70,15 @@ print(sorted(versions, key=key)[-1])
     report_error "$display" "registry.terraform.io returned no usable version list"
     return
   fi
-  if [[ "$current" == *"$latest"* ]]; then
-    report_ok "$display" "$current"
-  else
-    report_drift "$display" "$current" "$latest"
-  fi
+  # Drift is "the latest release is outside the constraint", not "the constraint
+  # text lacks the latest version": `~> 3.0` already accepts 3.3.0.
+  local verdict=0
+  constraint_accepts "$current" "$latest" || verdict=$?
+  case "$verdict" in
+    0) report_ok "$display" "$current" "$latest" ;;
+    1) report_drift "$display" "$current" "$latest" ;;
+    *) report_error "$display" "could not evaluate constraint '${current}' against '${latest}'" ;;
+  esac
 }
 
 check_provider "google"       "hashicorp"     "google"

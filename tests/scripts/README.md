@@ -97,8 +97,18 @@ and bump-tier classification these scripts check against.
   Terraform Registry API), the n8n chart (via GHCR's anonymous tag API), and
   the KEDA chart (via its Helm repo) against the currently pinned version.
   Every lookup failure is reported as an explicit `ERROR`, distinct from "no
-  drift found", so a network hiccup cannot look like a clean report. Exit
-  code is nonzero only on a lookup failure, never on drift alone. The n8n
+  drift found", so a network hiccup cannot look like a clean report. A
+  lookup or evaluation error exits 2; drift alone exits 0. A
+  provider is `OK` when its `versions.tf` constraint already accepts the
+  latest registry release (`~> 3.0` accepts 3.3.0), and `DRIFT` only when
+  the latest release falls outside it (`~> 6.23` against 8.x). So `OK` means
+  the constraint admits the latest release, not that anything is pinned to
+  it; a `>=`-only constraint does not report drift once the latest release
+  meets its minimum. Prerelease registry releases are skipped before
+  evaluation, so they never count as the latest release. A constraint the
+  evaluator (`lib/constraints.sh`) cannot parse, for example a prerelease
+  constraint such as `~> 1.2.0-beta`, is an `ERROR`.
+  `test-version-drift-constraints.sh` tests that evaluator offline. The n8n
   chart lookup keeps only plain `X.Y.Z` tags (`lib/drift-tags.sh`), so
   prereleases and registry metadata tags such as `artifacthub.io` and
   `sha256-...` never count as the latest release.

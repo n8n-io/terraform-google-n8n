@@ -363,6 +363,18 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- `tests/scripts/check-version-drift.sh` (contributor tooling, no module
+  change) now evaluates each provider constraint against the latest
+  registry release instead of looking for the version number in the
+  constraint text. A constraint that already accepts the latest release
+  (`~> 3.0` against 3.3.0) reports `OK` instead of `DRIFT`; only a release
+  outside the constraint reports `DRIFT`. A constraint the evaluator cannot
+  parse (for example a prerelease constraint) reports an explicit `ERROR`.
+  Prerelease registry releases are still skipped before evaluation, as
+  before, so they never count as the latest release. The evaluator
+  lives in `tests/scripts/lib/constraints.sh`, and the offline test
+  `tests/scripts/test-version-drift-constraints.sh` runs in CI with the
+  other `tests/scripts/test-*.sh` scripts.
 - Module-created Cloud KMS keys for Cloud SQL, Memorystore, and GCS
   (`google_kms_crypto_key.postgres`, `.redis`, and `.gcs`) now carry the
   module's standard labels (`local.gcp_labels`, including `common_labels`),
