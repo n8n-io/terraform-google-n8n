@@ -292,6 +292,19 @@ this project adheres to the stability contract in
 
 ### Fixed
 
+- Turning `redis_auth_enabled` on for an existing module-managed Memorystore
+  instance now works in a single apply. Before, the first apply turned AUTH on
+  and then failed with "Provider produced inconsistent final plan" on
+  `kubernetes_secret.redis_auth`. The google provider plans `auth_string` as
+  its old empty value during the in-place update, so the Secret was planned
+  with an empty password. The Secret, the KEDA `TriggerAuthentication`, and
+  the n8n Helm update were left unapplied. Until a second apply, KEDA could
+  not read the queue (`NOAUTH Authentication required`), so workers stopped
+  autoscaling. A new `terraform_data.redis_auth_gate`, created on the apply
+  that turns AUTH on, now keeps the Secret's password "known after apply"
+  until Memorystore returns the real string. Deployments that already run with
+  AUTH on see a one-time in-place update of `kubernetes_secret.redis_auth`
+  when they first apply this version. The stored password does not change.
 - Module-created Cloud KMS keys for Cloud SQL, Memorystore, and GCS
   (`google_kms_crypto_key.postgres`, `.redis`, and `.gcs`) now carry the
   module's standard labels (`local.gcp_labels`, including `common_labels`),
