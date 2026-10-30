@@ -27,13 +27,13 @@ variable "keda_chart_repository" {
 }
 
 variable "keda_chart_version" {
-  description = "KEDA Helm chart version to deploy. Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Ignored when install_keda = false."
+  description = "KEDA Helm chart version to deploy. Pinned so every apply installs the same operator version; bump deliberately and re-run the test suite rather than floating to latest. Must be an exact semantic version. Versions before 2.21.0 lack KEDA's fix for CVE-2026-77524; see [docs/upgrading-n8n.md](../../docs/upgrading-n8n.md) before pinning one. Ignored when install_keda = false."
   type        = string
-  default     = "2.20.1"
+  default     = "2.21.0"
 
   validation {
     condition     = can(regex("^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z-.]+)?(\\+[0-9A-Za-z-.]+)?$", var.keda_chart_version))
-    error_message = "keda_chart_version must be an exact semantic version, e.g. \"2.20.1\" (optionally with a -prerelease or +build suffix). Version ranges (~>, >=) and floating tags (latest) are not accepted."
+    error_message = "keda_chart_version must be an exact semantic version, e.g. \"2.21.0\" (optionally with a -prerelease or +build suffix). Version ranges (~>, >=) and floating tags (latest) are not accepted."
   }
 }
 

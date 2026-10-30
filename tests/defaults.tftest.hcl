@@ -381,7 +381,7 @@ run "keda_installed" {
   # Pinned so applies are reproducible; keep in sync with the
   # keda_chart_version default in variables.tf.
   assert {
-    condition     = module.controllers.keda_chart_version == "2.20.1"
+    condition     = module.controllers.keda_chart_version == "2.21.0"
     error_message = "KEDA chart version must be pinned to the keda_chart_version default"
   }
 }

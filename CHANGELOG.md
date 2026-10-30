@@ -264,6 +264,31 @@ this project adheres to the stability contract in
   - The chart's own values validation now reports every failure in one
     render instead of stopping at the first (n8n-hosting#209).
   - See `docs/upgrading-n8n.md`, "Moving from chart 1.13.0 to 1.14.0".
+- Default `keda_chart_version` bumped to `2.21.0` (was `2.20.1`; KEDA
+  v2.21.0), in the root module and `modules/controllers`. This is a security
+  fix (see Security below). KEDA 2.21 lists three breaking changes
+  (service-account-token audience enforcement for Vault and
+  `boundServiceAccountToken` authentication, Azure Pipelines in-flight jobs,
+  removed Temporal scaler settings); none applies to the module, whose
+  `TriggerAuthentication` uses only `secretTargetRef` and which uses neither
+  scaler. With `install_keda = true` (the default), a caller that does not
+  pin `keda_chart_version` gets an in-place Helm upgrade on the next apply,
+  and the KEDA operator pods roll once; nothing in the n8n namespace is
+  replaced. The move also picks up KEDA 2.20.2, which reports HPA health in
+  a new `HPAActive` `ScaledObject` condition instead of `Ready`;
+  `tests/scripts/smoke-test.sh` now reads it too. KEDA 2.21 is tested on
+  Kubernetes v1.34 to v1.36 (2.20: v1.33 to v1.35). On 2026-10-13 that
+  covered every version GKE's `REGULAR` and `STABLE` channels offered; GKE's
+  release schedule (checked 2026-10-29) lists 1.37 on `RAPID` since
+  2026-09-02 and on `REGULAR` since 2026-10-22, so check your cluster's
+  version. Verified live on `examples/small` (GKE 1.36.4, `REGULAR`): the
+  in-place upgrade from `2.20.1` planned only the KEDA release change; after
+  apply the `ScaledObject` stayed `Ready=True` and `HPAActive=True`, the smoke
+  test with `LOAD_TEST=true` passed with Redis AUTH both off and on (turning
+  AUTH on for an existing instance needed a second apply, a separate bug fixed
+  in #54), the re-plan was clean, and a rollback to `2.20.1` was also a clean
+  in-place update. See `docs/upgrading-n8n.md`, "Moving from KEDA chart 2.20.1 to
+  2.21.0".
 - **Changed default:** `redis_maxmemory_policy` (default `"noeviction"`) now
   sets `redis_configs["maxmemory-policy"]` on the module-managed Memorystore
   instance, replacing Memorystore's own `volatile-lru` default. Under memory
@@ -384,6 +409,18 @@ this project adheres to the stability contract in
   holds `orgpolicy.policy.set`, so an otherwise passing run reports
   `PASS with warnings`. With the default `manage_sa_key_org_policy = false`
   and a module-created HMAC key, `apply` fails until the policy is relaxed.
+
+### Security
+
+- The new `keda_chart_version` default, `2.21.0` (see Changed above), is the
+  first KEDA release with the fix for the critical CVE-2026-77524
+  ([GHSA-637c-6jxx-4rwm](https://github.com/advisories/GHSA-637c-6jxx-4rwm)):
+  a namespace admin could escalate to cluster admin through a
+  `TriggerAuthentication`. Every earlier KEDA release, including the old
+  `2.20.1` default, is affected, whether or not the module's own
+  `TriggerAuthentication` uses the affected authentication modes. Callers who
+  pin an older `keda_chart_version`, or who manage KEDA themselves with
+  `install_keda = false`, must move to `2.21.0` or later to get the fix.
 
 ## [0.1.0] - 2026-09-29
 
