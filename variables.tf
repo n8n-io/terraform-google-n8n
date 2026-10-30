@@ -479,7 +479,7 @@ variable "n8n_custom_extensions_path" {
 # (locals.tf) and wired into helm_release.n8n (n8n.tf).
 
 variable "n8n_extra_volumes" {
-  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, and redis-ca belong to the chart/module and cannot be reused."
+  description = "Existing ConfigMaps, Secrets, or PVCs to mount into every n8n pod (main, worker, webhook processor) via the chart's extraVolumes. Each entry has a name and exactly one typed source: config_map, secret, or persistent_volume_claim. The module creates and reads none of the referenced objects; provisioning and lifecycle stay the caller's responsibility. A PVC mounted read-write on more than one pod needs a caller-provisioned ReadWriteMany-capable StorageClass, since n8n runs multiple replicas of every role. Pair entries here with n8n_extra_volume_mounts to actually mount them somewhere; declaring a volume with no matching mount has no effect. Reserved volume names data, task-runner-config, and redis-ca belong to the chart/module and cannot be reused, and ca-bundle is reserved too while n8n_extra_ca_pem is set."
   type = list(object({
     name = string
     config_map = optional(object({
@@ -572,7 +572,7 @@ variable "n8n_extra_volumes" {
 }
 
 variable "n8n_extra_volume_mounts" {
-  description = "Mounts of n8n_extra_volumes entries into every n8n pod (main, worker, webhook processor) via the chart's extraVolumeMounts. Each entry's name must match a declared n8n_extra_volumes entry. mount_path must be an absolute, canonical container path outside the module's own protected mounts (/home/node/.n8n, the main pod's data directory; /etc/n8n-certs, the managed Redis CA mount). read_only defaults to true; set false only for a PVC the caller's workload actually needs to write to."
+  description = "Mounts of n8n_extra_volumes entries into every n8n pod (main, worker, webhook processor) via the chart's extraVolumeMounts. Each entry's name must match a declared n8n_extra_volumes entry. mount_path must be an absolute, canonical container path outside the module's own protected mounts (/home/node/.n8n, the main pod's data directory; /etc/n8n-certs, the managed Redis CA and n8n_extra_ca_pem bundle mounts). read_only defaults to true; set false only for a PVC the caller's workload actually needs to write to."
   type = list(object({
     name       = string
     mount_path = string
@@ -627,7 +627,67 @@ variable "n8n_extra_volume_mounts" {
         m.mount_path == "/etc/n8n-certs" || startswith(m.mount_path, "/etc/n8n-certs/")
       )
     ])
-    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis CA mount)."
+    error_message = "n8n_extra_volume_mounts[].mount_path must not overlap the module's own protected mounts: /home/node/.n8n (main pod's data directory) or /etc/n8n-certs (managed Redis CA and extra CA bundle mounts)."
+  }
+}
+
+variable "n8n_extra_ca_pem" {
+  description = "PEM-encoded CA certificate(s) every n8n role should trust for outbound TLS, in addition to Node's built-in roots. Use it when egress traffic passes through a TLS-intercepting proxy or reaches endpoints signed by a private CA. The module stores the PEM (public certificates only, never private keys) in a module-managed Secret, mounts it read-only at /etc/n8n-certs/ca-bundle.crt on main, worker, and webhook-processor pods, and points NODE_EXTRA_CA_CERTS at it. Node honours a single NODE_EXTRA_CA_CERTS file, so while the module-managed Memorystore TLS CA is also in play (redis_transit_encryption_enabled = true) the Secret holds the Redis CA followed by this PEM; do not include the Redis CA yourself. Combine with n8n_extra_env HTTP_PROXY/HTTPS_PROXY/NO_PROXY to route traffic through the proxy; the module does not manage those. A change rolls the pods through a checksum/extra-ca pod annotation (sha256 of the bundle). Setting it back to null deletes the Secret before Helm rolls the pods; see docs/tls-proxy.md for what that means for pods scheduled during the rollout and for a failed upgrade. Null (the default) leaves NODE_EXTRA_CA_CERTS to the Redis CA path or unset. The task-runner sidecars are not covered. NODE_EXTRA_CA_CERTS stays rejected in n8n_extra_env; this is the supported way to set it."
+  type        = string
+  default     = null
+
+  validation {
+    # Every BEGIN line needs a matching END line around a base64 body that
+    # decodes to DER (an X.509 certificate always starts with a SEQUENCE, so
+    # its base64 starts with "MI"), padded to a multiple of 4 characters.
+    # base64decode() cannot check this: it rejects binary DER as invalid UTF-8.
+    # Shape only: the certificate itself is still parsed by Node at pod start.
+    condition = var.n8n_extra_ca_pem == null ? true : (
+      length(regexall("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) > 0 &&
+      length(regexall("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) == length(regexall("-----END CERTIFICATE-----", var.n8n_extra_ca_pem)) &&
+      length(regexall("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) == length(regexall("-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\\s]*)-----END CERTIFICATE-----", var.n8n_extra_ca_pem)) &&
+      alltrue([
+        for block in regexall("-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\\s]*)-----END CERTIFICATE-----", var.n8n_extra_ca_pem) :
+        can(regex("^MI[A-Za-z0-9+/]+={0,2}$", replace(block[0], "/\\s/", ""))) && length(replace(block[0], "/\\s/", "")) % 4 == 0
+      ])
+    )
+    error_message = "n8n_extra_ca_pem must contain one or more PEM-encoded certificates: each -----BEGIN CERTIFICATE----- line needs a matching -----END CERTIFICATE----- line around a base64 DER body (starting with MI, length a multiple of 4)."
+  }
+
+  validation {
+    condition     = var.n8n_extra_ca_pem == null ? true : !can(regex("PRIVATE KEY-----", var.n8n_extra_ca_pem))
+    error_message = "n8n_extra_ca_pem must contain certificates only; remove any private key block."
+  }
+
+  validation {
+    condition     = var.n8n_extra_ca_pem == null ? true : !contains([for v in var.n8n_extra_volumes : v.name], "ca-bundle")
+    error_message = "n8n_extra_ca_pem reserves the \"ca-bundle\" volume name for its own read-only mount while set; remove or rename the conflicting n8n_extra_volumes entry."
+  }
+}
+
+variable "n8n_proxy_hops" {
+  description = "Number of trusted reverse-proxy hops in front of n8n, mapped to N8N_PROXY_HOPS on every n8n role (Express \"trust proxy\"). n8n then takes the client IP and protocol from X-Forwarded-For / X-Forwarded-Proto instead of the immediate peer. Express counts the immediate peer as the first hop and then reads X-Forwarded-For from right to left. The Google Cloud load balancer adds two X-Forwarded-For entries (the client address it sees and its own forwarding-rule IP), so it counts as 2: the module-managed GKE Ingress alone is 2, and one customer TLS-terminating proxy, WAF, or CDN in front of it is 3. Too low a value attributes every request to the nearest proxy's address. A value is only safe when every path that reaches n8n crosses the same number of proxies: a client that reaches the load balancer directly while this is sized for a longer proxy path can choose its own client IP through X-Forwarded-For, so admit only the proxy's egress addresses (ingress_source_cidrs on the module-managed ingress, or the equivalent allow-list on a caller-managed one when create_ingress = false). Any whole number of 0 or more is accepted. Null (the default) omits the variable and leaves n8n's own default (no trusted proxy) in place, so existing deployments do not change and N8N_PROXY_HOPS stays usable through the extra-env inputs; unlike terraform-aws-n8n and terraform-azurerm-n8n, which default to 1 for their single-entry load balancers, this module does not set it by default. The proxy's own TLS to the origin is configured elsewhere: tls_mode (custom or secret to present a certificate from the customer's private CA) and ingress_source_cidrs on the module-managed ingress, and n8n_webhook_url if the public webhook host differs (the editor stays on n8n_fqdn). N8N_PROXY_HOPS is rejected in n8n_extra_env, n8n_worker_extra_env, and every n8n_worker_pools entry's extra_env while this is set."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : (var.n8n_proxy_hops >= 0 && var.n8n_proxy_hops == floor(var.n8n_proxy_hops))
+    error_message = "n8n_proxy_hops must be a whole number of 0 or more, or null to leave N8N_PROXY_HOPS unset."
+  }
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : !anytrue([for e in var.n8n_extra_env : e.name == "N8N_PROXY_HOPS"])
+    error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it itself); remove the conflicting n8n_extra_env entry."
+  }
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : !anytrue([for e in var.n8n_worker_extra_env : e.name == "N8N_PROXY_HOPS"])
+    error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it on every role); remove the conflicting n8n_worker_extra_env entry."
+  }
+
+  validation {
+    condition     = var.n8n_proxy_hops == null ? true : !anytrue(flatten([for p in var.n8n_worker_pools : [for e in p.extra_env : e.name == "N8N_PROXY_HOPS"]]))
+    error_message = "n8n_proxy_hops reserves N8N_PROXY_HOPS while set (the module sets it on every role); remove the conflicting extra_env entry from n8n_worker_pools."
   }
 }
 

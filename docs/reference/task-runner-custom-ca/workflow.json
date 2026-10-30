@@ -1,0 +1,33 @@
+{
+  "name": "task-runner-ca-verify",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "task-runner-ca-verify",
+        "httpMethod": "GET",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1111111-1111-4111-8111-111111111111",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "a2222222-2222-4222-8222-222222222222"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Verifies that the task-runner sidecar process itself (not n8n's own\n// process) trusts the baked-in CA. Replace host/servername/path with your\n// own private endpoint before reusing this workflow.\n//\n// Needs the TEST launcher config (n8n-task-runners.test.json), which adds\n// 'https' to NODE_FUNCTION_ALLOW_BUILTIN; the default/production config\n// rejects require('https') with 'Module \\'https\\' is disallowed', which is\n// the expected negative control on a stock image/config.\nconst out = {};\ntry {\n  const https = require('https');\n  out.requireHttps = 'ok';\n  out.result = await new Promise((resolve) => {\n    const req = https.get({\n      host: '<PRIVATE_IP_OR_HOST>',\n      servername: '<HOSTNAME_ON_CERT>',\n      path: '/healthz',\n      headers: { Host: '<HOSTNAME_ON_CERT>' },\n      timeout: 5000,\n    }, (res) => {\n      // Only the status code: the endpoint's body is never returned to the\n      // unauthenticated webhook caller.\n      res.resume();\n      res.on('end', () => resolve('status:' + res.statusCode));\n    });\n    req.on('error', (e) => resolve('err:' + e.code + ':' + e.message));\n    req.on('timeout', () => { req.destroy(); resolve('err:timeout'); });\n  });\n} catch (e) {\n  out.requireHttps = 'blocked';\n  out.error = e.message;\n}\nreturn [{ json: out }];"
+      },
+      "id": "a3333333-3333-4333-8333-333333333333",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 0]
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Code", "type": "main", "index": 0 }]] }
+  },
+  "settings": {}
+}

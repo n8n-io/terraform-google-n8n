@@ -61,6 +61,7 @@ REQUIRED_OPT_IN_RESOURCES=(
   "kubernetes_service_v1.redis_exporter"
   "google_kms_crypto_key.gke"
   "google_kms_crypto_key_iam_member.gke"
+  "kubernetes_secret_v1.n8n_ca_bundle"
 )
 
 status=0

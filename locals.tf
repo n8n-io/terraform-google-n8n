@@ -723,6 +723,56 @@ locals {
     readOnly  = true
   } : null
 
+  # ── Extra CA bundle (n8n_extra_ca_pem) ────────────────────────────────────
+  # Node reads one NODE_EXTRA_CA_CERTS file, so the managed Memorystore CA (when
+  # present) and the caller's PEM are concatenated into one module-managed
+  # Secret. Both are public certificates. Mounted like the Redis CA: a single
+  # key, read-only, on every n8n role.
+  n8n_extra_ca_enabled = var.n8n_extra_ca_pem != null
+
+  n8n_ca_bundle_pem = local.n8n_extra_ca_enabled ? join("\n", compact([
+    local.manage_redis_tls_ca ? trimspace(google_redis_instance.n8n[0].server_ca_certs[0].cert) : "",
+    trimspace(var.n8n_extra_ca_pem),
+  ])) : null
+
+  # Hash of the whole bundle (Redis CA + caller PEM), so a Memorystore CA
+  # rotation also rolls the pods.
+  n8n_ca_bundle_checksum = local.n8n_extra_ca_enabled ? sha256(local.n8n_ca_bundle_pem) : null
+
+  n8n_ca_bundle_volume = local.n8n_extra_ca_enabled ? {
+    name = "ca-bundle"
+    secret = {
+      secretName = "n8n-ca-bundle-secret"
+      items = [{
+        key  = "ca.crt"
+        path = "ca.crt"
+      }]
+    }
+  } : null
+
+  n8n_ca_bundle_mount = local.n8n_extra_ca_enabled ? {
+    name      = "ca-bundle"
+    mountPath = "/etc/n8n-certs/ca-bundle.crt"
+    subPath   = "ca.crt"
+    readOnly  = true
+  } : null
+
+  # The config.extraEnv entries for NODE_EXTRA_CA_CERTS and N8N_PROXY_HOPS,
+  # kept here so tests can assert them: helm_release.n8n's values are unknown
+  # at plan time under the mock provider (see AGENTS.md). Node reads one
+  # NODE_EXTRA_CA_CERTS file, so at most one entry: the merged bundle when
+  # n8n_extra_ca_pem is set (it already holds the Redis CA), else the
+  # Memorystore CA alone.
+  n8n_node_extra_ca_certs_env = local.n8n_extra_ca_enabled ? [
+    { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/ca-bundle.crt" },
+    ] : local.manage_redis_tls_ca ? [
+    { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
+  ] : []
+
+  n8n_proxy_hops_env = var.n8n_proxy_hops != null ? [
+    { name = "N8N_PROXY_HOPS", value = tostring(var.n8n_proxy_hops) },
+  ] : []
+
   # ── Pod DNS (task 13) ─────────────────────────────────────────
   # var.n8n_dns_config with unset keys removed.
   #

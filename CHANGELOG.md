@@ -79,6 +79,39 @@ this project adheres to the stability contract in
   the label in GKE. The next plan shows this only as a refresh change with
   no planned actions, and the next apply saves the refreshed state.
 
+- `n8n_extra_ca_pem`: trust a private or TLS-intercepting-proxy CA for
+  n8n's outbound TLS. The module stores the PEM in a module-managed Secret,
+  mounts it read-only at `/etc/n8n-certs/ca-bundle.crt` on the main, worker,
+  and webhook-processor pods, and sets `NODE_EXTRA_CA_CERTS` to it. Node reads
+  one file, so when `redis_transit_encryption_enabled = true` the Secret holds
+  the Memorystore CA followed by the supplied PEM. Proxy routing itself
+  (`HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) stays in `n8n_extra_env`.
+  `NODE_EXTRA_CA_CERTS` remains reserved against `n8n_extra_env`. A
+  `checksum/extra-ca` pod annotation (sha256 of the bundle) rolls the three
+  deployments when the CA changes. Setting it back to `null` deletes the
+  Secret before Helm rolls the pods; `docs/tls-proxy.md` covers the effect on
+  pods scheduled during the rollout and on a failed upgrade. The task-runner
+  sidecar is not covered; see `docs/tls-proxy.md`.
+- `n8n_proxy_hops`: sets `N8N_PROXY_HOPS` on every role for an inbound
+  reverse proxy, WAF, or CDN in front of the ingress. The Google load balancer
+  adds two `X-Forwarded-For` entries, so it counts as 2: the module-managed
+  ingress alone is 2, and one customer proxy in front of it is 3. Without it
+  n8n logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` and does not see the real
+  client address. The count is only safe when every path to n8n crosses the
+  same number of proxies; see `docs/tls-proxy.md`. Defaults to `null` (not
+  set), unlike `terraform-aws-n8n` and `terraform-azurerm-n8n`, which default
+  to 1: existing deployments do not change, and `N8N_PROXY_HOPS` stays usable
+  through the extra-env inputs. It is reserved against `n8n_extra_env`,
+  `n8n_worker_extra_env`, and pool `extra_env` only while this is set.
+- `docs/tls-proxy.md`: outbound, inbound, and combined proxy setups, with the
+  task-runner sidecar limitation.
+- `docs/reference/task-runner-custom-ca/`: a live-proven reference for making
+  the task-runner sidecar's JavaScript runner trust a private/proxy CA with a
+  custom runner image (`n8n_task_runner_image_repository` /
+  `n8n_task_runner_image_tag`) and a matching launcher configuration
+  (`n8n_task_runner_custom_config`) that sets `NODE_EXTRA_CA_CERTS`. Includes a
+  Dockerfile, production and verification launcher configs, a Terraform
+  snippet, and a verification script. The Python runner is not covered.
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services

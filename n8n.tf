@@ -167,6 +167,23 @@ resource "kubernetes_secret" "n8n_redis_tls" {
   depends_on = [kubernetes_namespace.n8n]
 }
 
+# Caller-supplied extra CA (n8n_extra_ca_pem), merged with the Memorystore CA
+# when that is managed, because Node honours only one NODE_EXTRA_CA_CERTS file.
+resource "kubernetes_secret_v1" "n8n_ca_bundle" {
+  count = local.n8n_extra_ca_enabled ? 1 : 0
+
+  metadata {
+    name      = "n8n-ca-bundle-secret"
+    namespace = local.effective_namespace
+  }
+
+  data = {
+    "ca.crt" = local.n8n_ca_bundle_pem
+  }
+
+  depends_on = [kubernetes_namespace.n8n]
+}
+
 # GCS HMAC secret access key for the S3-compatible binary-data driver. The chart
 # reads it via s3.auth.secretAccessKeySecret (a Secret ref, not a plaintext value).
 # Skipped when the caller supplies an existing Secret (gcs_hmac_secret_name); see
@@ -363,6 +380,7 @@ resource "helm_release" "n8n" {
           }]
         }
       }] : [],
+      local.n8n_extra_ca_enabled ? [local.n8n_ca_bundle_volume] : [],
       local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_volume] : [],
       local.n8n_caller_extra_volumes,
     )
@@ -374,6 +392,7 @@ resource "helm_release" "n8n" {
         subPath   = "ca.crt"
         readOnly  = true
       }] : [],
+      local.n8n_extra_ca_enabled ? [local.n8n_ca_bundle_mount] : [],
       local.n8n_credentials_overwrite_enabled ? [local.n8n_credentials_overwrite_mount] : [],
       local.n8n_caller_extra_volume_mounts,
     )
@@ -651,15 +670,16 @@ resource "helm_release" "n8n" {
         var.n8n_compression_max_zip_entries != null ? [
           { name = "N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES", value = tostring(var.n8n_compression_max_zip_entries) },
         ] : [],
+        local.n8n_proxy_hops_env,
         # Points at the single key mounted read-only from
         # n8n_credentials_overwrite_secret_ref above; the module never reads
         # or renders the Secret's own JSON payload, only this file path.
         local.n8n_credentials_overwrite_enabled ? [
           { name = "CREDENTIALS_OVERWRITE_DATA_FILE", value = local.n8n_credentials_overwrite_mount.mountPath },
         ] : [],
-        local.manage_redis_tls_ca ? [
-          { name = "NODE_EXTRA_CA_CERTS", value = "/etc/n8n-certs/redis-ca.crt" },
-        ] : [],
+        # One file only: the merged bundle when n8n_extra_ca_pem is set (it
+        # already contains the Redis CA), else the Redis CA alone (locals.tf).
+        local.n8n_node_extra_ca_certs_env,
         # Ships nodes baked into a custom image (n8n_image_repository) at this
         # path. Omitted entirely when unset, matching n8n's own default (no
         # extra scan directory).
@@ -883,6 +903,12 @@ resource "helm_release" "n8n" {
       )
     },
 
+    # Rolls main, worker, and webhook-processor pods when the CA bundle
+    # changes (the chart's top-level podAnnotations reach all three).
+    local.n8n_extra_ca_enabled ? {
+      podAnnotations = { "checksum/extra-ca" = local.n8n_ca_bundle_checksum }
+    } : {},
+
     # Pod DNS (task 13). Omitted entirely unless n8n_dns_config is set, so this
     # is a no-op by default. Applies to the main, worker, and
     # webhook-processor pods: the chart's top-level dnsConfig is rendered into
@@ -926,6 +952,7 @@ resource "helm_release" "n8n" {
     kubernetes_secret.n8n_redis,
     kubernetes_secret.n8n_redis_username,
     kubernetes_secret.n8n_redis_tls,
+    kubernetes_secret_v1.n8n_ca_bundle,
     # The default worker's and every pool's ScaledObject reference this by
     # name; KEDA would only requeue until it exists, but creating it first
     # avoids a READY=False window on the first apply.

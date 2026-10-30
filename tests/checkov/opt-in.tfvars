@@ -20,3 +20,11 @@ redis_exporter_enabled = true
 # needs a key ring reference, so the fixture also creates the shared ring.
 create_kms_key_ring = true
 create_gke_kms_key  = true
+
+# Extra CA bundle: unblinds kubernetes_secret_v1.n8n_ca_bundle (n8n.tf). A
+# synthetic, public-shaped PEM; it is never parsed as a real certificate.
+n8n_extra_ca_pem = <<-EOT
+  -----BEGIN CERTIFICATE-----
+  MIIBcheckovoptinfixture0
+  -----END CERTIFICATE-----
+EOT
