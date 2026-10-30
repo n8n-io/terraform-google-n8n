@@ -21,6 +21,20 @@ this project adheres to the stability contract in
   Existing deployments gain both budgets on the next apply (two new
   resources). Ports terraform-aws-n8n#205.
 
+  **Upgrade note:** before upgrading, run
+  `kubectl get pdb -n <namespace> -o yaml` (namespace `n8n` unless you
+  changed `n8n_kube_namespace`) and compare each budget's `spec.selector`
+  with the labels of the webhook processor and worker pods. If a budget you
+  already own selects those pods, set the matching `n8n_webhook_pdb_enabled`
+  or `n8n_worker_pdb_enabled` to `false` and keep your own budget. When two
+  budgets select the same pod, the Eviction API rejects every eviction of it,
+  so `kubectl drain` and cluster autoscaler scale-down fail, and GKE
+  node-pool surge upgrades stall until GKE's one-hour drain timeout forces
+  the eviction (blue-green upgrades use their own timeouts). If a budget you own is
+  named `n8n-webhook-processor` or `n8n-worker`, the apply fails with
+  "already exists"; set the matching input to `false` as well. See
+  `docs/upgrading-n8n.md`, "Moving from chart 1.15.0 to 1.16.0".
+
 - `docs/build-time-decisions.md`: lists inputs that are hard or impossible to
   change after the first apply (GKE region, private nodes and control-plane
   CIDR, Dataplane V2, subnet and secondary ranges, the Private Services

@@ -246,6 +246,28 @@ Check these points before you apply:
   and still fails on a more restrictive budget. The multi-main
   case (main replicas above one) is unaffected on every chart version and
   still renders a PDB with `minAvailable: 1`.
+- **New module-owned budgets for webhook processors and workers.** This
+  release also adds `n8n_webhook_pdb_enabled` and `n8n_worker_pdb_enabled`
+  (both default `true`). The next apply creates two
+  `kubernetes_pod_disruption_budget_v1` resources, whether or not you change
+  `n8n_chart_version`. Before you apply, run
+  `kubectl get pdb -n <namespace> -o yaml` and compare each budget's
+  `spec.selector` with the labels of the webhook processor and worker pods.
+  If a budget you already own selects those pods, set the matching input to
+  `false` and keep your own budget: when two budgets select the same pod, the
+  Eviction API rejects every eviction of it, so `kubectl drain` and cluster
+  autoscaler scale-down fail, and GKE node-pool surge upgrades stall until
+  GKE's one-hour drain timeout forces the eviction (blue-green upgrades use
+  their own timeouts). A budget you own named
+  `n8n-webhook-processor` or `n8n-worker` makes the apply fail with
+  "already exists"; set the matching input to `false` in that case too.
+  After the apply, `kubectl get pdb -n <namespace>` lists
+  `n8n-webhook-processor` and `n8n-worker` (for each input left `true`),
+  each with `MAX UNAVAILABLE` 1, next to `n8n-main` in multi-main. A listed
+  budget is not proof of drain protection: at the default
+  `n8n_worker_keda_min_replicas = 1` the worker budget still permits
+  evicting the only worker, and `n8n_worker_pools` Deployments have no
+  budget.
 - **Task-runner sidecar liveness probe, on by default.** The sidecar now
   gets a liveness probe against the launcher's own `/healthz` endpoint on
   port 5680 (`taskRunners.probes.liveness`, n8n-hosting#223). The module sets
