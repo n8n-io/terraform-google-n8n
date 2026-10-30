@@ -114,8 +114,8 @@ run "partner_label_reaches_labeled_resources_nodes_and_exporter" {
   }
 
   assert {
-    condition     = kubernetes_deployment_v1.redis_exporter[0].spec[0].selector[0].match_labels["app"] == "redis-exporter"
-    error_message = "The partner label must not change the exporter's selector"
+    condition     = length(kubernetes_deployment_v1.redis_exporter[0].spec[0].selector[0].match_labels) == 1 && kubernetes_deployment_v1.redis_exporter[0].spec[0].selector[0].match_labels["app"] == "redis-exporter"
+    error_message = "The partner label must not enter the exporter's (immutable) selector: it must stay exactly app = redis-exporter"
   }
 }
 
