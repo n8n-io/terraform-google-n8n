@@ -637,8 +637,21 @@ variable "n8n_extra_ca_pem" {
   default     = null
 
   validation {
-    condition     = var.n8n_extra_ca_pem == null ? true : can(regex("-----BEGIN CERTIFICATE-----\\s*[A-Za-z0-9+/=][A-Za-z0-9+/=\\s]*-----END CERTIFICATE-----", var.n8n_extra_ca_pem))
-    error_message = "n8n_extra_ca_pem must contain at least one PEM-encoded certificate: a -----BEGIN CERTIFICATE----- line, non-empty base64 content, and a matching -----END CERTIFICATE----- line."
+    # Every BEGIN line needs a matching END line around a base64 body that
+    # decodes to DER (an X.509 certificate always starts with a SEQUENCE, so
+    # its base64 starts with "MI"), padded to a multiple of 4 characters.
+    # base64decode() cannot check this: it rejects binary DER as invalid UTF-8.
+    # Shape only: the certificate itself is still parsed by Node at pod start.
+    condition = var.n8n_extra_ca_pem == null ? true : (
+      length(regexall("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) > 0 &&
+      length(regexall("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) == length(regexall("-----END CERTIFICATE-----", var.n8n_extra_ca_pem)) &&
+      length(regexall("-----BEGIN CERTIFICATE-----", var.n8n_extra_ca_pem)) == length(regexall("-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\\s]*)-----END CERTIFICATE-----", var.n8n_extra_ca_pem)) &&
+      alltrue([
+        for block in regexall("-----BEGIN CERTIFICATE-----([A-Za-z0-9+/=\\s]*)-----END CERTIFICATE-----", var.n8n_extra_ca_pem) :
+        can(regex("^MI[A-Za-z0-9+/]+={0,2}$", replace(block[0], "/\\s/", ""))) && length(replace(block[0], "/\\s/", "")) % 4 == 0
+      ])
+    )
+    error_message = "n8n_extra_ca_pem must contain one or more PEM-encoded certificates: each -----BEGIN CERTIFICATE----- line needs a matching -----END CERTIFICATE----- line around a base64 DER body (starting with MI, length a multiple of 4)."
   }
 
   validation {
@@ -653,7 +666,7 @@ variable "n8n_extra_ca_pem" {
 }
 
 variable "n8n_proxy_hops" {
-  description = "Number of trusted reverse-proxy hops in front of n8n, mapped to N8N_PROXY_HOPS on every n8n role (Express \"trust proxy\"). n8n then takes the client IP and protocol from X-Forwarded-For / X-Forwarded-Proto instead of the immediate peer. Express counts the immediate peer as the first hop and then reads X-Forwarded-For from right to left. The Google Cloud load balancer adds two X-Forwarded-For entries (the client address it sees and its own forwarding-rule IP), so it counts as 2: the module-managed GKE Ingress alone is 2, and one customer TLS-terminating proxy, WAF, or CDN in front of it is 3. Too low a value attributes every request to the nearest proxy's address. A value is only safe when every path that reaches n8n crosses the same number of proxies: a client that reaches the load balancer directly while this is sized for a longer proxy path can choose its own client IP through X-Forwarded-For, so admit only the proxy's egress addresses through ingress_source_cidrs. Any whole number of 0 or more is accepted. Null (the default) omits the variable and leaves n8n's own default (no trusted proxy) in place, so existing deployments do not change and N8N_PROXY_HOPS stays usable through the extra-env inputs; unlike terraform-aws-n8n and terraform-azurerm-n8n, which default to 1 for their single-entry load balancers, this module does not set it by default. The proxy's own TLS to the origin is configured elsewhere: tls_mode (custom or secret to present a certificate from the customer's private CA), ingress_source_cidrs, and n8n_webhook_url if the public webhook host differs. N8N_PROXY_HOPS is rejected in n8n_extra_env, n8n_worker_extra_env, and every n8n_worker_pools entry's extra_env while this is set."
+  description = "Number of trusted reverse-proxy hops in front of n8n, mapped to N8N_PROXY_HOPS on every n8n role (Express \"trust proxy\"). n8n then takes the client IP and protocol from X-Forwarded-For / X-Forwarded-Proto instead of the immediate peer. Express counts the immediate peer as the first hop and then reads X-Forwarded-For from right to left. The Google Cloud load balancer adds two X-Forwarded-For entries (the client address it sees and its own forwarding-rule IP), so it counts as 2: the module-managed GKE Ingress alone is 2, and one customer TLS-terminating proxy, WAF, or CDN in front of it is 3. Too low a value attributes every request to the nearest proxy's address. A value is only safe when every path that reaches n8n crosses the same number of proxies: a client that reaches the load balancer directly while this is sized for a longer proxy path can choose its own client IP through X-Forwarded-For, so admit only the proxy's egress addresses (ingress_source_cidrs on the module-managed ingress, or the equivalent allow-list on a caller-managed one when create_ingress = false). Any whole number of 0 or more is accepted. Null (the default) omits the variable and leaves n8n's own default (no trusted proxy) in place, so existing deployments do not change and N8N_PROXY_HOPS stays usable through the extra-env inputs; unlike terraform-aws-n8n and terraform-azurerm-n8n, which default to 1 for their single-entry load balancers, this module does not set it by default. The proxy's own TLS to the origin is configured elsewhere: tls_mode (custom or secret to present a certificate from the customer's private CA) and ingress_source_cidrs on the module-managed ingress, and n8n_webhook_url if the public webhook host differs (the editor stays on n8n_fqdn). N8N_PROXY_HOPS is rejected in n8n_extra_env, n8n_worker_extra_env, and every n8n_worker_pools entry's extra_env while this is set."
   type        = number
   default     = null
 

@@ -6,7 +6,7 @@ independent inputs, so any combination works:
 | Proxy position | What breaks without configuration | Module inputs | You still own |
 | --- | --- | --- | --- |
 | **Outbound** (n8n to the internet, TLS-inspecting) | Node rejects the proxy's re-signed certificates (`UNABLE_TO_VERIFY_LEAF_SIGNATURE`) | `n8n_extra_ca_pem` for the proxy CA, plus `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` in `n8n_extra_env` | The proxy itself, its allow-list, and which hosts bypass it |
-| **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (the Google load balancer counts as 2, so one proxy in front of it is 3); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses; `n8n_webhook_url` if the public host differs | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
+| **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (the Google load balancer counts as 2, so one proxy in front of it is 3); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses (module-managed ingress only, `create_ingress = true`); `n8n_webhook_url` if the public webhook host differs (the editor stays on `n8n_fqdn`) | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
 | **Both** | Both rows above | Set both groups | Both |
 
 ## Outbound: trust the proxy's CA
@@ -42,8 +42,11 @@ n8n_extra_env = [
   a revision that mounts the deleted Secret; set the PEM again and re-apply to
   recover, then remove it in a quieter window.
 - An authenticated proxy works by putting the credentials in the proxy URL
-  (`http://user:password@proxy.corp.example:3128`). Without them n8n's outbound
-  requests fail (the proxy answers 407). `n8n_extra_env` values are plain text
+  (`http://user:password@proxy.corp.example:3128`). Percent-encode the user
+  name and password first (for example `@` as `%40`, `:` as `%3A`, `/` as
+  `%2F`), or a reserved character splits the URL in the wrong place and the
+  proxy rejects the request. Without credentials n8n's outbound requests fail
+  (the proxy answers 407). `n8n_extra_env` values are plain text
   in Terraform state and Helm values, so treat the proxy password as stored
   there.
 
@@ -87,7 +90,10 @@ ingress_source_cidrs = ["203.0.113.0/24"] # the proxy's egress range
   is sized for the proxy path can put any address in `X-Forwarded-For` and
   n8n uses it as the client IP, for example to get around per-IP rate limits
   ([Express documentation](https://expressjs.com/en/guide/behind-proxies.html)).
-  Use `ingress_source_cidrs` so that only the proxy reaches the load balancer.
+  With `create_ingress = true`, use `ingress_source_cidrs` so that only the
+  proxy reaches the load balancer. With `create_ingress = false` (for example
+  the split-ingress example), the module ignores `ingress_source_cidrs`;
+  enforce the same allow-list on the ingress or load balancer you own.
 - Google documents that the internal Application Load Balancer can strip an
   incoming `X-Forwarded-For` it receives from an intermediate proxy
   ([Google documentation](https://cloud.google.com/load-balancing/docs/l7-internal)).
@@ -104,7 +110,8 @@ ingress_source_cidrs = ["203.0.113.0/24"] # the proxy's egress range
   `google_compute_ssl_certificate` with `resourceInUseByAnotherResource`,
   because the load balancer still references it; once GKE has switched the
   target proxy to the Secret (about a minute), the second apply removes it.
-- `ingress_source_cidrs` is matched against the client address the load
+- `ingress_source_cidrs` applies only to the module-managed ingress
+  (`create_ingress = true`). It is matched against the client address the load
   balancer sees, which for a proxy is its public egress address. Anything else
   gets a 403 from the load balancer (the TLS handshake still succeeds). List
   every address the proxy can egress from. Do not also admit clients that
@@ -113,6 +120,11 @@ ingress_source_cidrs = ["203.0.113.0/24"] # the proxy's egress range
 - The module cannot configure the proxy. It must send `X-Forwarded-For` and
   `X-Forwarded-Proto`, and its `Host` header must match the hostname the
   ingress serves.
+- `n8n_webhook_url` changes only the webhook base URL. The editor and its
+  OAuth callbacks always use `https://<n8n_fqdn>`, so for editor traffic keep
+  `n8n_fqdn`, the origin certificate, and the `Host` header the proxy forwards
+  on the same hostname. Set `n8n_webhook_url` only when webhooks are served
+  from a different public host.
 - The editor's live updates use a WebSocket on `/rest/push`. The proxy must
   forward `Upgrade` / `Connection` (nginx needs `proxy_http_version 1.1` and
   `proxy_set_header Upgrade $http_upgrade`; without them the push request

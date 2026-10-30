@@ -1591,7 +1591,21 @@ fi
 
 # ── Extra-CA pod roll annotation (n8n_extra_ca_pem) ─────────────────────────
 # The module sets the chart's top-level podAnnotations to checksum/extra-ca;
-# it must land on the pod template of all three Deployments.
+# it must land in spec.template.metadata.annotations of each of the three
+# Deployments, and nowhere else in the render.
+# pod_template_annotation <rendered-file> <deployment-name> <annotation-key>
+# Prints the annotation's value from that Deployment's pod template, if set.
+pod_template_annotation() {
+  awk -v dep="$2" -v key="$3" '
+    /^kind: Deployment$/ { in_dep = 1; found = 0; in_tpl = 0; in_ann = 0; next }
+    /^---$/ { in_dep = 0; found = 0; in_tpl = 0; in_ann = 0; next }
+    in_dep && $0 == "  name: " dep { found = 1; next }
+    found && $0 == "  template:" { in_tpl = 1; next }
+    in_tpl && $0 == "      annotations:" { in_ann = 1; next }
+    in_ann && /^        [^ ]/ { if ($1 == key ":") { print $2; exit } next }
+    in_ann { in_ann = 0 }
+  ' "$1"
+}
 cat >"$WORKDIR/fixture-extra-ca.yaml" <<'EOF'
 podAnnotations:
   checksum/extra-ca: synthetic-extra-ca-hash
@@ -1605,11 +1619,19 @@ if ! helm template n8n "${CHART_REPOSITORY}/${CHART_NAME}" \
   >"$WORKDIR/rendered-extra-ca.yaml" 2>"$WORKDIR/helm-stderr-extra-ca.log"; then
   fail "helm template (extra-ca fixture) failed: $(cat "$WORKDIR/helm-stderr-extra-ca.log")"
 else
+  for dep in n8n-main n8n-worker n8n-webhook-processor; do
+    actual="$(pod_template_annotation "$WORKDIR/rendered-extra-ca.yaml" "$dep" "checksum/extra-ca")"
+    if [ "$actual" = "synthetic-extra-ca-hash" ]; then
+      pass "extra CA: ${dep} pod template carries checksum/extra-ca"
+    else
+      fail "extra CA: ${dep} pod template checksum/extra-ca expected synthetic-extra-ca-hash, got '${actual:-<not found>}'"
+    fi
+  done
   EXTRA_CA_COUNT="$(awk '/checksum\/extra-ca: synthetic-extra-ca-hash/ { n++ } END { print n + 0 }' "$WORKDIR/rendered-extra-ca.yaml")"
   if [ "$EXTRA_CA_COUNT" = "3" ]; then
-    pass "extra CA: checksum/extra-ca pod annotation renders on main, worker, and webhook-processor"
+    pass "extra CA: checksum/extra-ca appears exactly 3 times in the render (no stray copies)"
   else
-    fail "extra CA: checksum/extra-ca expected on 3 pod templates, found ${EXTRA_CA_COUNT}"
+    fail "extra CA: checksum/extra-ca expected exactly 3 times in the render, found ${EXTRA_CA_COUNT}"
   fi
 fi
 

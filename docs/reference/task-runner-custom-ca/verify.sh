@@ -3,7 +3,7 @@
 #
 # Logs into n8n's REST API from inside the cluster, creates and activates
 # workflow.json (edit its Code node's host/servername/path first), triggers
-# its webhook, and asserts the result. Run it once with --expect blocked
+# its webhook, asserts the result, and deletes the workflow again on exit. Run it once with --expect blocked
 # against the stock image/config as a negative control, then again with
 # --expect ok after applying task-runner-ca.tf.example (with
 # n8n-task-runners.test.json) as the positive proof.
@@ -85,10 +85,31 @@ fi
 echo "Starting a disposable curl pod..." >&2
 kubectl -n "$N8N_NAMESPACE" run "$TEST_POD_NAME" --image="$TEST_POD_IMAGE" \
   --restart=Never --command -- sleep 600
-trap 'kubectl -n "$N8N_NAMESPACE" delete pod "$TEST_POD_NAME" --now --ignore-not-found >/dev/null 2>&1' EXIT
-kubectl -n "$N8N_NAMESPACE" wait --for=condition=Ready "pod/$TEST_POD_NAME" --timeout=60s
-
 exec_curl() { kubectl -n "$N8N_NAMESPACE" exec "$TEST_POD_NAME" -- curl -s "$@"; }
+
+# Runs on every exit, including a failed assertion: deactivate, archive, and
+# delete the workflow this run created (so its fixed webhook path is free for
+# the next run and nothing stays reachable), then remove the client pod. Each
+# step is best effort; a leftover workflow is reported by id.
+auth_cookie=""
+wf_id=""
+cleanup() {
+  if [ -n "$wf_id" ] && [ -n "$auth_cookie" ]; then
+    exec_curl -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/deactivate" \
+      -H "Cookie: ${auth_cookie}" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1 || true
+    exec_curl -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/archive" \
+      -H "Cookie: ${auth_cookie}" -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1 || true
+    delete_resp=$(exec_curl -X DELETE "http://n8n-main:5678/rest/workflows/${wf_id}" \
+      -H "Cookie: ${auth_cookie}" 2>/dev/null || true)
+    case "$delete_resp" in
+      *'"data":true'*) echo "Cleaned up workflow ${wf_id}." >&2 ;;
+      *) echo "WARNING: could not delete workflow ${wf_id}; deactivate and delete it in the n8n UI. Response: ${delete_resp}" >&2 ;;
+    esac
+  fi
+  kubectl -n "$N8N_NAMESPACE" delete pod "$TEST_POD_NAME" --now --ignore-not-found >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+kubectl -n "$N8N_NAMESPACE" wait --for=condition=Ready "pod/$TEST_POD_NAME" --timeout=60s
 # Pipes stdin (read by this function's caller) into the pod's curl via
 # `kubectl exec -i`, so sensitive request bodies never appear in the
 # container's argument vector (visible to anyone who can list processes on
@@ -134,9 +155,6 @@ exec_curl -X POST "http://n8n-main:5678/rest/workflows/${wf_id}/activate" \
 echo "Triggering webhook..." >&2
 webhook_resp=$(exec_curl http://n8n-webhook-processor:5678/webhook/task-runner-ca-verify)
 printf '%s\n' "$webhook_resp" >&2
-
-echo "" >&2
-echo "Deactivate/delete the workflow (PATCH .../${wf_id} {\"active\":false} then DELETE) when done." >&2
 
 # Assert the result matches the requested mode instead of just printing it,
 # so a regression (e.g. the runner TLS check silently failing) makes the

@@ -230,6 +230,10 @@ namespace paths, selected by the `create_namespace_outside_module` variable:
   or risks deleting workloads. Handing namespace ownership over is a state
   operation outside this reference.
 
+The `task_runner_launcher_config_file` variable picks which launcher file
+goes into the ConfigMap: `n8n-task-runners.json` (the default, production) or
+`n8n-task-runners.test.json` (only to reproduce the verification below).
+
 Copy the snippet into your own root module, next to your `module "n8n"`
 block, and adjust the repository/tag/namespace to match your deployment.
 
@@ -247,10 +251,14 @@ cause a Helm upgrade (because it is a chart value), but the module never
 reads the ConfigMap's contents, so edits to the file your
 `n8n_task_runner_custom_config.config_map_name` points at are invisible to
 `terraform plan`. Restart explicitly after every apply that is supposed to
-change runner behavior:
+change runner behavior. With `n8n_worker_pools`, every pool has its own
+worker Deployment (`n8n-worker-<pool>`) that runs the sidecar too, so add
+each one:
 
 ```bash
 kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker
+# With n8n_worker_pools, also restart every pool's Deployment:
+kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-worker-<pool>
 ```
 
 ### 7. Verify
@@ -259,7 +267,14 @@ kubectl -n <n8n_kube_namespace> rollout restart deployment n8n-main n8n-worker
 above; edit its `host`/`servername`/`path` to point at your own private
 endpoint. [`verify.sh`](./verify.sh) logs into n8n's REST API from inside
 the cluster, creates and activates the workflow, triggers its webhook, and
-asserts the result against an explicit `--expect` mode. Requires `kubectl`
+asserts the result against an explicit `--expect` mode. On exit, including
+a failed run, it attempts to deactivate, archive, and delete the workflow it
+created, then removes its client pod. If that cleanup fails, it prints a
+warning with the workflow ID: deactivate and delete that workflow in the n8n
+UI before the next run, or its webhook path stays taken and reachable.
+The webhook has no authentication and is reachable only while the script
+runs; its response carries only the HTTP status or the TLS error, not the
+endpoint's response body. Requires `kubectl`
 pointed at the cluster, an n8n owner account, and `python3` on the host
 (used to build the login payload and parse the webhook's JSON response).
 
@@ -323,9 +338,11 @@ this for you.
   `env-overrides`, and test it from a Python Code node. Without the merged
   bundle the runner would lose trust in every public CA. This reference does
   not ship that bundle and has not tested it.
-- **Restart both `n8n-main` and `n8n-worker`.** In the queue-mode topology
-  this reference tested, only `n8n-worker` runs the `task-runner` sidecar
-  container; `n8n-main` does not. The troubleshooting guide's restart
+- **Restart both `n8n-main` and `n8n-worker`, plus every pool.** In the
+  queue-mode topology this reference tested, only `n8n-worker` runs the
+  `task-runner` sidecar container; `n8n-main` does not. Each
+  `n8n_worker_pools` entry adds an `n8n-worker-<pool>` Deployment with the
+  same sidecar, which needs the same restart. The troubleshooting guide's restart
   instructions name both deployments because the sidecar's container (and
   therefore the restart that matters) depends on your topology; restarting
   both is harmless and matches the module's own documented guidance.

@@ -25,6 +25,6 @@ create_gke_kms_key  = true
 # synthetic, public-shaped PEM; it is never parsed as a real certificate.
 n8n_extra_ca_pem = <<-EOT
   -----BEGIN CERTIFICATE-----
-  MIIBcheckovoptinfixture
+  MIIBcheckovoptinfixture0
   -----END CERTIFICATE-----
 EOT

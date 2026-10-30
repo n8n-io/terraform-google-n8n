@@ -62,7 +62,7 @@ run "extra_ca_creates_secret_and_mount" {
   command = plan
 
   variables {
-    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----\n"
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nMIIBproxycaA\n-----END CERTIFICATE-----\n"
   }
 
   assert {
@@ -76,7 +76,7 @@ run "extra_ca_creates_secret_and_mount" {
   }
 
   assert {
-    condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----"
+    condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBproxycaA\n-----END CERTIFICATE-----"
     error_message = "Without managed Redis TLS the bundle should be the caller's PEM only (trimmed)."
   }
 
@@ -106,7 +106,7 @@ run "extra_ca_with_redis_tls_merges_both" {
   }
 
   variables {
-    n8n_extra_ca_pem                 = "-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----\n"
+    n8n_extra_ca_pem                 = "-----BEGIN CERTIFICATE-----\nMIIBproxycaA\n-----END CERTIFICATE-----\n"
     redis_transit_encryption_enabled = true
   }
 
@@ -116,12 +116,12 @@ run "extra_ca_with_redis_tls_merges_both" {
   }
 
   assert {
-    condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBredisca\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----"
+    condition     = local.n8n_ca_bundle_pem == "-----BEGIN CERTIFICATE-----\nMIIBredisca\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIBproxycaA\n-----END CERTIFICATE-----"
     error_message = "The bundle must hold the Memorystore CA first, then the caller's PEM, each trimmed and newline-joined."
   }
 
   assert {
-    condition     = local.n8n_ca_bundle_checksum == sha256(local.n8n_ca_bundle_pem) && local.n8n_ca_bundle_checksum != sha256("-----BEGIN CERTIFICATE-----\nMIIBproxyca\n-----END CERTIFICATE-----")
+    condition     = local.n8n_ca_bundle_checksum == sha256(local.n8n_ca_bundle_pem) && local.n8n_ca_bundle_checksum != sha256("-----BEGIN CERTIFICATE-----\nMIIBproxycaA\n-----END CERTIFICATE-----")
     error_message = "The pod-roll checksum must hash the whole bundle, so a Memorystore CA change alone rolls the pods."
   }
 
@@ -159,6 +159,64 @@ run "extra_ca_rejects_reversed_markers" {
   }
 
   expect_failures = [var.n8n_extra_ca_pem]
+}
+
+run "extra_ca_rejects_one_character_body" {
+  command = plan
+
+  variables {
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.n8n_extra_ca_pem]
+}
+
+run "extra_ca_rejects_non_der_body" {
+  command = plan
+
+  variables {
+    # Valid base64 and padding, but not a DER SEQUENCE (does not start with MI).
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nQUJDRA==\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.n8n_extra_ca_pem]
+}
+
+run "extra_ca_rejects_one_malformed_block_among_valid" {
+  command = plan
+
+  variables {
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMII*\n-----END CERTIFICATE-----\n"
+  }
+
+  expect_failures = [var.n8n_extra_ca_pem]
+}
+
+run "extra_ca_accepts_multiple_wrapped_certificates" {
+  command = plan
+
+  variables {
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nMIIBproxycaA\nAAAA\nAA==\n-----END CERTIFICATE-----\n-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"
+  }
+
+  assert {
+    condition     = length(kubernetes_secret_v1.n8n_ca_bundle) == 1
+    error_message = "A bundle of several line-wrapped certificates should be accepted."
+  }
+}
+
+run "extra_ca_accepts_crlf_and_openssl_bag_attributes" {
+  command = plan
+
+  variables {
+    # CRLF line endings and the text openssl pkcs12 prints outside each block.
+    n8n_extra_ca_pem = "Bag Attributes\r\n    friendlyName: proxy-ca\r\nsubject=CN = Proxy CA\r\nissuer=CN = Proxy CA\r\n-----BEGIN CERTIFICATE-----\r\nMIIBproxycaA\r\n-----END CERTIFICATE-----\r\n"
+  }
+
+  assert {
+    condition     = length(kubernetes_secret_v1.n8n_ca_bundle) == 1
+    error_message = "CRLF line endings and text outside the certificate blocks should be accepted."
+  }
 }
 
 run "extra_ca_rejects_private_key" {

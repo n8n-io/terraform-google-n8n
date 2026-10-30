@@ -7,8 +7,9 @@
 #   - A `kubernetes` provider already configured against the same GKE
 #     cluster the module deploys to (see
 #     examples/customer-managed-cluster/providers.tf for the pattern).
-#   - n8n-task-runners.json (or n8n-task-runners.test.json, to reproduce the
-#     verification in README.md) copied next to this file.
+#   - n8n-task-runners.json (or n8n-task-runners.test.json, selected with
+#     task_runner_launcher_config_file, to reproduce the verification in
+#     README.md) copied next to this file.
 #   - A custom task-runner image already built and pushed; see README.md.
 
 # Must match the module's own n8n_kube_namespace input (default "n8n").
@@ -33,6 +34,21 @@ variable "create_namespace_outside_module" {
   default = true
 }
 
+# Launcher configuration file next to this snippet. Keep the production
+# n8n-task-runners.json for real deployments; set n8n-task-runners.test.json
+# only to reproduce the verification in README.md (it also allows the https
+# builtin in Code nodes), then switch back.
+variable "task_runner_launcher_config_file" {
+  description = "Launcher configuration file loaded into the ConfigMap: n8n-task-runners.json (production) or n8n-task-runners.test.json (verification only)."
+  type        = string
+  default     = "n8n-task-runners.json"
+
+  validation {
+    condition     = contains(["n8n-task-runners.json", "n8n-task-runners.test.json"], var.task_runner_launcher_config_file)
+    error_message = "task_runner_launcher_config_file must be n8n-task-runners.json or n8n-task-runners.test.json."
+  }
+}
+
 resource "kubernetes_namespace_v1" "n8n" {
   count = var.create_namespace_outside_module ? 1 : 0
 
@@ -48,7 +64,9 @@ resource "kubernetes_config_map_v1" "task_runner_launcher_config" {
   }
 
   data = {
-    "n8n-task-runners.json" = file("${path.module}/n8n-task-runners.json")
+    # The key stays n8n-task-runners.json (the module's default config_map_key)
+    # whichever file is loaded.
+    "n8n-task-runners.json" = file("${path.module}/${var.task_runner_launcher_config_file}")
   }
 }
 
