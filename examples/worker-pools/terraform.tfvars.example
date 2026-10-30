@@ -18,3 +18,18 @@ n8n_image_tag     = "2.39.0"
 n8n_chart_version = "1.11.0-preview.workerpools.1"
 # n8n_chart_repository = "oci://ghcr.io/n8n-io/n8n-helm-chart" # the module's default
 # n8n_worker_pools_chart_verified = true # only for a private numbered mirror; see README.md
+
+# ── TLS-inspecting egress proxy / TLS-terminating proxy in front (optional) ──
+# See docs/tls-proxy.md in the module root.
+# n8n_extra_ca_pem = <<-EOT
+#   -----BEGIN CERTIFICATE-----
+#   ...
+#   -----END CERTIFICATE-----
+# EOT
+# n8n_proxy_hops   = 3  # one proxy/WAF in front of n8n's ingress: 1 for the proxy + 2 for the Google Cloud load balancer (the ingress alone is 2); omit for an egress-only proxy
+#                       # also admit only the proxy's egress range with ingress_source_cidrs in main.tf (not passed through here), or a client that bypasses the proxy can spoof X-Forwarded-For
+# n8n_extra_env = [
+#   { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
+#   { name = "HTTP_PROXY",  value = "http://proxy.corp.example:3128" },
+#   { name = "NO_PROXY",    value = "localhost,127.0.0.1,.svc,.cluster.local,.googleapis.com,metadata.google.internal" },
+# ]

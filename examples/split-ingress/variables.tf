@@ -72,6 +72,29 @@ variable "internal_tls_key_pem" {
   sensitive   = true
 }
 
+# ── TLS-inspecting / TLS-terminating proxy passthrough ─────────────────────
+variable "n8n_extra_ca_pem" {
+  description = "PEM-encoded CA certificate(s) every n8n role should trust for outbound TLS, for a TLS-inspecting egress proxy or a private CA. Passed straight through to the module's n8n_extra_ca_pem. Certificates only, no private keys. Null (the default) adds nothing. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
+  type        = string
+  default     = null
+}
+
+variable "n8n_proxy_hops" {
+  description = "Number of trusted reverse-proxy hops in front of n8n (N8N_PROXY_HOPS), passed through to the module's n8n_proxy_hops. One value applies to every n8n role and to both of this example's ingresses, so it is safe only when both paths cross the same number of proxies: a count sized for a proxy on one path lets clients on the other path choose their own client IP. Each Google Cloud load balancer appends two X-Forwarded-For entries, so each path needs 2 with no customer proxy in front, and 3 with one customer proxy in front of both. The internal load balancer strips an X-Forwarded-For it receives from an intermediate proxy, so behind a proxy n8n sees the proxy's address on the editor path whatever the count. Verify the address n8n records on both paths before you rely on client-IP logging or rate limits. This example sets no source allow-list on either ingress (services.tf, ingress.tf), so add one to both load balancers yourself before you set this; otherwise a client that bypasses the proxy can choose its own client IP. Null (the default) leaves n8n's own default. See https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md."
+  type        = number
+  default     = null
+}
+
+variable "n8n_extra_env" {
+  description = "Additional environment variables for the n8n container in every main, worker, and webhook-processor pod, passed straight through to the module's n8n_extra_env. Use it for HTTPS_PROXY, HTTP_PROXY and NO_PROXY behind an egress proxy (see https://github.com/n8n-io/terraform-google-n8n/blob/main/docs/tls-proxy.md). The module's input is meant for non-secret values, because values are stored in plain text in Terraform state and the Helm release. The documented exception is the credentials in an authenticated proxy URL. This example marks the variable sensitive to redact normal plan and apply output; values remain readable in Terraform state and the Helm release values."
+  type = list(object({
+    name  = string
+    value = string
+  }))
+  default   = []
+  sensitive = true
+}
+
 # ── Teardown controls (safe defaults) ─────────────────────────────────────────
 # To `terraform destroy`, first flip these (e.g. `-var gke_deletion_protection=false
 # -var postgres_deletion_protection=false -var gcs_force_destroy=true`) and apply,

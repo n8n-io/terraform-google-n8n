@@ -9,6 +9,22 @@ independent inputs, so any combination works:
 | **Inbound** (client to the ingress, TLS-terminating or WAF/CDN) | n8n sees the proxy's address as the client and logs `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` on rate-limited routes | `n8n_proxy_hops` (the Google load balancer counts as 2, so one proxy in front of it is 3); `tls_mode = "custom"` or `"secret"` when the proxy must trust a private-CA origin certificate; `ingress_source_cidrs` to admit only the proxy's egress addresses (module-managed ingress only, `create_ingress = true`); `n8n_webhook_url` if the public webhook host differs (the editor stays on `n8n_fqdn`) | The proxy's own certificate, its trust of the origin certificate, and forwarding `X-Forwarded-For` / `X-Forwarded-Proto` |
 | **Both** | Both rows above | Set both groups | Both |
 
+`n8n_extra_ca_pem`, `n8n_proxy_hops`, and `n8n_extra_env` are exposed as
+variables by every example under `examples/`. Set them in the example's
+`terraform.tfvars` (pass the PEM with `-var "n8n_extra_ca_pem=$(cat proxy-ca.pem)"`,
+since `file()` is not allowed in a `.tfvars` file). The examples mark
+`n8n_extra_env` `sensitive = true`. That redacts a proxy password from normal
+plan and apply output only: the value remains readable in Terraform state and
+the Helm release values (see the authenticated-proxy note below). The examples'
+`n8n_proxy_hops` guidance uses the hop count described under
+[Inbound](#inbound-a-proxy-in-front-of-the-ingress). The other inbound inputs
+(`tls_mode`, `ingress_source_cidrs`, `n8n_webhook_url`) are not passed through
+the examples. Where an example uses the module-managed ingress, set them on
+its module call in `main.tf`: change the `tls_mode` the example sets when the
+proxy must trust a private-CA origin certificate, and set `n8n_webhook_url`
+when webhooks are served from a different public host. The editor always
+stays on `n8n_fqdn`.
+
 ## Outbound: trust the proxy's CA
 
 ```hcl

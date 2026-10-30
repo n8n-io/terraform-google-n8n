@@ -133,3 +133,31 @@ run "additional_domains_passthrough" {
     error_message = "n8n_additional_domains passthrough must not break the base plan through this example's caller-owned ingress."
   }
 }
+
+# Smoke test for the TLS proxy passthroughs (n8n_extra_ca_pem, n8n_proxy_hops,
+# n8n_extra_env) on a composition with no module-managed ingress. It proves
+# that non-default values, including a sensitive n8n_extra_env, pass the
+# module's validations and produce a valid plan. It does not prove that the
+# values reach the pods: the module exposes no output that reflects them, and
+# helm_release.n8n.values is unknown at plan time under mocks. The root suites
+# (tests/extra_ca.tftest.hcl, tests/proxy_hops.tftest.hcl) cover the
+# module-side contract. To verify forwarding, inspect the resolved Helm values;
+# to verify container configuration, render the chart or inspect the deployed
+# pods.
+run "tls_proxy_passthrough_produces_valid_plan" {
+  command = plan
+
+  variables {
+    n8n_extra_ca_pem = "-----BEGIN CERTIFICATE-----\nMIIBproxycaA\n-----END CERTIFICATE-----\n"
+    n8n_proxy_hops   = 3
+    n8n_extra_env = [
+      { name = "HTTPS_PROXY", value = "http://proxy.corp.example:3128" },
+      { name = "NO_PROXY", value = "localhost,127.0.0.1,.svc,.cluster.local,.googleapis.com,metadata.google.internal" },
+    ]
+  }
+
+  assert {
+    condition     = module.n8n.n8n_url == "https://n8n.test.example.com"
+    error_message = "Non-default TLS proxy passthrough values must produce a valid plan through this example's caller-owned ingress."
+  }
+}

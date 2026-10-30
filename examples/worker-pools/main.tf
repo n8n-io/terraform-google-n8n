@@ -112,6 +112,11 @@ module "n8n" {
   # this file so the test file can assert on them; see the comment there.
   n8n_worker_pools = local.worker_pools
 
+  # ── TLS-inspecting / TLS-terminating proxy passthrough ───────────────────
+  n8n_extra_ca_pem = var.n8n_extra_ca_pem
+  n8n_proxy_hops   = var.n8n_proxy_hops
+  n8n_extra_env    = var.n8n_extra_env
+
   # Teardown controls (safe defaults; flip to allow `terraform destroy`).
   gke_deletion_protection      = var.gke_deletion_protection
   postgres_deletion_protection = var.postgres_deletion_protection
