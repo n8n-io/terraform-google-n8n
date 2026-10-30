@@ -33,10 +33,17 @@ cd "$(dirname "${BASH_SOURCE[0]}")/../.." || exit 1
 # nothing new. Clear them so local runs match CI, which exports none.
 # `env -u` rather than bash `unset`: Terraform variable names may contain
 # hyphens, and `unset` rejects (and cannot clear) non-identifier names.
+# `env -0` with a bash match rather than `env | awk`: a value containing a
+# newline cannot pose as another entry, and no locale-aware tool can abort
+# on an unrelated value that is not valid UTF-8 (macOS awk does, and a
+# failure inside `< <(...)` would not stop this script).
 CHECKOV=(env)
-while IFS= read -r tf_var; do
-  CHECKOV+=(-u "$tf_var")
-done < <(env | awk -F= '/^TF_VAR_/{print $1}')
+while IFS= read -r -d '' entry; do
+  name="${entry%%=*}"
+  if [[ "$name" == TF_VAR_* ]]; then
+    CHECKOV+=(-u "$name")
+  fi
+done < <(env -0)
 CHECKOV+=(checkov)
 
 if ! command -v checkov >/dev/null 2>&1; then
