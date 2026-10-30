@@ -216,16 +216,25 @@ Check these points before you apply:
   upstream chart repository at a released `1.15.0` or newer, the module no
   longer adds its own `DB_POSTGRESDB_SSL_ENABLED` entry, so each pod carries
   it once (value `"true"`, from the chart's ConfigMap) instead of twice.
-  Without a CA the module's entry is unchanged. A chart pinned below
-  `1.15.0`, a prerelease tag (e.g. `1.15.0-rc.1`), or a custom
-  `n8n_chart_repository`, keeps the module's own entry, because in each
-  case the module cannot verify what the chart renders. That is a
-  conservative choice, not a guard against a TLS downgrade: n8n builds TLS
-  options from a non-empty CA (`DB_POSTGRESDB_SSL_CA`) whether or not
-  `DB_POSTGRESDB_SSL_ENABLED` is set, and a duplicate entry with the same
-  value does not change n8n's effective TLS configuration. Build metadata
-  (e.g. `1.15.0+build.5`) is not a prerelease and still counts as the
-  release.
+  Without a CA the module's entry is unchanged. With a CA, the module keeps
+  its own entry in three cases, for different reasons:
+  - **An upstream chart below `1.15.0`.** These charts render
+    `DB_POSTGRESDB_SSL` instead, so the module's entry is the only
+    `DB_POSTGRESDB_SSL_ENABLED` on each pod.
+  - **A prerelease tag (e.g. `1.15.0-rc.1`).** A prerelease may be built
+    from a branch that predates n8n-hosting#175, so the module cannot tell
+    from the version which name the chart renders.
+  - **A custom `n8n_chart_repository`.** The module cannot check what a
+    mirrored chart renders.
+
+  In the last two cases, a chart that does render the name gives each pod a
+  second entry with the same value, which does not change n8n's effective
+  TLS configuration. None of the three is a guard against a TLS downgrade:
+  the module still passes the CA as `database.ssl.ca`, which the upstream
+  charts render as `DB_POSTGRESDB_SSL_CA`, and n8n builds TLS options from a
+  non-empty CA whether or not `DB_POSTGRESDB_SSL_ENABLED` is set. Build
+  metadata (e.g. `1.15.0+build.5`) is not a prerelease and still counts as
+  the release.
 - **No replica, KEDA, or task-runner changes.** No `templates/deployment-*.yaml`
   changed between `1.14.0` and `1.15.0`, so
   `local.n8n_chart_has_worker_only_runners` (`capacity.tf`) now also covers
