@@ -31,8 +31,16 @@ to `~> 6.0` and is unaffected by this change.
 
 What was checked:
 
-- **Upgrade guides.** None of the breaking changes in the provider's 7.0 and
-  8.0 upgrade guides touches a resource this module creates.
+- **Upgrade guides.** The provider's 7.0 upgrade guide has entries for
+  `google_compute_router`, `google_compute_subnetwork`, `google_sql_user`,
+  and `google_storage_bucket`, and the 8.0 guide has entries for
+  `google_container_cluster` and `google_container_node_pool`. The module
+  creates all of these, but none of the entries needs a configuration change
+  here: the module sets `password_wo` and `password_wo_version` together,
+  uses `log_config` rather than `enable_flow_logs`, and does not set or index
+  `advertised_ip_ranges`, `retention_period`, the cluster's
+  `enable_components` lists, or a node-pool `name_prefix`. The storage bucket
+  change still affects state; see "Rolling back" below.
 - **Existing state.** A real `examples/small` deployment (47 resources, Cloud
   SQL, Memorystore, GKE, Private Services Access, DNS) was applied with
   provider 6.50.0 and then planned with provider 8.7.0 against the same
@@ -42,30 +50,82 @@ What was checked:
   cleanly, and `terraform destroy` on 8.7.0 removed all 47 with no Private
   Services Access stall.
 - **Provider behavior claims.** `docs/build-time-decisions.md` was re-checked
-  against the provider source at `v8.7.0`. `private_cluster_config.enable_private_nodes`
-  itself lost `ForceNew`, but this module always derives
-  `master_ipv4_cidr_block` from `gke_enable_private_nodes` (`gke.tf`), and that
-  field is still `ForceNew`, so toggling `gke_enable_private_nodes` still plans
-  a cluster replacement; the row's footnotes were updated to cite both facts,
-  but its guidance is unchanged. Everything else the page lists is unchanged.
+  against the provider source at `v8.7.0`. One fact changed:
+  `private_cluster_config.enable_private_nodes` itself lost `ForceNew` and is
+  now updated in place. The module still derives `master_ipv4_cidr_block`
+  from `gke_enable_private_nodes` (`gke.tf`), and that field is still
+  `ForceNew`. Turning private nodes on plans a cluster replacement when the
+  configured control-plane CIDR differs from the value in state, for example
+  on a cluster that never had private nodes. Turning them off sets the CIDR
+  to `null`. The field is also `Computed`, so `null` keeps the stored value
+  and the change is expected to plan as an in-place update. Neither
+  direction was run against a real cluster. The row in that page now describes both
+  directions. Everything else the page lists is unchanged.
 
 What to expect on the first plan:
 
 - **Default settings: no diff.** After `terraform init -upgrade`, the plan
   shows no changes. A `terraform apply -refresh-only` records new computed
-  attributes from the 8.x schema in state and is harmless.
+  attributes from the 8.x schema in state. It changes no infrastructure, but
+  it does make the state unreadable for 6.x (see "Rolling back" below).
 - **`psa_connection_abandon_on_destroy = false`.** The connection's
   `deletion_policy` was left unset and recorded as null on 6.x. The module
-  now sets `"DELETE"` explicitly, and 8.x defaults an unset value to
-  `"DELETE"` too, so expect a one-time in-place update `null -> "DELETE"` on
-  `google_service_networking_connection.psa`. It changes no behavior: "DELETE"
-  is what an unset policy always meant. This path was not run live; it
-  follows from the schema difference between 6.50.0 and 8.7.0.
+  now sets `"DELETE"` explicitly. On refresh, 8.x fills an unset policy with
+  `"DELETE"` (or with the provider-level `deletion_policy`, if you set one),
+  so the plan may show no change, or a one-time in-place update to
+  `"DELETE"` on `google_service_networking_connection.psa`. Either way it
+  changes no behavior: "DELETE" is what an unset policy meant on 6.x. This
+  path was not run live.
+- **Provider-level `deletion_policy`.** Provider 8.x adds a `deletion_policy`
+  argument to the `google` provider block, which sets a default for resources
+  that support it. The module always sets `deletion_policy` on the Private
+  Services Access connection (`"ABANDON"` or `"DELETE"`, from
+  `psa_connection_abandon_on_destroy`), so after a normal apply a
+  provider-level value such as `"PREVENT"` does not apply to that resource.
+  One exception during the upgrade: if state from 6.x has no policy (the
+  `psa_connection_abandon_on_destroy = false` case), a refresh on 8.x fills
+  it from the provider-level value. A `-refresh-only` apply can then store
+  `"PREVENT"`, and destroy is refused until a normal apply records
+  `"DELETE"`.
+
+### Rolling back
+
+Provider 8.x writes some resources at a newer state schema version than 6.x
+can read. For example, `google_storage_bucket` moved from schema version 3
+(6.50.0) to 4 (8.7.0), and module-managed buckets are upgraded on the
+first refresh. After 8.x writes state (any apply, including `-refresh-only`,
+or a standalone `terraform refresh`), you cannot roll back by reverting the
+provider constraint alone: 6.x refuses state that a newer provider wrote.
+
+Before 8.x writes state:
+
+1. Back up the state, for example with `terraform state pull >
+   pre-google-8.tfstate` or a versioned backend bucket. State contains
+   credentials, such as the database password and the HMAC secret, so keep
+   the backup in encrypted storage with restricted access.
+2. Until then, rolling back only means reverting the module version and the
+   lock file.
+
+After 8.x writes state, rolling back means restoring the backup:
+
+1. Stop every other writer to the state, such as CI pipelines.
+2. Keep a copy of the current state before you replace it.
+3. Restore the backup together with the matching module version, provider
+   constraints, and lock file.
+4. Run `terraform plan`, review how it reconciles infrastructure changes made
+   since the backup, and apply only that reviewed plan.
 
 Not verified: a `psa_connection_abandon_on_destroy = false` deployment
-upgraded from 6.x state, `REMOVE_PEERING` (the module does not use it yet), and
-any API-side default that Google may add for existing resources after the
-upgrade.
+upgraded from 6.x state, turning `gke_enable_private_nodes` off on 8.x,
+`REMOVE_PEERING` (the module does not use it yet), and any API-side default
+that Google may add for existing resources after the upgrade.
+
+Known warning: from provider 8.9.0, `google_container_cluster`'s
+`remove_default_node_pool` (`gke.tf`) is deprecated, so `terraform validate`
+and `terraform plan` print a deprecation warning. The argument still works.
+The replacement the provider suggests (omit `initial_node_count` and
+`node_config`) needs GKE 1.36.4-gke.1469000 or later, so the module keeps
+the current setting for now.
 
 ## Moving from KEDA chart 2.20.1 to 2.21.0
 
@@ -700,11 +760,12 @@ to.
 ## Terraform CLI floor raised to >= 1.13
 
 **Breaking, every caller of the root module:** `required_version` is now
-`>= 1.13` (was `>= 1.9`), and the `google`/`google-beta` provider floors
-are now `~> 6.23` (was `~> 6.0` in 0.1.0). The new opt-in
-`postgres_password_write_only` (see `cloudsql.tf` and the "Cloud SQL
-PostgreSQL" section of `variables.tf`) needs the provider floor and
-Terraform 1.11: an `ephemeral = true` variable (`postgres_password_wo`)
+`>= 1.13` (was `>= 1.9`). The same release also raises the
+`google`/`google-beta` provider constraints to `~> 8.0` (was `~> 6.0` in
+0.1.0); see [Google provider floor raised to ~> 8.0](#google-provider-floor-raised-to--80).
+The new opt-in `postgres_password_write_only` (see `cloudsql.tf` and the
+"Cloud SQL PostgreSQL" section of `variables.tf`) needs `google` 6.23.0 or
+later and Terraform 1.11: an `ephemeral = true` variable (`postgres_password_wo`)
 needs Terraform 1.10's ephemeral-value support, feeding it into
 `google_sql_user.n8n`'s `password_wo` argument needs 1.11's
 write-only-argument support for managed resources, and
@@ -727,9 +788,9 @@ running `terraform plan` against this module version. Any CLI older than
 1.13 fails at `terraform init` with "Unsupported Terraform Core version".
 On a CLI older than 1.10, other commands such as `terraform validate` also
 report the `ephemeral = true` argument as unsupported. If your root module
-pins either Google provider below 6.23, widen that constraint first. No state migration is required for
-this change by itself: the floor bump alone does not change any resource's
-planned attributes. `terraform init -upgrade` can also move other providers
+pins either Google provider below 8.0, widen that constraint first. No state
+migration is required for the CLI floor change by itself: it does not change
+any resource's planned attributes. `terraform init -upgrade` can also move other providers
 in your root module, though, so review the lock file diff and the plan
 before you apply.
 

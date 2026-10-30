@@ -161,9 +161,12 @@ resource "google_compute_global_address" "psa" {
 # explicitly so the provider attempts the API delete (may stall on the
 # producer check). Provider 8.x treats an unset deletion_policy as Computed
 # with a default of "DELETE", which leaves the attribute unknown at plan time
-# under mock_provider; setting it keeps the value known. A deployment applied
-# on provider 6.x with abandon = false recorded a null policy, so its first
-# plan on 8.x shows a one-time in-place update null -> "DELETE" either way.
+# under mock_provider; setting it keeps the value known. Setting it also means
+# a provider-level deletion_policy (8.x) does not apply to this resource once
+# a normal apply has run. A deployment applied on provider 6.x with
+# abandon = false recorded a null policy; 8.x fills it on refresh from the
+# provider-level value or "DELETE", so its first plan on 8.x shows either no
+# change or a one-time in-place update to "DELETE".
 #
 # Cloud SQL / Memorystore depend on this resource directly (cloudsql.tf,
 # memorystore.tf) so creation still waits for the peering to exist.
