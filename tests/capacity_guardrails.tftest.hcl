@@ -713,6 +713,13 @@ run "capacity_warns_when_paused_workers_above_the_maximum_do_not_fit" {
     error_message = "A paused count above the KEDA maximum drives the worker term, so both warnings must name n8n_worker_keda_paused_replica_count."
   }
 
+  # Both check messages append local.capacity_worker_paused_count_advice;
+  # terraform test cannot read a check's error_message, so assert the clause.
+  assert {
+    condition     = local.capacity_worker_paused_count_advice == ", or lower n8n_worker_keda_paused_replica_count (the paused count, 500, is above the worker maximum, 1, and only counts while it stays above it)"
+    error_message = "The warnings' advice must name n8n_worker_keda_paused_replica_count with the paused count (500) and worker maximum (1), got: ${local.capacity_worker_paused_count_advice}"
+  }
+
   expect_failures = [
     check.gke_capacity_cpu_fits_requested_replicas,
     check.gke_capacity_memory_fits_requested_replicas,
@@ -761,7 +768,7 @@ run "capacity_worker_term_stays_at_maximum_for_lower_paused_count" {
   }
 
   assert {
-    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term
+    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term && local.capacity_worker_paused_count_advice == ""
     error_message = "A paused count below the maximum must leave the worker term at the maximum, without naming the paused count in the warnings."
   }
 }
@@ -779,7 +786,7 @@ run "capacity_worker_term_stays_at_maximum_for_equal_paused_count" {
   }
 
   assert {
-    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term
+    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term && local.capacity_worker_paused_count_advice == ""
     error_message = "A paused count equal to the maximum must leave the worker term at the maximum, without naming the paused count in the warnings."
   }
 }

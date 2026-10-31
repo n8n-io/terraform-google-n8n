@@ -130,6 +130,13 @@ locals {
   # then, because lowering a count at or below the maximum shrinks nothing.
   capacity_worker_paused_count_drives_worker_term = local.capacity_worker_modeled_max_replicas > local.capacity_worker_max_replicas
 
+  # Advice clause both capacity warnings append, kept in one local so tests
+  # can assert on it (terraform test cannot read a check's error_message).
+  capacity_worker_paused_count_advice = local.capacity_worker_paused_count_drives_worker_term ? join("", [
+    ", or lower n8n_worker_keda_paused_replica_count (the paused count, ${local.capacity_worker_modeled_max_replicas}, ",
+    "is above the worker maximum, ${local.capacity_worker_max_replicas}, and only counts while it stays above it)",
+  ]) : ""
+
   # Task runners run as a sidecar container inside every worker pod (n8n.tf
   # taskRunners block), never webhook-processor pods. Whether main also gets
   # one depends on the pinned chart: n8n-hosting#179 (n8n.mainTaskRunnersEnabled)
@@ -230,10 +237,7 @@ check "gke_capacity_cpu_fits_requested_replicas" {
       "autoscaler never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go ",
       "Pending. Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
       "n8n_worker_pools max_replicas)",
-      local.capacity_worker_paused_count_drives_worker_term ? join("", [
-        ", or lower n8n_worker_keda_paused_replica_count (the paused count, ${local.capacity_worker_modeled_max_replicas}, ",
-        "is above the worker maximum, ${local.capacity_worker_max_replicas}, and only counts while it stays above it)",
-      ]) : "",
+      local.capacity_worker_paused_count_advice,
       " to silence this warning.",
     ])
   }
@@ -257,10 +261,7 @@ check "gke_capacity_memory_fits_requested_replicas" {
       "never exceeds gke_node_max_per_zone, so pods that do not fit once the pool reaches that ceiling go Pending. ",
       "Raise gke_node_type, gke_node_max_per_zone, or lower the requested replica maxima (including any ",
       "n8n_worker_pools max_replicas)",
-      local.capacity_worker_paused_count_drives_worker_term ? join("", [
-        ", or lower n8n_worker_keda_paused_replica_count (the paused count, ${local.capacity_worker_modeled_max_replicas}, ",
-        "is above the worker maximum, ${local.capacity_worker_max_replicas}, and only counts while it stays above it)",
-      ]) : "",
+      local.capacity_worker_paused_count_advice,
       " to silence this warning.",
     ])
   }

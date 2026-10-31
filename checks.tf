@@ -341,8 +341,9 @@ check "graceful_shutdown_fits_grace_period" {
 # description already asks callers to budget by hand: pool size times the
 # modeled pod ceiling (effective main, worker, webhook-processor, and any
 # n8n_worker_pools, mirroring capacity.tf's own capacity_main_max_replicas /
-# capacity_worker_max_replicas / capacity_webhook_max_replicas
-# replica-ceiling locals, reused here rather than duplicated) against
+# capacity_worker_modeled_max_replicas / capacity_webhook_max_replicas
+# replica-ceiling locals, reused here rather than duplicated; the worker term
+# includes n8n_worker_keda_paused_replica_count while paused) against
 # Google's own published default-by-memory table.
 #
 # Source (checked 2026-10-01): https://cloud.google.com/sql/docs/postgres/flags,
