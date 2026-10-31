@@ -89,16 +89,23 @@ resource "kubectl_manifest" "backendconfig_private" {
 # own n8n-webhook-processor Service selects, but as a separate ClusterIP
 # Service so the public Ingress (task 22) can attach the public
 # BackendConfig without touching the chart-owned Service's own annotations.
-# GKE auto-adds cloud.google.com/neg for any ClusterIP Service an Ingress
-# references on a VPC-native cluster (n8n.tf's own Service does not set it
-# explicitly either), so no NEG annotation is set here.
+# GKE adds cloud.google.com/neg and cloud.google.com/neg-status to a ClusterIP
+# Service an Ingress references. Terraform would strip any annotation it does
+# not own on the next apply, and an Ingress whose Service has lost them fails
+# with "service is type ClusterIP, expected NodePort or LoadBalancer", so the
+# NEG request is declared here and the controller-written status is ignored.
 resource "kubernetes_service_v1" "webhook_public" {
   metadata {
     name      = "n8n-split-webhook-public"
     namespace = module.n8n.n8n_kube_namespace
     annotations = {
       "cloud.google.com/backend-config" = jsonencode({ default = kubectl_manifest.backendconfig_public.name })
+      "cloud.google.com/neg"            = jsonencode({ ingress = true })
     }
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].annotations["cloud.google.com/neg-status"]]
   }
 
   spec {
@@ -124,7 +131,12 @@ resource "kubernetes_service_v1" "main_private" {
     namespace = module.n8n.n8n_kube_namespace
     annotations = {
       "cloud.google.com/backend-config" = jsonencode({ default = kubectl_manifest.backendconfig_private.name })
+      "cloud.google.com/neg"            = jsonencode({ ingress = true })
     }
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].annotations["cloud.google.com/neg-status"]]
   }
 
   spec {
@@ -152,7 +164,12 @@ resource "kubernetes_service_v1" "webhook_private" {
     namespace = module.n8n.n8n_kube_namespace
     annotations = {
       "cloud.google.com/backend-config" = jsonencode({ default = kubectl_manifest.backendconfig_private.name })
+      "cloud.google.com/neg"            = jsonencode({ ingress = true })
     }
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].annotations["cloud.google.com/neg-status"]]
   }
 
   spec {

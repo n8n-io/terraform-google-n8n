@@ -103,9 +103,19 @@ Two constraints affect step 2. A GKE Gateway cannot reference a Service that
 a GKE Ingress also references (checked as of 2026-10-05, [Deploying
 Gateways][deploying-gateways]). To build a Gateway while the module's
 `Ingress` still runs, create separate caller-owned Services that select the
-same n8n pods, the way `examples/split-ingress/services.tf` does. Otherwise,
-remove the module's `Ingress` first and accept downtime during a planned
-maintenance window. Also, the module's managed-ingress inputs (`tls_mode`,
+same n8n pods, the way `examples/split-ingress/services.tf` does. Copy only
+the selectors and ports from that file, not its annotations. Its
+`cloud.google.com/neg` and `cloud.google.com/backend-config` annotations are
+for GKE Ingress. Gateway uses standalone NEGs, and Google says you cannot
+modify the `cloud.google.com/neg` annotation on a Service that is part of a
+Gateway (checked as of 2026-10-29, [Deploying
+Gateways][deploying-gateways]). Leave the NEG annotations to the Gateway
+controller. If Terraform manages the Service, add `lifecycle.ignore_changes`
+for `metadata[0].annotations["cloud.google.com/neg"]` and
+`metadata[0].annotations["cloud.google.com/neg-status"]`, so a re-apply does
+not remove what the controller writes. Otherwise, remove the module's
+`Ingress` first and accept downtime during a planned maintenance window.
+Also, the module's managed-ingress inputs (`tls_mode`,
 `https_redirect`, `cloud_dns_zone_name`, `ingress_ssl_policy_name`,
 `ingress_source_cidrs`, `existing_cloud_armor_policy_name`) are ignored
 once `create_ingress = false`. The `ingress_tuning_ignored_when_existing`
@@ -283,9 +293,11 @@ proxy-only subnet and the proxy firewall rule, `services.tf` creates its
 own Services that select the n8n pods, and `tls.tf` serves the private
 hostname from a Kubernetes TLS Secret. It disables plain HTTP on the
 private Ingress instead of redirecting it. The example is framed as a
-public/private split and is plan-tested with mocked providers, not yet
-verified against a live GKE cluster. Its private half is still the closest
-reference this repository has for a fully private deployment.
+public/private split and is plan-tested with mocked providers. It has had
+one live smoke test on GKE (apply, re-apply, and a clean re-plan, with both
+Ingresses serving traffic), but it is not scale-validated. Its private half
+is still the closest reference this repository has for a fully private
+deployment.
 
 ## When Istio or Cloud Service Mesh fits better
 
