@@ -641,7 +641,7 @@ run "postgres_connection_budget_check_counts_paused_workers_above_the_maximum" {
   }
 
   assert {
-    condition     = local.n8n_postgres_worker_modeled_max_replicas == 4 && local.n8n_postgres_peak_connections == 60
+    condition     = local.capacity_worker_modeled_max_replicas == 4 && local.n8n_postgres_peak_connections == 60
     error_message = "A paused worker count (4) above the KEDA maximum (1) must be modeled, for 10 x (1 + 4 + 1) = 60 connections."
   }
 
@@ -668,7 +668,174 @@ run "postgres_connection_budget_check_ignores_paused_count_without_module_keda" 
   }
 
   assert {
-    condition     = local.n8n_postgres_worker_modeled_max_replicas == 1 && local.n8n_postgres_peak_connections == 30
+    condition     = local.capacity_worker_modeled_max_replicas == 1 && local.n8n_postgres_peak_connections == 30
     error_message = "Without module-managed KEDA, the worker model must use n8n_worker_fixed_replicas (1), for 10 x (1 + 1 + 1) = 30 connections."
+  }
+}
+
+# ── Paused worker count in the node-capacity model ─────────────────────────────
+# While paused, KEDA holds workers at n8n_worker_keda_paused_replica_count,
+# which can exceed n8n_worker_keda_max_replicas. The capacity checks share the
+# connection-budget check's modeled worker ceiling.
+
+run "capacity_warns_when_paused_workers_above_the_maximum_do_not_fit" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas            = 1
+    n8n_main_hpa_max_replicas            = 1
+    n8n_worker_keda_min_replicas         = 1
+    n8n_worker_keda_max_replicas         = 1
+    n8n_webhook_hpa_min_replicas         = 1
+    n8n_webhook_hpa_max_replicas         = 1
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 500
+  }
+
+  override_data {
+    target = data.google_compute_machine_types.gke
+    values = {
+      machine_types = [{
+        name       = "custom-16-65536"
+        guest_cpus = 16
+        memory_mb  = 65536
+      }]
+    }
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 500
+    error_message = "A paused count above the KEDA maximum must be the modeled worker ceiling."
+  }
+
+  assert {
+    condition     = local.capacity_worker_paused_count_drives_worker_term
+    error_message = "A paused count above the KEDA maximum drives the worker term, so both warnings must name n8n_worker_keda_paused_replica_count."
+  }
+
+  # Both check messages append local.capacity_worker_paused_count_advice;
+  # terraform test cannot read a check's error_message, so assert the clause.
+  assert {
+    condition     = local.capacity_worker_paused_count_advice == ", or lower n8n_worker_keda_paused_replica_count (the paused count, 500, is above the worker maximum, 1, and only counts while it stays above it)"
+    error_message = "The warnings' advice must name n8n_worker_keda_paused_replica_count with the paused count (500) and worker maximum (1), got: ${local.capacity_worker_paused_count_advice}"
+  }
+
+  expect_failures = [
+    check.gke_capacity_cpu_fits_requested_replicas,
+    check.gke_capacity_memory_fits_requested_replicas,
+  ]
+}
+
+run "capacity_stays_silent_when_paused_workers_above_the_maximum_still_fit" {
+  command = plan
+
+  variables {
+    n8n_main_hpa_min_replicas            = 1
+    n8n_main_hpa_max_replicas            = 1
+    n8n_worker_keda_min_replicas         = 1
+    n8n_worker_keda_max_replicas         = 1
+    n8n_webhook_hpa_min_replicas         = 1
+    n8n_webhook_hpa_max_replicas         = 1
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 3
+  }
+
+  override_data {
+    target = data.google_compute_machine_types.gke
+    values = {
+      machine_types = [{
+        name       = "custom-16-65536"
+        guest_cpus = 16
+        memory_mb  = 65536
+      }]
+    }
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 3
+    error_message = "A paused count of 3 above the maximum of 1 must be modeled."
+  }
+}
+
+run "capacity_worker_term_stays_at_maximum_for_lower_paused_count" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_max_replicas         = 5
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 2
+    gke_node_max_per_zone                = 4
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term && local.capacity_worker_paused_count_advice == ""
+    error_message = "A paused count below the maximum must leave the worker term at the maximum, without naming the paused count in the warnings."
+  }
+}
+
+# A paused count equal to the maximum does not raise the worker term, so
+# lowering it would not help and the warnings must not name it.
+run "capacity_worker_term_stays_at_maximum_for_equal_paused_count" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_max_replicas         = 5
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 5
+    gke_node_max_per_zone                = 4
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 5 && !local.capacity_worker_paused_count_drives_worker_term && local.capacity_worker_paused_count_advice == ""
+    error_message = "A paused count equal to the maximum must leave the worker term at the maximum, without naming the paused count in the warnings."
+  }
+}
+
+run "capacity_worker_term_stays_at_maximum_for_null_paused_count" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_max_replicas = 5
+    n8n_worker_keda_pause        = true
+    gke_node_max_per_zone        = 4
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 5
+    error_message = "Pause with a null count must leave the worker term at the maximum."
+  }
+}
+
+run "capacity_ignores_paused_count_while_pause_is_off" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_max_replicas         = 5
+    n8n_worker_keda_paused_replica_count = 50
+    gke_node_max_per_zone                = 4
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 5
+    error_message = "A paused count while pause is off must not be modeled."
+  }
+
+  expect_failures = [check.worker_keda_paused_replica_count_requires_pause]
+}
+
+run "capacity_ignores_paused_count_without_module_keda" {
+  command = plan
+
+  variables {
+    n8n_worker_keda_enabled              = false
+    n8n_worker_fixed_replicas            = 2
+    n8n_worker_keda_pause                = true
+    n8n_worker_keda_paused_replica_count = 50
+    gke_node_max_per_zone                = 4
+  }
+
+  assert {
+    condition     = local.capacity_worker_modeled_max_replicas == 2
+    error_message = "Without module-managed KEDA the worker term must be n8n_worker_fixed_replicas."
   }
 }
