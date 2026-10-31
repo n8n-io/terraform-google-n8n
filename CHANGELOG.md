@@ -7,6 +7,8 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
 ### Added
 
 - `n8n_webhook_pdb_enabled` and `n8n_worker_pdb_enabled` (both default
@@ -814,5 +816,6 @@ made on `main`, is preserved in the
   Several were run live against disposable `examples/small` deployments
   (recorded in that document); the rest are tracked there as not yet run.
 
-[Unreleased]: https://github.com/n8n-io/terraform-google-n8n/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/n8n-io/terraform-google-n8n/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/n8n-io/terraform-google-n8n/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/n8n-io/terraform-google-n8n/releases/tag/0.1.0
