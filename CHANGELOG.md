@@ -7,6 +7,13 @@ this project adheres to the stability contract in
 
 ## [Unreleased]
 
+### Changed
+
+- `SUPPORT.md` now opens with the same support statement as the
+  terraform-aws-n8n and terraform-azurerm-n8n READMEs: the module is open
+  source, maintained by the n8n Solutions team, and not covered by n8n's
+  enterprise support. Bug triage stays best-effort with no SLA.
+
 ## [0.2.0] - 2026-10-31
 
 ### Added

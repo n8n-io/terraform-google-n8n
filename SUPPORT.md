@@ -1,9 +1,6 @@
 # Support
 
-This module is maintained by the n8n Solutions team on a best-effort basis.
-There is no contractual SLA; see
-[SECURITY.md, Response expectations](./SECURITY.md#response-expectations)
-for the equivalent commitment on security reports.
+This module is open source software, maintained by the n8n Solutions team independently of n8n's enterprise products. While the n8n Support team provides dedicated support for the enterprise offerings, this module isn't included.
 
 ## Where to get help
 
@@ -11,11 +8,14 @@ for the equivalent commitment on security reports.
   [GitHub issue](https://github.com/n8n-io/terraform-google-n8n/issues/new/choose).
   Use the bug report template for something that doesn't work as expected,
   and the feature request template for a new input, output, or behavior.
+  We triage on a best-effort basis; there is no SLA.
 - **Usage questions, "how do I", and general discussion:** the
   [n8n community forum](https://community.n8n.io/) is the best place to ask.
   Search first; someone may have already run into the same issue.
 - **Security vulnerabilities:** do not open a public issue. Follow
-  [SECURITY.md](./SECURITY.md) instead.
+  [SECURITY.md](./SECURITY.md) instead. Its
+  [Response expectations](./SECURITY.md#response-expectations) section
+  says how quickly security reports get a response.
 
 ## Before you ask
 
